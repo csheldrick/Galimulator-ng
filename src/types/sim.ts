@@ -63,11 +63,14 @@ export type PlanetTag =
   | "frozen"
   | "ancient";
 
-/** Specific historical events that permanently or semi-permanently modify a diplomatic relationship. */
+/** Specific historical events that permanently or semi-permanently modify a diplomatic relationship.
+ *  Deltas are absolute points applied on top of the stored base opinion/tension to produce
+ *  the *effective* values that war/peace/alliance logic reads. */
 export interface RelationModifier {
   label: string;
   opinionDelta: number;
   tensionDelta: number;
+  /** Tick this modifier lapses. Undefined = structural/standing (refreshed each pass). */
   expiresAtTick?: number;
 }
 
@@ -284,6 +287,8 @@ export interface Empire {
   governmentType?: GovernmentType;
 }
 
+export type AlliancePurpose = "defensive" | "anti-hegemon" | "trade" | "religious" | "survival";
+
 /** A formal alliance between two or more empires. */
 export interface Alliance {
   id: Id;
@@ -292,6 +297,13 @@ export interface Alliance {
   formedTick: number;
   /** Dominant member (initiator). */
   leaderId: Id;
+  /** Why the bloc came together. Shapes diplomacy flavor and the alliance map mode. */
+  purpose?: AlliancePurpose;
+  /** Bloc color, used by the alliance map mode and inspector. */
+  color?: string;
+  /** Single-glyph emblem for labels. */
+  emblem?: string;
+  historicalEventIds?: Id[];
 }
 
 export type EmpirePriority =

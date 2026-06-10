@@ -3,6 +3,11 @@ import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayNam
 import { ROLE_LABEL } from "../sim/Characters";
 import { GOVERNMENT_LABEL } from "../sim/Galaxy";
 import { eventColor } from "../render/colors";
+import { effectiveOpinion, effectiveTension, activeModifiers } from "../sim/Relations";
+
+const ALLIANCE_PURPOSE_LABEL: Record<string, string> = {
+  "defensive": "Defensive", "anti-hegemon": "Anti-hegemon", "trade": "Trade", "religious": "Religious", "survival": "Survival",
+};
 
 interface Props {
   snapshot: Readonly<GalaxyState>;
@@ -146,6 +151,9 @@ export function InspectorPanel({
           <div className="info-row"><span>Ideology</span><span style={{ color: IDEOLOGY_COLOR[emp.ideology] }}>{IDEOLOGY_LABEL[emp.ideology]}</span></div>
           {emp.governmentType && <div className="info-row"><span>Government</span><span>{GOVERNMENT_LABEL[emp.governmentType]}</span></div>}
           <div className="info-row"><span>Faith</span><span>{emp.stateReligionId ? (snapshot.religions[emp.stateReligionId]?.name ?? "?") : "Secular"}</span></div>
+          {(emp.allianceIds ?? []).map(aid => snapshot.alliances?.[aid]).filter(Boolean).map(al => al && (
+            <div key={al.id} className="info-row"><span>Alliance</span><span style={{ color: al.color ?? "inherit" }}>{al.emblem ?? "◇"} {al.name} <small style={{ opacity: 0.6 }}>· {ALLIANCE_PURPOSE_LABEL[al.purpose ?? "defensive"]} · {al.memberEmpireIds.length} · {snapshot.tick - al.formedTick}t</small></span></div>
+          ))}
           <div className="info-row"><span>Trade</span><span>{Object.values(snapshot.tradeRoutes).filter(r => r.empireAId === emp.id || r.empireBId === emp.id).length} routes</span></div>
           <div className="info-row"><span>Ruler</span><span>{rulerDisplayName(emp)}</span></div>
           <div className="info-row"><span>Dynasty</span><span>{emp.ruler.dynasty} (since {emp.ruler.accessionTick})</span></div>
@@ -197,15 +205,16 @@ export function InspectorPanel({
           })()}
           <h4>Relations</h4>
           <div className="relations-list">
-            {Object.values(snapshot.empires).filter(other => other.id !== emp.id).map(other => ({ other, rel: emp.relationshipByEmpireId[other.id] })).sort((a, b) => Number(b.rel?.atWar ?? false) - Number(a.rel?.atWar ?? false) || (b.rel?.tension ?? 0) - (a.rel?.tension ?? 0)).slice(0, 10).map(({ other, rel }) => {
-              const atWar = rel?.atWar ?? emp.activeWarEmpireIds.includes(other.id); const tension = rel?.tension ?? 0; const opinion = rel?.opinion ?? 50;
-              const mods = rel?.modifiers?.filter(m => !m.expiresAtTick || m.expiresAtTick > snapshot.tick) ?? [];
+            {Object.values(snapshot.empires).filter(other => other.id !== emp.id).map(other => ({ other, rel: emp.relationshipByEmpireId[other.id] })).sort((a, b) => Number(b.rel?.atWar ?? false) - Number(a.rel?.atWar ?? false) || effectiveTension(b.rel, snapshot.tick) - effectiveTension(a.rel, snapshot.tick)).slice(0, 10).map(({ other, rel }) => {
+              const atWar = rel?.atWar ?? emp.activeWarEmpireIds.includes(other.id);
+              const tension = effectiveTension(rel, snapshot.tick); const opinion = effectiveOpinion(rel, snapshot.tick);
+              const mods = activeModifiers(rel, snapshot.tick);
               return (
                 <div key={other.id} className={atWar ? "relation-row at-war" : "relation-row"}>
                   <div className="relation-head" onClick={() => onSelectEmpire(other.id)}><span className="emp-dot" style={{ background: other.color }} /><span>{other.name}</span></div>
                   <div className="relation-stats"><span>T {fmt(tension, 0)}</span><span>O {fmt(opinion, 0)}</span><span>{atWar ? "WAR" : "peace"}</span></div>
                   <div className="relation-actions"><button onClick={() => onForceWar(emp.id, other.id)} disabled={atWar}>War</button><button onClick={() => onForcePeace(emp.id, other.id)} disabled={!atWar}>Peace</button></div>
-                  {mods.length > 0 && <div style={{ fontSize: 9, color: "rgba(180,200,240,0.55)", gridColumn: "1/-1", paddingLeft: 4, paddingBottom: 2 }}>{mods.map(m => m.label).join(" · ")}</div>}
+                  {mods.length > 0 && <div style={{ fontSize: 9, color: "rgba(180,200,240,0.6)", gridColumn: "1/-1", paddingLeft: 4, paddingBottom: 2 }}>{mods.map(m => `${m.opinionDelta >= 0 ? "+" : ""}${m.opinionDelta} ${m.label}`).join(" · ")}</div>}
                 </div>
               );
             })}

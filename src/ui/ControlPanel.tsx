@@ -143,6 +143,7 @@ export function ControlPanel({
           <option value="empire">Empires</option>
           <option value="religion">Religions</option>
           <option value="wealth">Wealth</option>
+          <option value="alliance">Alliances</option>
         </select>
       </div>
       <div className="toggle-grid">
