@@ -190,6 +190,7 @@ export default function App() {
     <div className="app-layout">
       <ControlPanel
         snapshot={snapshot}
+        selectedEmpireId={selectedEmpireId}
         running={running}
         onStart={handleStart}
         onPause={handlePause}
@@ -200,6 +201,7 @@ export default function App() {
         onResetCamera={() => setResetCameraToken(t => t + 1)}
         onExportJson={handleExportJson}
         onExportReport={handleExportReport}
+        onSelectEmpire={handleSelectEmpire}
         settings={settings}
         onSettingsChange={handleSettingsChange}
         viewOptions={viewOptions}
