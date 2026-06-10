@@ -61,16 +61,7 @@ export function InspectorPanel({
           <span>Population</span>
           <span>{fmt(empList.reduce((s, e) => s + e.population, 0) / 1000, 0)}K</span>
         </div>
-        <h4>Empires</h4>
-        <div className="empire-list">
-          {[...empList].sort((a, b) => b.ownedSystemIds.length - a.ownedSystemIds.length).map(e => (
-            <div key={e.id} className="empire-item" onClick={() => onSelectEmpire(e.id)}>
-              <span className="emp-dot" style={{ background: e.color }} />
-              <span className="emp-name">{e.name}</span>
-              <span className="emp-size">{e.ownedSystemIds.length}</span>
-            </div>
-          ))}
-        </div>
+        <div className="empty-hint">Select a system on the map, an empire from the left sidebar, or an event from the log.</div>
       </div>
     );
   }
