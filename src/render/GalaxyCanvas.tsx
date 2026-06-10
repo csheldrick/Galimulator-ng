@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import type { GalaxyState, Id } from "../types/sim";
+import type { Id } from "../types/sim";
 import type { Camera } from "./camera";
 import { worldToScreen, screenToWorld, clampZoom } from "./camera";
 import { colorWithAlpha, UNOWNED_COLOR, SELECTION_COLOR, BACKGROUND_COLOR } from "./colors";
@@ -22,20 +22,12 @@ export function GalaxyCanvas({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const camRef = useRef<Camera>({ x: 600, y: 450, zoom: 0.8 });
-  const snapshotRef = useRef<Readonly<GalaxyState>>(simulation.getSnapshot());
   const rafRef = useRef<number>(0);
-  const dragRef = useRef<{ dragging: boolean; lastX: number; lastY: number }>({
-    dragging: false, lastX: 0, lastY: 0,
+  const dragRef = useRef<{ dragging: boolean; moved: boolean; lastX: number; lastY: number }>({
+    dragging: false, moved: false, lastX: 0, lastY: 0,
   });
   const hoverRef = useRef<Id | null>(null);
 
-  // Keep snapshot up to date via subscription
-  useEffect(() => {
-    const unsub = simulation.subscribe((snap) => { snapshotRef.current = snap; });
-    return unsub;
-  }, [simulation]);
-
-  // Render loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -47,12 +39,11 @@ export function GalaxyCanvas({
       const w = canvas!.width;
       const h = canvas!.height;
       const cam = camRef.current;
-      const snap = snapshotRef.current;
+      const snap = simulation.getSnapshot();
 
       ctx.fillStyle = BACKGROUND_COLOR;
       ctx.fillRect(0, 0, w, h);
 
-      // Draw territory halos
       for (const sys of Object.values(snap.systems)) {
         if (!sys.ownerEmpireId) continue;
         const emp = snap.empires[sys.ownerEmpireId];
@@ -68,10 +59,9 @@ export function GalaxyCanvas({
         ctx.fill();
       }
 
-      // Draw connections between war combatants
       for (const emp of Object.values(snap.empires)) {
         for (const warId of emp.activeWarEmpireIds) {
-          if (warId < emp.id) continue; // draw once per pair
+          if (warId < emp.id) continue;
           const enemy = snap.empires[warId];
           if (!enemy) continue;
           const capA = snap.systems[emp.capitalSystemId];
@@ -90,7 +80,6 @@ export function GalaxyCanvas({
         }
       }
 
-      // Draw stars
       for (const sys of Object.values(snap.systems)) {
         const [sx, sy] = worldToScreen(sys.x, sys.y, cam, w, h);
         if (sx < -10 || sx > w + 10 || sy < -10 || sy > h + 10) continue;
@@ -116,7 +105,6 @@ export function GalaxyCanvas({
         ctx.fillStyle = color;
         ctx.fill();
 
-        // Capital marker
         if (emp && emp.capitalSystemId === sys.id) {
           ctx.beginPath();
           ctx.arc(sx, sy, r + 3, 0, Math.PI * 2);
@@ -126,7 +114,6 @@ export function GalaxyCanvas({
         }
       }
 
-      // Hover tooltip
       if (hoverRef.current) {
         const sys = snap.systems[hoverRef.current];
         if (sys) {
@@ -145,9 +132,8 @@ export function GalaxyCanvas({
 
     rafRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [selectedSystemId, selectedEmpireId]);
+  }, [simulation, selectedSystemId, selectedEmpireId]);
 
-  // Resize observer
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -164,7 +150,7 @@ export function GalaxyCanvas({
   const findSystemAt = useCallback((cx: number, cy: number): Id | null => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
-    const snap = snapshotRef.current;
+    const snap = simulation.getSnapshot();
     const cam = camRef.current;
     const w = canvas.width, h = canvas.height;
     let best: Id | null = null;
@@ -175,10 +161,10 @@ export function GalaxyCanvas({
       if (d < bestD) { bestD = d; best = sys.id; }
     }
     return best;
-  }, []);
+  }, [simulation]);
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
-    dragRef.current = { dragging: true, lastX: e.clientX, lastY: e.clientY };
+    dragRef.current = { dragging: true, moved: false, lastX: e.clientX, lastY: e.clientY };
   }, []);
 
   const onMouseMove = useCallback((e: React.MouseEvent) => {
@@ -191,6 +177,7 @@ export function GalaxyCanvas({
     if (dragRef.current.dragging) {
       const dx = e.clientX - dragRef.current.lastX;
       const dy = e.clientY - dragRef.current.lastY;
+      if (Math.abs(dx) + Math.abs(dy) > 1) dragRef.current.moved = true;
       camRef.current.x -= dx / camRef.current.zoom;
       camRef.current.y -= dy / camRef.current.zoom;
       dragRef.current.lastX = e.clientX;
@@ -201,13 +188,11 @@ export function GalaxyCanvas({
   }, [findSystemAt]);
 
   const onMouseUp = useCallback((e: React.MouseEvent) => {
-    const wasDragging = dragRef.current.dragging;
+    const moved = dragRef.current.moved;
     dragRef.current.dragging = false;
-    if (wasDragging) {
-      const dx = e.clientX - dragRef.current.lastX;
-      const dy = e.clientY - dragRef.current.lastY;
-      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) return;
-    }
+    dragRef.current.moved = false;
+    if (moved) return;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -216,7 +201,7 @@ export function GalaxyCanvas({
     const sysId = findSystemAt(cx, cy);
     if (sysId) {
       onSelectSystem(sysId);
-      const snap = snapshotRef.current;
+      const snap = simulation.getSnapshot();
       const sys = snap.systems[sysId];
       if (sys?.ownerEmpireId) onSelectEmpire(sys.ownerEmpireId);
       else onSelectEmpire(null);
@@ -224,9 +209,10 @@ export function GalaxyCanvas({
       onSelectSystem(null);
       onSelectEmpire(null);
     }
-  }, [findSystemAt, onSelectSystem, onSelectEmpire]);
+  }, [simulation, findSystemAt, onSelectSystem, onSelectEmpire]);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -236,7 +222,6 @@ export function GalaxyCanvas({
     const [wx, wy] = screenToWorld(cx, cy, cam, canvas.width, canvas.height);
     const factor = e.deltaY > 0 ? 0.85 : 1.18;
     cam.zoom = clampZoom(cam.zoom * factor);
-    // keep cursor point stable
     const [nx, ny] = worldToScreen(wx, wy, cam, canvas.width, canvas.height);
     cam.x += (nx - cx) / cam.zoom;
     cam.y += (ny - cy) / cam.zoom;
@@ -249,7 +234,7 @@ export function GalaxyCanvas({
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
-      onMouseLeave={() => { dragRef.current.dragging = false; hoverRef.current = null; }}
+      onMouseLeave={() => { dragRef.current.dragging = false; dragRef.current.moved = false; hoverRef.current = null; }}
       onWheel={onWheel}
     />
   );
