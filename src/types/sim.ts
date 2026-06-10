@@ -50,6 +50,7 @@ export type FleetKind = "colonizer" | "war" | "patrol";
 
 export interface Fleet {
   id: Id;
+  name: string;
   kind: FleetKind;
   ownerEmpireId: Id;
   originSystemId: Id;
