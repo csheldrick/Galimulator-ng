@@ -7,6 +7,7 @@ import { createEvent } from "./Events";
 export type SimListener = (snapshot: Readonly<GalaxyState>) => void;
 
 const FIXED_TICK_MS = 50;
+const BASE_TICKS_PER_SECOND = 20;
 
 export class Simulation {
   private state: GalaxyState;
@@ -54,11 +55,12 @@ export class Simulation {
   subscribe(fn: SimListener): () => void {
     this.listeners.add(fn);
     fn(this.getSnapshot());
-    return () => this.listeners.delete(fn);
+    return () => { this.listeners.delete(fn); };
   }
 
   private _notify(): void {
     this._snapshotDirty = true;
+    if (this.listeners.size === 0) return;
     const snap = this.getSnapshot();
     for (const fn of this.listeners) fn(snap);
   }
@@ -68,31 +70,40 @@ export class Simulation {
     this.running = true;
     this.lastTime = performance.now();
     this.accumulator = 0;
+
     const loop = (now: number) => {
       if (!this.running) return;
+
       const elapsed = now - this.lastTime;
       this.lastTime = now;
-      const msPerTick = FIXED_TICK_MS / Math.max(0.1, this.settings.ticksPerSecond / 20);
+      const ticksPerSecond = Math.max(1, this.settings.ticksPerSecond);
+      const msPerTick = FIXED_TICK_MS / (ticksPerSecond / BASE_TICKS_PER_SECOND);
+
       this.accumulator += elapsed;
       let ticked = false;
       let safeGuard = 0;
+
       while (this.accumulator >= msPerTick && safeGuard < 20) {
         executeTick(this.state, this.rng);
         this.accumulator -= msPerTick;
         ticked = true;
         safeGuard++;
       }
-      // drop backlog (e.g. after a background tab) instead of fast-forwarding forever
+
       if (this.accumulator >= msPerTick) this.accumulator = 0;
       if (ticked) this._notify();
       this.rafId = requestAnimationFrame(loop);
     };
+
     this.rafId = requestAnimationFrame(loop);
   }
 
   pause(): void {
     this.running = false;
-    if (this.rafId !== null) { cancelAnimationFrame(this.rafId); this.rafId = null; }
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
   }
 
   step(): void {
