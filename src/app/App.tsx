@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import type { GalaxyState, Id, SimSettings } from "../types/sim";
+import type { GalaxyState, Id, SimSettings, SimEvent } from "../types/sim";
 import { Simulation } from "../sim/Simulation";
 import { GalaxyCanvas } from "../render/GalaxyCanvas";
 import type { ViewOptions } from "../render/GalaxyCanvas";
@@ -33,6 +33,7 @@ export default function App() {
   const [resetCameraToken, setResetCameraToken] = useState(0);
   const [selectedSystemId, setSelectedSystemId] = useState<Id | null>(null);
   const [selectedEmpireId, setSelectedEmpireId] = useState<Id | null>(null);
+  const [selectedEventId, setSelectedEventId] = useState<Id | null>(null);
   const [minImportance, setMinImportance] = useState(1);
 
   const refreshSnapshot = useCallback(() => {
@@ -70,6 +71,7 @@ export default function App() {
     setRunning(false);
     setSelectedSystemId(null);
     setSelectedEmpireId(null);
+    setSelectedEventId(null);
     setResetCameraToken(t => t + 1);
     refreshSnapshot();
   }, [sim, settings, refreshSnapshot]);
@@ -82,6 +84,7 @@ export default function App() {
     setRunning(false);
     setSelectedSystemId(null);
     setSelectedEmpireId(null);
+    setSelectedEventId(null);
     setResetCameraToken(t => t + 1);
     refreshSnapshot();
   }, [sim, settings, refreshSnapshot]);
@@ -99,6 +102,7 @@ export default function App() {
   const handleClearSelection = useCallback(() => {
     setSelectedSystemId(null);
     setSelectedEmpireId(null);
+    setSelectedEventId(null);
   }, []);
 
   const withRefresh = useCallback((fn: () => void) => {
@@ -109,6 +113,12 @@ export default function App() {
   const handleSelectEmpire = useCallback((id: Id | null) => {
     setSelectedSystemId(null);
     setSelectedEmpireId(id);
+    setSelectedEventId(null);
+  }, []);
+
+  const handleSelectSystem = useCallback((id: Id | null) => {
+    setSelectedSystemId(id);
+    setSelectedEventId(null);
   }, []);
 
   const handleFoundEmpire = useCallback((systemId: Id) => {
@@ -119,6 +129,14 @@ export default function App() {
     }
     refreshSnapshot();
   }, [sim, refreshSnapshot]);
+
+  const handleSelectEvent = useCallback((event: SimEvent) => {
+    setSelectedEventId(event.id);
+    const systemId = event.relatedSystemIds.find(id => snapshot.systems[id]);
+    const empireId = event.relatedEmpireIds.find(id => snapshot.empires[id]);
+    setSelectedSystemId(systemId ?? null);
+    setSelectedEmpireId(systemId ? (snapshot.systems[systemId]?.ownerEmpireId ?? empireId ?? null) : (empireId ?? null));
+  }, [snapshot]);
 
   return (
     <div className="app-layout">
@@ -144,7 +162,7 @@ export default function App() {
           selectedEmpireId={selectedEmpireId}
           viewOptions={viewOptions}
           resetCameraToken={resetCameraToken}
-          onSelectSystem={setSelectedSystemId}
+          onSelectSystem={handleSelectSystem}
           onSelectEmpire={setSelectedEmpireId}
         />
       </div>
@@ -170,6 +188,8 @@ export default function App() {
           snapshot={snapshot}
           minImportance={minImportance}
           onMinImportanceChange={setMinImportance}
+          selectedEventId={selectedEventId}
+          onSelectEvent={handleSelectEvent}
         />
       </div>
     </div>
