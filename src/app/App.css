@@ -26,7 +26,7 @@ html, body, #root {
 .app-layout { display: flex; height: 100%; overflow: hidden; }
 
 .control-panel {
-  width: 250px; min-width: 230px; background: var(--panel-bg); border-right: 1px solid var(--panel-border);
+  width: 270px; min-width: 245px; background: var(--panel-bg); border-right: 1px solid var(--panel-border);
   padding: 12px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto;
 }
 .control-panel h2 { font-size: 14px; color: var(--accent); letter-spacing: 1px; text-transform: uppercase; }
@@ -52,10 +52,10 @@ button:disabled { opacity: 0.4; cursor: default; }
 .control-row input[type="range"] { flex: 1; accent-color: var(--accent); }
 .seed-row input[type="number"] { flex: 1; background: var(--input-bg); border: 1px solid var(--panel-border); color: var(--text); padding: 3px 6px; border-radius: 3px; font-size: 11px; width: 100%; }
 
-.mini-ranking { display: flex; flex-direction: column; gap: 2px; }
-.rank-row { display: grid; grid-template-columns: 10px 1fr 24px; align-items: center; gap: 5px; font-size: 11px; color: var(--text); }
-.rank-row span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rank-row b { color: var(--text-muted); text-align: right; font-size: 10px; }
+.sidebar-empire-list { display: flex; flex-direction: column; gap: 3px; padding-bottom: 8px; }
+.sidebar-empire { width: 100%; display: grid; grid-template-columns: 10px 1fr 28px; align-items: center; gap: 6px; padding: 4px 5px; text-align: left; border: 1px solid transparent; background: transparent; }
+.sidebar-empire:hover { background: rgba(255,255,255,0.04); }
+.sidebar-empire.selected { border-color: rgba(76,201,240,0.38); background: rgba(76,201,240,0.08); }
 
 .canvas-area { flex: 1; overflow: hidden; position: relative; }
 .right-panel { width: 320px; min-width: 290px; display: flex; flex-direction: column; border-left: 1px solid var(--panel-border); background: var(--panel-bg); overflow: hidden; }
@@ -66,6 +66,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .inspector-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .inspector-header h3 { margin-bottom: 0; }
 .close-btn { background: transparent; border: none; color: var(--text-muted); padding: 2px 5px; font-size: 12px; }
+.empty-hint { color: var(--text-muted); font-size: 11px; line-height: 1.4; margin-top: 10px; }
 
 .info-row { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; border-bottom: 1px solid rgba(30,42,58,0.5); }
 .info-row span:first-child { color: var(--text-muted); }
