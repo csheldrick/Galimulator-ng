@@ -46,6 +46,12 @@ export function advanceAlongPath(
   state: GalaxyState,
   t: { path: Id[]; legIndex: number; legProgress: number; x: number; y: number; speed: number }
 ): boolean {
+  // A one-node path represents a persistent stationary actor, such as the ruler flagship at capital.
+  if (t.path.length <= 1) {
+    const here = state.systems[t.path[0]];
+    if (here) { t.x = here.x; t.y = here.y; }
+    return false;
+  }
   let remaining = t.speed;
   while (remaining > 0 && t.legIndex < t.path.length - 1) {
     const a = state.systems[t.path[t.legIndex]];
