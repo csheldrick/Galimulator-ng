@@ -1,4 +1,5 @@
 import type { GalaxyState, SimSettings } from "../types/sim";
+import type { ViewOptions } from "../render/GalaxyCanvas";
 
 interface Props {
   snapshot: Readonly<GalaxyState>;
@@ -9,8 +10,11 @@ interface Props {
   onRunTicks: (count: number) => void;
   onReset: () => void;
   onNewSeed: () => void;
+  onResetCamera: () => void;
   settings: SimSettings;
   onSettingsChange: (s: Partial<SimSettings>) => void;
+  viewOptions: ViewOptions;
+  onViewOptionsChange: (next: ViewOptions) => void;
 }
 
 function fmt(n: number, dec = 0) { return n.toFixed(dec); }
@@ -24,8 +28,11 @@ export function ControlPanel({
   onRunTicks,
   onReset,
   onNewSeed,
+  onResetCamera,
   settings,
   onSettingsChange,
+  viewOptions,
+  onViewOptionsChange,
 }: Props) {
   const empires = Object.values(snapshot.empires);
   const systems = Object.values(snapshot.systems);
@@ -33,6 +40,10 @@ export function ControlPanel({
   const totalPop = empires.reduce((sum, e) => sum + e.population, 0);
   const activeWars = new Set<string>();
   for (const e of empires) for (const w of e.activeWarEmpireIds) activeWars.add([e.id, w].sort().join("~"));
+
+  const setView = (key: keyof ViewOptions, value: boolean) => {
+    onViewOptionsChange({ ...viewOptions, [key]: value });
+  };
 
   return (
     <div className="control-panel">
@@ -60,6 +71,15 @@ export function ControlPanel({
       <div className="btn-row">
         <button onClick={onReset}>Reset</button>
         <button onClick={onNewSeed}>New Seed</button>
+        <button onClick={onResetCamera}>Camera</button>
+      </div>
+
+      <div className="section-title">View</div>
+      <div className="toggle-grid">
+        <label><input type="checkbox" checked={viewOptions.territory} onChange={e => setView("territory", e.target.checked)} /> Territory</label>
+        <label><input type="checkbox" checked={viewOptions.labels} onChange={e => setView("labels", e.target.checked)} /> Labels</label>
+        <label><input type="checkbox" checked={viewOptions.wars} onChange={e => setView("wars", e.target.checked)} /> Wars</label>
+        <label><input type="checkbox" checked={viewOptions.events} onChange={e => setView("events", e.target.checked)} /> Events</label>
       </div>
 
       <div className="section-title">Settings</div>
