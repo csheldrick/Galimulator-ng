@@ -61,6 +61,15 @@ Implemented:
 - Golden ages
 - Technology breakthroughs
 - Global, empire, and system event history
+- Religions: procedurally named faiths seeded on holy worlds that spread along starlanes, become state religions, soothe co-religionists, and inflame crusaders; reform faiths arise in unrest
+- Ideologies: militarist, pacifist, spiritualist, materialist, expansionist, and isolationist creeds that bend aggression, expansion, research, trade, and faith
+- Internal politics: coups topple rulers, flip ideologies, and shake capitals; war-weary pacifist courts invite the generals in
+- Culture drift: conquered worlds keep their culture, chafe under foreign rule, slowly assimilate, and defect first in rebellions
+- Trade routes: friendly lane-neighbors open capital-to-capital trade that pays both partners and cools tensions; war severs it
+- Ship classes: settlers, raiders, strike fleets, and slow heavy armadas with distinct speed/strength tradeoffs
+- Space monsters: void leviathans, star wraiths, and devourer swarms that hunt rich worlds along the lanes until local fleets bring them down
+- Precursor artifacts: buried relics that reward whoever colonizes or conquers their worlds
+- Galactic crises: plagues, hyperlane storms, ancient awakenings, and tech cascades
 
 ## UI
 
@@ -76,20 +85,24 @@ Implemented:
 - Empire search and sort modes
 - Selected empire summary card
 - Galaxy Pulse activity panel
+- Stardate display on the map
+- Map modes: empires, religions, wealth
 - View toggles:
-  - territory (solid Voronoi-style region fill with crisp borders)
+  - territory (solid Voronoi-style region fill with crisp borders; neutral space reads as dim slate)
   - starlanes
-  - labels (empire names drawn across territory, scaled by empire size)
+  - labels (empire names drawn across territory, scaled by empire size; religion names in religion view)
   - war lines
   - event flashes
   - fleets
+  - trade routes
+  - monsters
 - Clickable systems
 - Empire inspector
 - System inspector
 - Relationship inspector
 - Clickable event log
 - Event importance filtering
-- JSON state export
+- Save/load: full JSON saves including PRNG state, so loaded galaxies continue deterministically (legacy bare-state exports rehydrate too)
 - Markdown history report export
 
 ## God controls
@@ -112,9 +125,9 @@ Empire controls:
 
 ## Controls
 
-- Drag: pan
-- Mouse wheel: zoom
-- Click star: inspect system
+- Drag: pan (mouse or touch)
+- Mouse wheel or pinch: zoom
+- Click/tap star: inspect system
 - Click empire in left sidebar: inspect empire
 - Click event: jump to related system or empire
 
@@ -197,23 +210,26 @@ Substantially complete for Canvas 2D scope.
 - optional labels
 - hover tooltip
 
-## Next Galimulator-like depth targets
+## Galimulator-like depth targets
 
-Done so far: starlanes, lane-based contiguous expansion, multi-hop fleet routing, solid territory regions with empire names drawn across them, empire moods, rulers/dynasties/successions, transcendence, and empire emergence.
+All planned depth targets are implemented:
 
-Remaining areas that would push the feel further:
-
-- multiple fleet classes
-- religions
-- ideologies
-- internal politics
-- culture drift
-- trade routes
-- special galactic events
-- weird artifacts / monsters / crises
+- starlanes, lane-based contiguous expansion, multi-hop fleet routing
+- solid territory regions with empire names drawn across them
+- empire moods, rulers/dynasties/successions, transcendence, empire emergence
+- multiple fleet classes (settler, raider, strike, armada)
+- religions with holy worlds, lane spread, state faiths, and reformations
+- ideologies with behavioral modifiers
+- internal politics (coups, ideology flips)
+- culture drift, foreign-culture unrest, and culture-driven rebellions
+- trade routes with tension-cooling economics
+- special galactic events (plagues, hyperlane storms, awakenings, tech cascades)
+- artifacts, monsters, and crises
 - save-file rehydration with PRNG continuation
-- mobile/touch-optimized controls
-- actual Galimulator content/assets should not be copied
+- touch-optimized controls (pointer pan, pinch zoom)
+- map modes (empire / religion / wealth)
+
+No Galimulator content or assets are copied; everything is procedural and original.
 
 ## Design rule
 

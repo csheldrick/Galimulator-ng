@@ -1,8 +1,31 @@
-import type { GalaxyState, SimSettings, Id, Empire, EmpireRelationship } from "../types/sim";
+import type { GalaxyState, SimSettings, SaveFile, Id, Empire, EmpireRelationship } from "../types/sim";
 import { SeededRandom } from "./Random";
 import { generateGalaxy, makeRuler } from "./Galaxy";
 import { executeTick } from "./Tick";
-import { createEvent } from "./Events";
+import { createEvent, getEventCounter, setEventCounter } from "./Events";
+import { IDEOLOGIES } from "./Moods";
+
+const SAVE_VERSION = 2;
+
+// Older saves and hand-edited files may lack newer fields; patch them in so
+// rehydrated galaxies keep ticking.
+function upgradeState(state: GalaxyState): GalaxyState {
+  state.religions ??= {};
+  state.tradeRoutes ??= {};
+  state.monsters ??= {};
+  for (const sys of Object.values(state.systems)) {
+    sys.religionId ??= null;
+    sys.artifactName ??= null;
+  }
+  for (const emp of Object.values(state.empires)) {
+    emp.ideology ??= IDEOLOGIES[0];
+    emp.stateReligionId ??= null;
+  }
+  for (const fleet of Object.values(state.fleets)) {
+    fleet.shipClass ??= fleet.kind === "war" ? "strike" : "settler";
+  }
+  return state;
+}
 
 export type SimListener = (snapshot: Readonly<GalaxyState>) => void;
 
@@ -93,6 +116,38 @@ export class Simulation {
   }
   runTicks(count: number): void { const n = Math.max(1, Math.min(500, Math.floor(count))); for (let i = 0; i < n; i++) executeTick(this.state, this.rng); this._notify(); }
 
+  /** Full save including PRNG state so a loaded galaxy continues deterministically. */
+  exportSave(): string {
+    const save: SaveFile = {
+      version: SAVE_VERSION,
+      settings: { ...this.settings },
+      rngState: this.rng.getState(),
+      eventCounter: getEventCounter(),
+      state: this.state,
+    };
+    return JSON.stringify(save, null, 2);
+  }
+
+  /** Accepts a SaveFile or a bare GalaxyState export. Returns an error message or null on success. */
+  importSave(text: string): string | null {
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { return "File is not valid JSON."; }
+    if (!parsed || typeof parsed !== "object") return "File is not a galimulator-ng save.";
+    const obj = parsed as Partial<SaveFile> & Partial<GalaxyState>;
+    const isSave = typeof obj.version === "number" && obj.state && typeof obj.state === "object";
+    const state = isSave ? (obj.state as GalaxyState) : (obj as unknown as GalaxyState);
+    if (!state.systems || !state.empires || typeof state.tick !== "number") return "File is not a galimulator-ng save.";
+    this.pause();
+    this.state = upgradeState(structuredClone(state));
+    if (isSave && obj.settings) this.settings = { ...this.settings, ...obj.settings };
+    else this.settings = { ...this.settings, seed: state.seed };
+    this.rng = new SeededRandom(this.settings.seed);
+    if (isSave && typeof obj.rngState === "number") this.rng.setState(obj.rngState);
+    setEventCounter(isSave && typeof obj.eventCounter === "number" ? obj.eventCounter : state.eventLog.length + Object.keys(state.events).length);
+    this._notify();
+    return null;
+  }
+
   cancelFleet(fleetId: Id): void {
     const fleet = this.state.fleets[fleetId];
     if (!fleet) return;
@@ -149,11 +204,11 @@ export class Simulation {
     const cultureId = `culture-${id}`;
     const empire: Empire = {
       id, name: `${sys.name} Ascendancy`, color: `hsl(${this.rng.nextInt(0, 360)},75%,58%)`,
-      mood: "expanding", moodSince: this.state.tick, ruler: makeRuler(this.rng, this.state.tick),
+      mood: "expanding", moodSince: this.state.tick, ideology: this.rng.pick(IDEOLOGIES), ruler: makeRuler(this.rng, this.state.tick),
       capitalSystemId: sys.id,
       ownedSystemIds: [sys.id], population: Math.max(sys.population * 1000, 500), wealth: 300, militaryStrength: 120,
       cohesion: 0.8, aggression: this.rng.range(0.2, 0.8), expansionism: this.rng.range(0.4, 0.9), techLevel: Math.max(sys.techLevel, 0.5),
-      cultureId, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [],
+      cultureId, stateReligionId: sys.religionId, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [],
     };
     sys.ownerEmpireId = id;
     sys.cultureId = cultureId;

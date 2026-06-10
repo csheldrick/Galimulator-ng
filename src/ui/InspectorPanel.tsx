@@ -1,5 +1,5 @@
 import type { GalaxyState, Id } from "../types/sim";
-import { MOOD_LABEL, MOOD_COLOR, rulerDisplayName } from "../sim/Moods";
+import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 
 interface Props {
   snapshot: Readonly<GalaxyState>;
@@ -44,6 +44,7 @@ export function InspectorPanel({
           <button className="close-btn" onClick={onClearSelection}>✕</button>
         </div>
         <div className="info-row"><span>Mission</span><span>{fleet.kind}</span></div>
+        <div className="info-row"><span>Class</span><span>{fleet.shipClass}</span></div>
         {owner && <div className="info-row owner-row" onClick={() => onSelectEmpire(owner.id)}><span className="emp-dot" style={{ background: owner.color }} /><span>{owner.name}</span></div>}
         <div className="info-row"><span>Origin</span><span>{origin?.name ?? "?"}</span></div>
         <div className="info-row"><span>Target</span><span>{target?.name ?? "?"}</span></div>
@@ -78,6 +79,13 @@ export function InspectorPanel({
         <div className="info-row"><span>Owned</span><span>{Object.values(snapshot.systems).filter(s => s.ownerEmpireId).length}</span></div>
         <div className="info-row"><span>Wars</span><span>{activeWars.size}</span></div>
         <div className="info-row"><span>Population</span><span>{fmt(empList.reduce((s, e) => s + e.population, 0) / 1000, 0)}K</span></div>
+        <div className="info-row"><span>Trade routes</span><span>{Object.keys(snapshot.tradeRoutes).length}</span></div>
+        <div className="info-row"><span>Monsters</span><span>{Object.keys(snapshot.monsters).length}</span></div>
+        <h4>Faiths</h4>
+        {Object.values(snapshot.religions).map(r => {
+          const worlds = Object.values(snapshot.systems).filter(s => s.religionId === r.id).length;
+          return <div key={r.id} className="info-row"><span><span className="emp-dot" style={{ background: r.color, marginRight: 5 }} />{r.name}</span><span>{worlds} worlds</span></div>;
+        })}
         <div className="empty-hint">Select a system, fleet, empire, or event.</div>
       </div>
     );
@@ -95,6 +103,9 @@ export function InspectorPanel({
           <div className="info-row"><span>Habitability</span><span>{fmt(sys.habitability)}</span></div>
           <div className="info-row"><span>Stability</span><span>{fmt(sys.stability)}</span></div>
           <div className="info-row"><span>Tech</span><span>{fmt(sys.techLevel)}</span></div>
+          <div className="info-row"><span>Faith</span><span>{sys.religionId ? (snapshot.religions[sys.religionId]?.name ?? "?") : "None"}</span></div>
+          {emp && <div className="info-row"><span>Culture</span><span>{sys.cultureId === emp.cultureId ? "Assimilated" : "Foreign"}</span></div>}
+          {sys.artifactName && <div className="info-row"><span>Artifact</span><span>◆ {sys.artifactName}</span></div>}
           <h4>God Controls</h4>
           <div className="god-grid"><button onClick={() => onBoostSystem(sys.id)}>Boost world</button><button onClick={() => onDevastateSystem(sys.id)}>Devastate</button><button onClick={() => onNeutralizeSystem(sys.id)} disabled={!sys.ownerEmpireId}>Free system</button><button onClick={() => onFoundEmpire(sys.id)}>Found empire</button></div>
           {sys.recentEventIds.length > 0 && <><h4>Recent Events</h4>{[...sys.recentEventIds].reverse().slice(0, 5).map(eid => { const ev = snapshot.events[eid]; return ev ? <div key={eid} className="event-mini">{ev.title}</div> : null; })}</>}
@@ -105,6 +116,9 @@ export function InspectorPanel({
         <>
           <div className="inspector-header"><h3 style={{ color: emp.color }}>{emp.name}</h3><button className="close-btn" onClick={onClearSelection}>✕</button></div>
           <div className="info-row"><span>Mood</span><span className="mood-badge" style={{ color: MOOD_COLOR[emp.mood] }}>{MOOD_LABEL[emp.mood]} <small>since {emp.moodSince}</small></span></div>
+          <div className="info-row"><span>Ideology</span><span style={{ color: IDEOLOGY_COLOR[emp.ideology] }}>{IDEOLOGY_LABEL[emp.ideology]}</span></div>
+          <div className="info-row"><span>Faith</span><span>{emp.stateReligionId ? (snapshot.religions[emp.stateReligionId]?.name ?? "?") : "Secular"}</span></div>
+          <div className="info-row"><span>Trade</span><span>{Object.values(snapshot.tradeRoutes).filter(r => r.empireAId === emp.id || r.empireBId === emp.id).length} routes</span></div>
           <div className="info-row"><span>Ruler</span><span>{rulerDisplayName(emp)}</span></div>
           <div className="info-row"><span>Dynasty</span><span>{emp.ruler.dynasty} (since {emp.ruler.accessionTick})</span></div>
           <div className="info-row"><span>Capital</span><span>{snapshot.systems[emp.capitalSystemId]?.name ?? "?"}</span></div>

@@ -21,6 +21,16 @@ const TYPE_COLORS: Record<string, string> = {
   "succession": "#c8b6ff",
   "mood-shift": "#90e0ef",
   "transcended": "#f9f871",
+  "religion-founded": "#c77dff",
+  "religion-adopted": "#9b5de5",
+  "trade-established": "#ffd166",
+  "trade-severed": "#bc6c25",
+  "monster-spawned": "#d00000",
+  "monster-attack": "#ff4d6d",
+  "monster-slain": "#80ed99",
+  "artifact-discovered": "#ffe066",
+  "galactic-crisis": "#ff9f1c",
+  "coup": "#f15bb5",
 };
 
 export function EventLog({

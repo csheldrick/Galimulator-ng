@@ -1,5 +1,7 @@
-import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler } from "../types/sim";
+import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler, Religion } from "../types/sim";
 import { resetEventCounter } from "./Events";
+import { makeReligion } from "./Religion";
+import { IDEOLOGIES } from "./Moods";
 
 const SYLLABLES = [
   "al","ar","an","ax","az","bar","bel","cer","cor","den","dor","el","en",
@@ -20,6 +22,15 @@ const RULER_TITLES = [
   "Emperor","Empress","Overlord","High King","High Queen","Archon","Despot",
   "Autarch","Matriarch","Patriarch","Grand Vizier","Eternal Sage","Warlord","Oracle"
 ];
+
+const ARTIFACT_FORMS = [
+  "Orb of {n}", "{n} Relic", "Beacon of {n}", "The {n} Engine", "Shard of {n}",
+  "{n} Monolith", "Crown of {n}", "The {n} Codex",
+];
+
+export function makeArtifactName(rng: PRNG): string {
+  return rng.pick(ARTIFACT_FORMS).replace("{n}", makeName(rng));
+}
 
 export function makeRuler(rng: PRNG, accessionTick: number): Ruler {
   return {
@@ -150,6 +161,8 @@ export function generateGalaxy(
       stability: rng.range(0.5, 1.0),
       ownerEmpireId: null,
       cultureId: "none",
+      religionId: null,
+      artifactName: rng.next() < 0.04 ? makeArtifactName(rng) : null,
       techLevel: rng.range(0.1, 0.5),
       recentEventIds: [],
       connectedSystemIds: [],
@@ -159,6 +172,22 @@ export function generateGalaxy(
   }
 
   buildStarlanes(systemList);
+
+  // seed the great faiths on populous worlds; they spread along starlanes from there
+  const stateForReligions = { tick: 0, religions: {} as Record<Id, Religion> } as GalaxyState;
+  const byPop = [...systemList].sort((a, b) => b.population - a.population);
+  const numReligions = Math.min(rng.nextInt(4, 6), byPop.length);
+  for (let i = 0; i < numReligions; i++) {
+    const holy = byPop[i * 3 % byPop.length];
+    const religion = makeReligion(stateForReligions, holy, rng);
+    stateForReligions.religions[religion.id] = religion;
+    holy.religionId = religion.id;
+    for (const nid of holy.connectedSystemIds) {
+      const neighbor = systems[nid];
+      if (neighbor && !neighbor.religionId) neighbor.religionId = religion.id;
+    }
+  }
+  const religions = stateForReligions.religions;
 
   const sorted = [...systemList].sort((a, b) => b.habitability - a.habitability);
 
@@ -199,6 +228,7 @@ export function generateGalaxy(
       color: colors[colorIdx++ % colors.length],
       mood: "expanding",
       moodSince: 0,
+      ideology: rng.pick(IDEOLOGIES),
       ruler: makeRuler(rng, 0),
       capitalSystemId: capital.id,
       ownedSystemIds: [capital.id],
@@ -210,6 +240,7 @@ export function generateGalaxy(
       expansionism: rng.range(0.2, 1.0),
       techLevel: capital.techLevel,
       cultureId,
+      stateReligionId: capital.religionId,
       relationshipByEmpireId: {},
       activeWarEmpireIds: [],
       historicalEventIds: [],
@@ -217,5 +248,5 @@ export function generateGalaxy(
     empires[empId] = empire;
   }
 
-  return { tick: 0, seed, systems, empires, fleets: {}, events: {}, eventLog: [] };
+  return { tick: 0, seed, systems, empires, fleets: {}, religions, tradeRoutes: {}, monsters: {}, events: {}, eventLog: [] };
 }

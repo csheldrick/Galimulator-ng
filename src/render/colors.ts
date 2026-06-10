@@ -37,6 +37,7 @@ export function parseColorToRgb(color: string): [number, number, number] {
   return [136, 136, 136];
 }
 
-export const UNOWNED_COLOR = "#556677";
+export const UNOWNED_COLOR = "#7a8696";
 export const SELECTION_COLOR = "#ffffff";
-export const BACKGROUND_COLOR = "#080c14";
+export const BACKGROUND_COLOR = "#000004";
+export const STAR_COLOR = "#f2f6ff";
