@@ -108,7 +108,7 @@ function stepExpansion(state: GalaxyState, rng: PRNG): void {
 
 // 3. Conflict
 function stepConflict(state: GalaxyState, rng: PRNG): void {
-  updateRelationships(state, rng);
+  updateRelationships(state);
 
   for (const emp of Object.values(state.empires)) {
     const neighbors = getNeighboringEmpires(state, emp.id);
@@ -166,6 +166,10 @@ function resolveWarConflict(
     target.population = Math.max(0.05, target.population * 0.8);
     attacker.cohesion = Math.min(1, attacker.cohesion + 0.01);
     defender.cohesion = Math.max(0.1, defender.cohesion - 0.05);
+    // relocate capital if it was captured
+    if (defender.capitalSystemId === target.id && defender.ownedSystemIds.length > 0) {
+      defender.capitalSystemId = defender.ownedSystemIds[0];
+    }
 
     createEvent(state, state.tick, "border-conflict",
       `${attacker.name} took ${target.name}`,
@@ -180,7 +184,11 @@ function resolveWarConflict(
 // 4. Collapse
 function stepCollapse(state: GalaxyState, rng: PRNG): void {
   for (const emp of Object.values(state.empires)) {
-    if (emp.ownedSystemIds.length === 0) continue;
+    if (emp.ownedSystemIds.length === 0) {
+      // lost everything in war: the empire is gone
+      collapseEmpire(state, emp);
+      continue;
+    }
 
     const overextension = Math.max(0, emp.ownedSystemIds.length - 15) * 0.005;
     const warStrain = emp.activeWarEmpireIds.length * 0.02;
@@ -199,17 +207,18 @@ function stepCollapse(state: GalaxyState, rng: PRNG): void {
 
 function spawnRebellion(state: GalaxyState, empire: Empire, rng: PRNG): void {
   const numDefect = rng.nextInt(1, Math.max(1, Math.floor(empire.ownedSystemIds.length / 3)));
-  const defecting: Id[] = [];
+  const defectingSet = new Set<Id>();
 
   for (let i = 0; i < numDefect; i++) {
     const idx = rng.nextInt(0, empire.ownedSystemIds.length - 1);
     const sysId = empire.ownedSystemIds[idx];
-    if (sysId !== empire.capitalSystemId) defecting.push(sysId);
+    if (sysId !== empire.capitalSystemId) defectingSet.add(sysId);
   }
+  const defecting = [...defectingSet];
   if (defecting.length === 0) return;
 
-  const empireCount = Object.keys(state.empires).length;
-  const newId = `emp-${empireCount}-rebel`;
+  // unique per (parent, tick): an empire rebels at most once per tick
+  const newId = `${empire.id}-rebel-${state.tick}`;
   const REBEL_NAMES = [
     "Liberation Front","Free States","Rebel Council","Independence Movement",
     "Separatist League","Resistance","New Order","Sovereign Collective"
@@ -265,6 +274,11 @@ function collapseEmpire(state: GalaxyState, empire: Empire): void {
     5, [empire.id], empire.ownedSystemIds
   );
   delete state.empires[empire.id];
+  // remove dangling references from surviving empires
+  for (const other of Object.values(state.empires)) {
+    delete other.relationshipByEmpireId[empire.id];
+    other.activeWarEmpireIds = other.activeWarEmpireIds.filter(id => id !== empire.id);
+  }
 }
 
 export function executeTick(state: GalaxyState, rng: PRNG): void {

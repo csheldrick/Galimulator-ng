@@ -1,4 +1,5 @@
 import type { PRNG, StarSystem, Empire, GalaxyState, Id } from "../types/sim";
+import { resetEventCounter } from "./Events";
 
 const SYLLABLES = [
   "al","ar","an","ax","az","bar","bel","cer","cor","den","dor","el","en",
@@ -52,6 +53,7 @@ export function generateGalaxy(
   numEmpires: number,
   rng: PRNG
 ): GalaxyState {
+  resetEventCounter();
   const WIDTH = 1200;
   const HEIGHT = 900;
   const systems: Record<Id, StarSystem> = {};

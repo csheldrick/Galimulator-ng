@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import type { GalaxyState, Id, SimSettings } from "../types/sim";
 import { Simulation } from "../sim/Simulation";
 import { GalaxyCanvas } from "../render/GalaxyCanvas";
@@ -15,9 +15,9 @@ const DEFAULT_SETTINGS: SimSettings = {
 };
 
 export default function App() {
-  const simRef = useRef<Simulation>(new Simulation(DEFAULT_SETTINGS));
+  const [sim] = useState(() => new Simulation(DEFAULT_SETTINGS));
   const [snapshot, setSnapshot] = useState<Readonly<GalaxyState>>(
-    () => simRef.current.getSnapshot()
+    () => sim.getSnapshot()
   );
   const [running, setRunning] = useState(false);
   const [settings, setSettings] = useState<SimSettings>(DEFAULT_SETTINGS);
@@ -26,50 +26,50 @@ export default function App() {
   const [minImportance, setMinImportance] = useState(1);
 
   useEffect(() => {
-    const unsub = simRef.current.subscribe((snap) => setSnapshot(snap));
+    const unsub = sim.subscribe((snap) => setSnapshot(snap));
     return unsub;
-  }, []);
+  }, [sim]);
 
   const handleStart = useCallback(() => {
-    simRef.current.start();
+    sim.start();
     setRunning(true);
-  }, []);
+  }, [sim]);
 
   const handlePause = useCallback(() => {
-    simRef.current.pause();
+    sim.pause();
     setRunning(false);
-  }, []);
+  }, [sim]);
 
   const handleStep = useCallback(() => {
-    simRef.current.step();
-  }, []);
+    sim.step();
+  }, [sim]);
 
   const handleReset = useCallback(() => {
-    simRef.current.reset(settings);
+    sim.reset(settings);
     setRunning(false);
     setSelectedSystemId(null);
     setSelectedEmpireId(null);
-  }, [settings]);
+  }, [sim, settings]);
 
   const handleNewSeed = useCallback(() => {
     const newSeed = Math.floor(Math.random() * 0xffffff);
     const newSettings = { ...settings, seed: newSeed };
     setSettings(newSettings);
-    simRef.current.reset(newSettings);
+    sim.reset(newSettings);
     setRunning(false);
     setSelectedSystemId(null);
     setSelectedEmpireId(null);
-  }, [settings]);
+  }, [sim, settings]);
 
   const handleSettingsChange = useCallback((partial: Partial<SimSettings>) => {
     setSettings(prev => {
       const next = { ...prev, ...partial };
       if (partial.ticksPerSecond !== undefined) {
-        simRef.current.setSpeed(partial.ticksPerSecond);
+        sim.setSpeed(partial.ticksPerSecond);
       }
       return next;
     });
-  }, []);
+  }, [sim]);
 
   const handleClearSelection = useCallback(() => {
     setSelectedSystemId(null);
@@ -79,7 +79,7 @@ export default function App() {
   return (
     <div className="app-layout">
       <ControlPanel
-        simulation={simRef.current}
+        simulation={sim}
         running={running}
         onStart={handleStart}
         onPause={handlePause}
@@ -91,7 +91,7 @@ export default function App() {
       />
       <div className="canvas-area">
         <GalaxyCanvas
-          simulation={simRef.current}
+          simulation={sim}
           selectedSystemId={selectedSystemId}
           selectedEmpireId={selectedEmpireId}
           onSelectSystem={setSelectedSystemId}
