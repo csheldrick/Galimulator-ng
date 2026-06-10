@@ -25,10 +25,14 @@ export default function App() {
   const [selectedEmpireId, setSelectedEmpireId] = useState<Id | null>(null);
   const [minImportance, setMinImportance] = useState(1);
 
-  useEffect(() => {
-    const unsub = sim.subscribe((snap) => setSnapshot(snap));
-    return unsub;
+  const refreshSnapshot = useCallback(() => {
+    setSnapshot(sim.getSnapshot());
   }, [sim]);
+
+  useEffect(() => {
+    const id = window.setInterval(refreshSnapshot, 250);
+    return () => window.clearInterval(id);
+  }, [refreshSnapshot]);
 
   const handleStart = useCallback(() => {
     sim.start();
@@ -38,18 +42,21 @@ export default function App() {
   const handlePause = useCallback(() => {
     sim.pause();
     setRunning(false);
-  }, [sim]);
+    refreshSnapshot();
+  }, [sim, refreshSnapshot]);
 
   const handleStep = useCallback(() => {
     sim.step();
-  }, [sim]);
+    refreshSnapshot();
+  }, [sim, refreshSnapshot]);
 
   const handleReset = useCallback(() => {
     sim.reset(settings);
     setRunning(false);
     setSelectedSystemId(null);
     setSelectedEmpireId(null);
-  }, [sim, settings]);
+    refreshSnapshot();
+  }, [sim, settings, refreshSnapshot]);
 
   const handleNewSeed = useCallback(() => {
     const newSeed = Math.floor(Math.random() * 0xffffff);
@@ -59,7 +66,8 @@ export default function App() {
     setRunning(false);
     setSelectedSystemId(null);
     setSelectedEmpireId(null);
-  }, [sim, settings]);
+    refreshSnapshot();
+  }, [sim, settings, refreshSnapshot]);
 
   const handleSettingsChange = useCallback((partial: Partial<SimSettings>) => {
     setSettings(prev => {
@@ -79,7 +87,6 @@ export default function App() {
   return (
     <div className="app-layout">
       <ControlPanel
-        simulation={sim}
         running={running}
         onStart={handleStart}
         onPause={handlePause}
