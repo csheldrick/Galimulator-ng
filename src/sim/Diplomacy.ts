@@ -29,17 +29,15 @@ export function getNeighboringEmpires(
   const empire = state.empires[empireId];
   if (!empire) return [];
   const neighbors = new Set<Id>();
-  const NEIGHBOR_DIST = 120;
 
+  // neighbors share a starlane with our territory
   for (const sysId of empire.ownedSystemIds) {
     const sys = state.systems[sysId];
-    for (const other of Object.values(state.systems)) {
-      if (other.ownerEmpireId && other.ownerEmpireId !== empireId) {
-        const dx = sys.x - other.x;
-        const dy = sys.y - other.y;
-        if (Math.sqrt(dx * dx + dy * dy) < NEIGHBOR_DIST) {
-          neighbors.add(other.ownerEmpireId);
-        }
+    if (!sys) continue;
+    for (const nid of sys.connectedSystemIds) {
+      const other = state.systems[nid];
+      if (other?.ownerEmpireId && other.ownerEmpireId !== empireId) {
+        neighbors.add(other.ownerEmpireId);
       }
     }
   }

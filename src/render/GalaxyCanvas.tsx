@@ -3,11 +3,14 @@ import type { Id, SimEvent, Fleet } from "../types/sim";
 import type { Camera } from "./camera";
 import { worldToScreen, screenToWorld, clampZoom } from "./camera";
 import { colorWithAlpha, UNOWNED_COLOR, SELECTION_COLOR, BACKGROUND_COLOR } from "./colors";
+import { buildTerritoryBitmap, ownershipKey } from "./territory";
+import type { TerritoryBitmap } from "./territory";
+import { MOOD_LABEL, rulerDisplayName } from "../sim/Moods";
 import type { Simulation } from "../sim/Simulation";
 
 export interface ViewOptions {
   territory: boolean;
-  borders: boolean;
+  lanes: boolean;
   labels: boolean;
   wars: boolean;
   events: boolean;
@@ -33,7 +36,8 @@ function eventColor(event: SimEvent): string {
     case "empire-collapsed": return "rgba(255,90,90,0.75)";
     case "rebellion": return "rgba(255,210,90,0.75)";
     case "golden-age":
-    case "technology-breakthrough": return "rgba(120,220,255,0.75)";
+    case "technology-breakthrough":
+    case "transcended": return "rgba(120,220,255,0.75)";
     default: return "rgba(255,255,255,0.45)";
   }
 }
@@ -47,7 +51,7 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
   const dragRef = useRef<{ dragging: boolean; moved: boolean; lastX: number; lastY: number }>({ dragging: false, moved: false, lastX: 0, lastY: 0 });
   const hoverRef = useRef<Id | null>(null);
   const zoomAnimRef = useRef<{ target: number; wx: number; wy: number; cx: number; cy: number } | null>(null);
-  const borderCacheRef = useRef<{ key: string; pairs: Array<[Id, Id, boolean]> }>({ key: "", pairs: [] });
+  const territoryRef = useRef<{ key: string; bitmap: TerritoryBitmap | null; lastBuild: number; lastSnap: unknown }>({ key: "", bitmap: null, lastBuild: 0, lastSnap: null });
 
   useEffect(() => { camRef.current = { x: 600, y: 450, zoom: 0.8 }; zoomAnimRef.current = null; }, [resetCameraToken]);
 
@@ -78,56 +82,45 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
       ctx.fillRect(0, 0, w, h);
 
       if (viewOptions.territory) {
-        for (const sys of Object.values(snap.systems)) {
-          if (!sys.ownerEmpireId) continue;
-          const emp = snap.empires[sys.ownerEmpireId];
-          if (!emp) continue;
-          const [sx, sy] = worldToScreen(sys.x, sys.y, cam, w, h);
-          const r = (30 + sys.population * 24) * cam.zoom;
-          const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
-          grad.addColorStop(0, colorWithAlpha(emp.color, emp.id === selectedEmpireId ? 0.34 : 0.2));
-          grad.addColorStop(1, colorWithAlpha(emp.color, 0));
-          ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.fillStyle = grad; ctx.fill();
+        const cache = territoryRef.current;
+        if (cache.lastSnap !== snap) {
+          cache.lastSnap = snap;
+          const key = ownershipKey(snap);
+          const now = performance.now();
+          if (key !== cache.key && now - cache.lastBuild > 100) {
+            cache.key = key;
+            cache.bitmap = buildTerritoryBitmap(snap);
+            cache.lastBuild = now;
+          }
+        }
+        const bitmap = cache.bitmap;
+        if (bitmap) {
+          const [sx, sy] = worldToScreen(bitmap.originX, bitmap.originY, cam, w, h);
+          ctx.imageSmoothingEnabled = true;
+          ctx.drawImage(bitmap.canvas, sx, sy, bitmap.worldW * cam.zoom, bitmap.worldH * cam.zoom);
         }
       }
 
-      if (viewOptions.borders) {
-        const cacheKey = `${snap.seed}:${snap.tick}`;
-        if (borderCacheRef.current.key !== cacheKey) {
-          const BORDER_DIST = 75;
-          const owned = Object.values(snap.systems).filter(s => s.ownerEmpireId);
-          const pairs: Array<[Id, Id, boolean]> = [];
-          for (let i = 0; i < owned.length; i++) {
-            const a = owned[i];
-            for (let j = i + 1; j < owned.length; j++) {
-              const b = owned[j];
-              if (a.ownerEmpireId === b.ownerEmpireId) continue;
-              const dx = a.x - b.x, dy = a.y - b.y;
-              if (dx * dx + dy * dy > BORDER_DIST * BORDER_DIST) continue;
-              const atWar = snap.empires[a.ownerEmpireId!]?.activeWarEmpireIds.includes(b.ownerEmpireId!) ?? false;
-              pairs.push([a.id, b.id, atWar]);
+      if (viewOptions.lanes) {
+        for (const sys of Object.values(snap.systems)) {
+          for (const nid of sys.connectedSystemIds) {
+            if (nid < sys.id) continue; // each lane once
+            const other = snap.systems[nid];
+            if (!other) continue;
+            const [ax, ay] = worldToScreen(sys.x, sys.y, cam, w, h);
+            const [bx, by] = worldToScreen(other.x, other.y, cam, w, h);
+            if ((ax < 0 && bx < 0) || (ax > w && bx > w) || (ay < 0 && by < 0) || (ay > h && by > h)) continue;
+            const sameOwner = sys.ownerEmpireId && sys.ownerEmpireId === other.ownerEmpireId;
+            if (sameOwner) {
+              const emp = snap.empires[sys.ownerEmpireId!];
+              ctx.strokeStyle = colorWithAlpha(emp?.color ?? UNOWNED_COLOR, 0.3);
+              ctx.lineWidth = 1.2;
+            } else {
+              ctx.strokeStyle = "rgba(150,170,200,0.16)";
+              ctx.lineWidth = 1;
             }
+            ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
           }
-          borderCacheRef.current = { key: cacheKey, pairs };
-        }
-        for (const [aId, bId, atWar] of borderCacheRef.current.pairs) {
-          const a = snap.systems[aId], b = snap.systems[bId];
-          if (!a || !b) continue;
-          const [ax, ay] = worldToScreen(a.x, a.y, cam, w, h);
-          const [bx, by] = worldToScreen(b.x, b.y, cam, w, h);
-          if ((ax < 0 && bx < 0) || (ax > w && bx > w) || (ay < 0 && by < 0) || (ay > h && by > h)) continue;
-          ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
-          if (atWar) {
-            ctx.strokeStyle = "rgba(255,70,70,0.7)"; ctx.lineWidth = 1.8;
-          } else {
-            const colA = snap.empires[a.ownerEmpireId!]?.color ?? UNOWNED_COLOR;
-            const colB = snap.empires[b.ownerEmpireId!]?.color ?? UNOWNED_COLOR;
-            const grad = ctx.createLinearGradient(ax, ay, bx, by);
-            grad.addColorStop(0, colorWithAlpha(colA, 0.3));
-            grad.addColorStop(1, colorWithAlpha(colB, 0.3));
-            ctx.strokeStyle = grad; ctx.lineWidth = 1;
-          }
-          ctx.stroke();
         }
       }
 
@@ -171,16 +164,23 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
         for (const fleet of Object.values(snap.fleets)) {
           const owner = snap.empires[fleet.ownerEmpireId];
           const target = snap.systems[fleet.targetSystemId];
-          const origin = snap.systems[fleet.originSystemId];
-          if (!owner || !target || !origin) continue;
+          if (!owner || !target) continue;
           const [sx, sy] = worldToScreen(fleet.x, fleet.y, cam, w, h);
-          const [tx, ty] = worldToScreen(target.x, target.y, cam, w, h);
-          const [ox, oy] = worldToScreen(origin.x, origin.y, cam, w, h);
           const selected = fleet.id === selectedFleetId || fleet.ownerEmpireId === selectedEmpireId;
-          ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(tx, ty);
+
+          // remaining route along the starlanes
+          ctx.beginPath(); ctx.moveTo(sx, sy);
+          for (let i = fleet.legIndex + 1; i < fleet.path.length; i++) {
+            const node = snap.systems[fleet.path[i]];
+            if (!node) continue;
+            const [nx, ny] = worldToScreen(node.x, node.y, cam, w, h);
+            ctx.lineTo(nx, ny);
+          }
           ctx.strokeStyle = colorWithAlpha(owner.color, selected ? 0.34 : 0.16);
           ctx.lineWidth = selected ? 1.4 : 0.8; ctx.setLineDash([2, 7]); ctx.stroke(); ctx.setLineDash([]);
 
+          const nextNode = snap.systems[fleet.path[Math.min(fleet.legIndex + 1, fleet.path.length - 1)]] ?? target;
+          const [tx, ty] = worldToScreen(nextNode.x, nextNode.y, cam, w, h);
           const size = fleetSize(fleet) * cam.zoom;
           ctx.save(); ctx.translate(sx, sy); ctx.rotate(Math.atan2(ty - sy, tx - sx));
           ctx.beginPath(); ctx.moveTo(size + 2, 0); ctx.lineTo(-size, -size * 0.65); ctx.lineTo(-size * 0.45, 0); ctx.lineTo(-size, size * 0.65); ctx.closePath();
@@ -213,15 +213,32 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
       }
 
       if (viewOptions.labels) {
-        ctx.font = "11px monospace"; ctx.textBaseline = "middle";
+        // big empire names across their territory, scaled by empire size
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
         for (const emp of Object.values(snap.empires)) {
-          const cap = snap.systems[emp.capitalSystemId]; if (!cap) continue;
-          const [sx, sy] = worldToScreen(cap.x, cap.y, cam, w, h);
-          if (sx < -80 || sx > w + 80 || sy < -20 || sy > h + 20) continue;
-          const label = emp.name, tw = ctx.measureText(label).width;
-          ctx.fillStyle = "rgba(0,0,0,0.55)"; ctx.fillRect(sx + 8, sy - 8, tw + 6, 16); ctx.fillStyle = emp.color; ctx.fillText(label, sx + 11, sy);
+          const count = emp.ownedSystemIds.length;
+          if (count === 0) continue;
+          let cx = 0, cy = 0, n = 0;
+          for (const id of emp.ownedSystemIds) {
+            const sys = snap.systems[id]; if (!sys) continue;
+            cx += sys.x; cy += sys.y; n++;
+          }
+          if (n === 0) continue;
+          const [sx, sy] = worldToScreen(cx / n, cy / n, cam, w, h);
+          if (sx < -300 || sx > w + 300 || sy < -100 || sy > h + 100) continue;
+          const fontSize = Math.min(58, (8 + Math.sqrt(count) * 5.5) * cam.zoom);
+          if (fontSize < 6.5) continue;
+          ctx.font = `700 ${fontSize}px "Trebuchet MS", sans-serif`;
+          ctx.strokeStyle = "rgba(0,0,0,0.7)";
+          ctx.lineWidth = Math.max(2, fontSize / 9);
+          ctx.lineJoin = "round";
+          ctx.strokeText(emp.name, sx, sy);
+          ctx.fillStyle = colorWithAlpha(emp.color, emp.id === selectedEmpireId ? 1 : 0.85);
+          ctx.fillText(emp.name, sx, sy);
         }
+        ctx.textAlign = "left";
         if (selectedEmpire) {
+          ctx.font = "11px monospace";
           ctx.fillStyle = "rgba(220,235,255,0.7)";
           for (const id of selectedEmpire.ownedSystemIds) {
             const sys = snap.systems[id]; if (!sys) continue;
@@ -240,10 +257,12 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
           const lines = [
             `${sys.name}${emp && emp.capitalSystemId === sys.id ? " ★" : ""}`,
             emp ? emp.name : "Unowned",
+            ...(emp ? [`${rulerDisplayName(emp)} · ${MOOD_LABEL[emp.mood]}`] : []),
             `pop ${Math.round(sys.population * 1000)} · stab ${sys.stability.toFixed(2)}`,
             `hab ${sys.habitability.toFixed(2)} · res ${sys.resources.toFixed(2)} · tech ${sys.techLevel.toFixed(2)}`,
           ];
           ctx.font = "12px monospace";
+          ctx.textBaseline = "alphabetic";
           const tw = Math.max(...lines.map(l => ctx.measureText(l).width));
           const lh = 16, pad = 6;
           const bx = Math.min(sx + 10, w - tw - pad * 2 - 4);
@@ -259,7 +278,7 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
           });
         }
       }
-      ctx.font = "11px monospace"; ctx.fillStyle = "rgba(200,216,232,0.55)"; ctx.fillText(`drag pan · wheel zoom · click inspect`, 10, h - 12);
+      ctx.font = "11px monospace"; ctx.textBaseline = "alphabetic"; ctx.fillStyle = "rgba(200,216,232,0.55)"; ctx.fillText(`drag pan · wheel zoom · click inspect`, 10, h - 12);
     }
     rafRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(rafRef.current);

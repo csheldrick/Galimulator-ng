@@ -1,4 +1,4 @@
-import type { PRNG, StarSystem, Empire, GalaxyState, Id } from "../types/sim";
+import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler } from "../types/sim";
 import { resetEventCounter } from "./Events";
 
 const SYLLABLES = [
@@ -9,11 +9,26 @@ const SYLLABLES = [
   "ul","ur","val","var","vel","vor","wal","xar","yal","zan","zel","zor"
 ];
 
-function makeName(rng: PRNG): string {
+export function makeName(rng: PRNG): string {
   const n = rng.nextInt(2, 3);
   let name = "";
   for (let i = 0; i < n; i++) name += rng.pick(SYLLABLES);
   return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+const RULER_TITLES = [
+  "Emperor","Empress","Overlord","High King","High Queen","Archon","Despot",
+  "Autarch","Matriarch","Patriarch","Grand Vizier","Eternal Sage","Warlord","Oracle"
+];
+
+export function makeRuler(rng: PRNG, accessionTick: number): Ruler {
+  return {
+    name: makeName(rng),
+    title: rng.pick(RULER_TITLES),
+    dynasty: makeName(rng),
+    ordinal: 1,
+    accessionTick,
+  };
 }
 
 function spiralPoint(rng: PRNG, width: number, height: number): [number, number] {
@@ -43,8 +58,70 @@ const EMPIRE_NOUN = [
   "Federation","Order","Kingdom","Sovereignty","Covenant","League","Union"
 ];
 
-function makeEmpireName(rng: PRNG): string {
-  return `${rng.pick(EMPIRE_ADJ)} ${rng.pick(EMPIRE_NOUN)}`;
+export function makeEmpireName(rng: PRNG, capitalName: string): string {
+  const roll = rng.next();
+  if (roll < 0.4) return `${rng.pick(EMPIRE_ADJ)} ${rng.pick(EMPIRE_NOUN)}`;
+  if (roll < 0.75) return `${rng.pick(EMPIRE_NOUN)} of ${capitalName}`;
+  return `${capitalName} ${rng.pick(EMPIRE_NOUN)}`;
+}
+
+// Connect each star to its nearest neighbors, then stitch disconnected
+// clusters together so every system is reachable along starlanes.
+function buildStarlanes(systemList: StarSystem[]): void {
+  const NEIGHBOR_LINKS = 3;
+  const MAX_LANE = 130;
+  const n = systemList.length;
+  const linked = new Set<string>();
+
+  const link = (a: StarSystem, b: StarSystem) => {
+    const key = a.id < b.id ? `${a.id}|${b.id}` : `${b.id}|${a.id}`;
+    if (linked.has(key)) return;
+    linked.add(key);
+    a.connectedSystemIds.push(b.id);
+    b.connectedSystemIds.push(a.id);
+  };
+
+  for (let i = 0; i < n; i++) {
+    const a = systemList[i];
+    const candidates: Array<{ s: StarSystem; d: number }> = [];
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      const b = systemList[j];
+      const dx = a.x - b.x, dy = a.y - b.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d <= MAX_LANE) candidates.push({ s: b, d });
+    }
+    candidates.sort((p, q) => p.d - q.d);
+    for (const { s } of candidates.slice(0, NEIGHBOR_LINKS)) link(a, s);
+  }
+
+  // merge components until the whole graph is connected
+  const byId: Record<Id, StarSystem> = {};
+  for (const s of systemList) byId[s.id] = s;
+  for (;;) {
+    const component = new Set<Id>();
+    const queue = [systemList[0].id];
+    component.add(systemList[0].id);
+    while (queue.length) {
+      const cur = byId[queue.pop()!];
+      for (const nid of cur.connectedSystemIds) {
+        if (!component.has(nid)) { component.add(nid); queue.push(nid); }
+      }
+    }
+    if (component.size === n) break;
+    let bestA: StarSystem | null = null, bestB: StarSystem | null = null, bestD = Infinity;
+    for (const a of systemList) {
+      if (!component.has(a.id)) continue;
+      for (const b of systemList) {
+        if (component.has(b.id)) continue;
+        const dx = a.x - b.x, dy = a.y - b.y;
+        const d = dx * dx + dy * dy;
+        if (d < bestD) { bestD = d; bestA = a; bestB = b; }
+      }
+    }
+    if (!bestA || !bestB) break;
+    link(bestA, bestB);
+  }
 }
 
 export function generateGalaxy(
@@ -75,10 +152,13 @@ export function generateGalaxy(
       cultureId: "none",
       techLevel: rng.range(0.1, 0.5),
       recentEventIds: [],
+      connectedSystemIds: [],
     };
     systems[id] = system;
     systemList.push(system);
   }
+
+  buildStarlanes(systemList);
 
   const sorted = [...systemList].sort((a, b) => b.habitability - a.habitability);
 
@@ -115,8 +195,11 @@ export function generateGalaxy(
 
     const empire: Empire = {
       id: empId,
-      name: makeEmpireName(rng),
+      name: makeEmpireName(rng, capital.name),
       color: colors[colorIdx++ % colors.length],
+      mood: "expanding",
+      moodSince: 0,
+      ruler: makeRuler(rng, 0),
       capitalSystemId: capital.id,
       ownedSystemIds: [capital.id],
       population: capital.population * 1000,

@@ -26,6 +26,10 @@ html, body, #root { width: 100%; height: 100%; overflow: hidden; background: var
 .selected-empire-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .selected-empire-title b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .selected-empire-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px 8px; color: var(--text-muted); font-size: 10px; margin-top: 5px; }
+.selected-empire-ruler { color: var(--text-muted); font-size: 10px; margin-top: 3px; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mood-badge { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; flex-shrink: 0; margin-left: auto; }
+.mood-badge small { color: var(--text-muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
+.emp-mood-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; justify-self: center; }
 .btn-row { display: flex; flex-wrap: wrap; gap: 4px; }
 button { background: var(--btn-bg); border: 1px solid var(--panel-border); color: var(--text); padding: 5px 8px; cursor: pointer; border-radius: 4px; font-size: 12px; transition: background 0.15s; }
 button:hover:not(:disabled) { background: var(--btn-hover); }
@@ -41,7 +45,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .empire-nav-tools { display: grid; grid-template-columns: 1fr 86px; gap: 5px; }
 .empire-nav-tools input, .empire-nav-tools select { min-width: 0; background: var(--input-bg); border: 1px solid var(--panel-border); color: var(--text); border-radius: 4px; padding: 4px 5px; font-size: 11px; }
 .sidebar-empire-list { display: flex; flex-direction: column; gap: 3px; padding-bottom: 8px; }
-.sidebar-empire { width: 100%; display: grid; grid-template-columns: 10px 1fr 28px; align-items: center; gap: 6px; padding: 4px 5px; text-align: left; border: 1px solid transparent; background: transparent; }
+.sidebar-empire { width: 100%; display: grid; grid-template-columns: 10px 1fr 8px 28px; align-items: center; gap: 6px; padding: 4px 5px; text-align: left; border: 1px solid transparent; background: transparent; }
 .sidebar-empire:hover { background: rgba(255,255,255,0.04); }
 .sidebar-empire.selected { border-color: rgba(76,201,240,0.38); background: rgba(76,201,240,0.08); }
 .canvas-area { flex: 1; overflow: hidden; position: relative; }

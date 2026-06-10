@@ -1,4 +1,5 @@
 import type { GalaxyState, Id } from "../types/sim";
+import { MOOD_LABEL, MOOD_COLOR, rulerDisplayName } from "../sim/Moods";
 
 interface Props {
   snapshot: Readonly<GalaxyState>;
@@ -22,7 +23,7 @@ interface Props {
 }
 
 function fmt(n: number, dec = 1) { return n.toFixed(dec); }
-function eta(progress: number, speed: number) { return Math.max(0, Math.ceil((1 - progress) / Math.max(0.001, speed))); }
+function eta(progress: number, totalDist: number, speed: number) { return Math.max(0, Math.ceil(((1 - progress) * totalDist) / Math.max(0.001, speed))); }
 
 export function InspectorPanel({
   snapshot, selectedSystemId, selectedEmpireId, selectedFleetId, onSelectEmpire, onSelectFleet, onClearSelection, onCancelFleet,
@@ -46,8 +47,9 @@ export function InspectorPanel({
         {owner && <div className="info-row owner-row" onClick={() => onSelectEmpire(owner.id)}><span className="emp-dot" style={{ background: owner.color }} /><span>{owner.name}</span></div>}
         <div className="info-row"><span>Origin</span><span>{origin?.name ?? "?"}</span></div>
         <div className="info-row"><span>Target</span><span>{target?.name ?? "?"}</span></div>
+        <div className="info-row"><span>Route</span><span>{fleet.path.length - 1} jump{fleet.path.length - 1 === 1 ? "" : "s"}</span></div>
         <div className="info-row"><span>Progress</span><span>{fmt(fleet.progress * 100, 0)}%</span></div>
-        <div className="info-row"><span>ETA</span><span>{eta(fleet.progress, fleet.speed)} ticks</span></div>
+        <div className="info-row"><span>ETA</span><span>{eta(fleet.progress, fleet.totalDist, fleet.speed)} ticks</span></div>
         <div className="info-row"><span>Strength</span><span>{fmt(fleet.strength, 0)}</span></div>
         <div className="info-row"><span>Speed</span><span>{fmt(fleet.speed, 3)}</span></div>
         <div className="info-row"><span>Launched</span><span>{fleet.createdTick}</span></div>
@@ -102,6 +104,9 @@ export function InspectorPanel({
       {emp && !sys && (
         <>
           <div className="inspector-header"><h3 style={{ color: emp.color }}>{emp.name}</h3><button className="close-btn" onClick={onClearSelection}>✕</button></div>
+          <div className="info-row"><span>Mood</span><span className="mood-badge" style={{ color: MOOD_COLOR[emp.mood] }}>{MOOD_LABEL[emp.mood]} <small>since {emp.moodSince}</small></span></div>
+          <div className="info-row"><span>Ruler</span><span>{rulerDisplayName(emp)}</span></div>
+          <div className="info-row"><span>Dynasty</span><span>{emp.ruler.dynasty} (since {emp.ruler.accessionTick})</span></div>
           <div className="info-row"><span>Capital</span><span>{snapshot.systems[emp.capitalSystemId]?.name ?? "?"}</span></div>
           <div className="info-row"><span>Systems</span><span>{emp.ownedSystemIds.length}</span></div>
           <div className="info-row"><span>Fleets</span><span>{Object.values(snapshot.fleets).filter(f => f.ownerEmpireId === emp.id).length}</span></div>
