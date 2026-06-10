@@ -12,6 +12,10 @@ interface Props {
   onFoundEmpire: (id: Id) => void;
   onBoostEmpire: (id: Id) => void;
   onWeakenEmpire: (id: Id) => void;
+  onInflameEmpire: (id: Id) => void;
+  onPacifyEmpire: (id: Id) => void;
+  onForceWar: (a: Id, b: Id) => void;
+  onForcePeace: (a: Id, b: Id) => void;
 }
 
 function fmt(n: number, dec = 1) { return n.toFixed(dec); }
@@ -28,6 +32,10 @@ export function InspectorPanel({
   onFoundEmpire,
   onBoostEmpire,
   onWeakenEmpire,
+  onInflameEmpire,
+  onPacifyEmpire,
+  onForceWar,
+  onForcePeace,
 }: Props) {
   const sys = selectedSystemId ? snapshot.systems[selectedSystemId] : null;
   const emp = selectedEmpireId ? snapshot.empires[selectedEmpireId] : null;
@@ -128,22 +136,41 @@ export function InspectorPanel({
           <div className="god-grid">
             <button onClick={() => onBoostEmpire(emp.id)}>Strengthen</button>
             <button onClick={() => onWeakenEmpire(emp.id)}>Destabilize</button>
+            <button onClick={() => onInflameEmpire(emp.id)}>Inflame</button>
+            <button onClick={() => onPacifyEmpire(emp.id)}>Pacify</button>
           </div>
 
-          {emp.activeWarEmpireIds.length > 0 && (
-            <>
-              <h4>At War With</h4>
-              {emp.activeWarEmpireIds.map(wid => {
-                const w = snapshot.empires[wid];
-                return w ? (
-                  <div key={wid} className="empire-item" onClick={() => onSelectEmpire(wid)}>
-                    <span className="emp-dot" style={{ background: w.color }} />
-                    <span>{w.name}</span>
+          <h4>Relations</h4>
+          <div className="relations-list">
+            {Object.values(snapshot.empires)
+              .filter(other => other.id !== emp.id)
+              .map(other => ({ other, rel: emp.relationshipByEmpireId[other.id] }))
+              .sort((a, b) => Number(b.rel?.atWar ?? false) - Number(a.rel?.atWar ?? false) || (b.rel?.tension ?? 0) - (a.rel?.tension ?? 0))
+              .slice(0, 10)
+              .map(({ other, rel }) => {
+                const atWar = rel?.atWar ?? emp.activeWarEmpireIds.includes(other.id);
+                const tension = rel?.tension ?? 0;
+                const opinion = rel?.opinion ?? 50;
+                return (
+                  <div key={other.id} className={atWar ? "relation-row at-war" : "relation-row"}>
+                    <div className="relation-head" onClick={() => onSelectEmpire(other.id)}>
+                      <span className="emp-dot" style={{ background: other.color }} />
+                      <span>{other.name}</span>
+                    </div>
+                    <div className="relation-stats">
+                      <span>T {fmt(tension, 0)}</span>
+                      <span>O {fmt(opinion, 0)}</span>
+                      <span>{atWar ? "WAR" : "peace"}</span>
+                    </div>
+                    <div className="relation-actions">
+                      <button onClick={() => onForceWar(emp.id, other.id)} disabled={atWar}>War</button>
+                      <button onClick={() => onForcePeace(emp.id, other.id)} disabled={!atWar}>Peace</button>
+                    </div>
                   </div>
-                ) : null;
+                );
               })}
-            </>
-          )}
+          </div>
+
           {emp.historicalEventIds.length > 0 && (
             <>
               <h4>History</h4>
