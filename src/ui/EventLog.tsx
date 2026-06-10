@@ -1,9 +1,11 @@
-import type { GalaxyState } from "../types/sim";
+import type { GalaxyState, Id, SimEvent } from "../types/sim";
 
 interface Props {
   snapshot: Readonly<GalaxyState>;
   minImportance?: number;
   onMinImportanceChange?: (v: number) => void;
+  selectedEventId: Id | null;
+  onSelectEvent: (event: SimEvent) => void;
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -18,10 +20,16 @@ const TYPE_COLORS: Record<string, string> = {
   "technology-breakthrough": "#6a4c93",
 };
 
-export function EventLog({ snapshot, minImportance = 1, onMinImportanceChange }: Props) {
+export function EventLog({
+  snapshot,
+  minImportance = 1,
+  onMinImportanceChange,
+  selectedEventId,
+  onSelectEvent,
+}: Props) {
   const events = [...snapshot.eventLog]
     .reverse()
-    .slice(0, 80)
+    .slice(0, 120)
     .map(id => snapshot.events[id])
     .filter(ev => ev && ev.importance >= minImportance);
 
@@ -42,17 +50,28 @@ export function EventLog({ snapshot, minImportance = 1, onMinImportanceChange }:
         )}
       </div>
       <div className="event-list">
-        {events.map(ev => (
-          <div key={ev.id} className="event-entry">
-            <span
-              className="event-type-dot"
-              style={{ background: TYPE_COLORS[ev.type] ?? "#888" }}
-              title={ev.type}
-            />
-            <span className="event-tick">[{ev.tick}]</span>
-            <span className="event-title">{ev.title}</span>
-          </div>
-        ))}
+        {events.map(ev => {
+          const selected = ev.id === selectedEventId;
+          return (
+            <button
+              key={ev.id}
+              className={selected ? "event-entry selected" : "event-entry"}
+              onClick={() => onSelectEvent(ev)}
+              title={ev.description}
+            >
+              <span
+                className="event-type-dot"
+                style={{ background: TYPE_COLORS[ev.type] ?? "#888" }}
+                title={ev.type}
+              />
+              <span className="event-tick">[{ev.tick}]</span>
+              <span className="event-main">
+                <span className="event-title">{ev.title}</span>
+                <span className="event-desc">{ev.description}</span>
+              </span>
+            </button>
+          );
+        })}
         {events.length === 0 && <div className="event-empty">No events yet.</div>}
       </div>
     </div>
