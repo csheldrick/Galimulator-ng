@@ -21,6 +21,7 @@ const DEFAULT_VIEW: ViewOptions = {
   labels: false,
   wars: true,
   events: true,
+  fleets: true,
 };
 
 function downloadText(filename: string, content: string, type = "text/plain") {
@@ -51,6 +52,7 @@ function buildReport(snapshot: Readonly<GalaxyState>): string {
     `Owned systems: ${systems.filter(s => s.ownerEmpireId).length}`,
     `Empires: ${empires.length}`,
     `Active wars: ${wars.size}`,
+    `Fleets in transit: ${Object.keys(snapshot.fleets).length}`,
     ``,
     `## Leading empires`,
     ...empires.slice(0, 12).map((e, i) => `${i + 1}. ${e.name} — ${e.ownedSystemIds.length} systems, pop ${Math.round(e.population)}, tech ${e.techLevel.toFixed(2)}, cohesion ${e.cohesion.toFixed(2)}`),
@@ -75,35 +77,13 @@ export default function App() {
   const [selectedEventId, setSelectedEventId] = useState<Id | null>(null);
   const [minImportance, setMinImportance] = useState(1);
 
-  const refreshSnapshot = useCallback(() => {
-    setSnapshot(sim.getSnapshot());
-  }, [sim]);
+  const refreshSnapshot = useCallback(() => { setSnapshot(sim.getSnapshot()); }, [sim]);
+  useEffect(() => { const id = window.setInterval(refreshSnapshot, 250); return () => window.clearInterval(id); }, [refreshSnapshot]);
 
-  useEffect(() => {
-    const id = window.setInterval(refreshSnapshot, 250);
-    return () => window.clearInterval(id);
-  }, [refreshSnapshot]);
-
-  const handleStart = useCallback(() => {
-    sim.start();
-    setRunning(true);
-  }, [sim]);
-
-  const handlePause = useCallback(() => {
-    sim.pause();
-    setRunning(false);
-    refreshSnapshot();
-  }, [sim, refreshSnapshot]);
-
-  const handleStep = useCallback(() => {
-    sim.step();
-    refreshSnapshot();
-  }, [sim, refreshSnapshot]);
-
-  const handleRunTicks = useCallback((count: number) => {
-    sim.runTicks(count);
-    refreshSnapshot();
-  }, [sim, refreshSnapshot]);
+  const handleStart = useCallback(() => { sim.start(); setRunning(true); }, [sim]);
+  const handlePause = useCallback(() => { sim.pause(); setRunning(false); refreshSnapshot(); }, [sim, refreshSnapshot]);
+  const handleStep = useCallback(() => { sim.step(); refreshSnapshot(); }, [sim, refreshSnapshot]);
+  const handleRunTicks = useCallback((count: number) => { sim.runTicks(count); refreshSnapshot(); }, [sim, refreshSnapshot]);
 
   const handleReset = useCallback(() => {
     sim.reset(settings);
@@ -131,41 +111,19 @@ export default function App() {
   const handleSettingsChange = useCallback((partial: Partial<SimSettings>) => {
     setSettings(prev => {
       const next = { ...prev, ...partial };
-      if (partial.ticksPerSecond !== undefined) {
-        sim.setSpeed(partial.ticksPerSecond);
-      }
+      if (partial.ticksPerSecond !== undefined) sim.setSpeed(partial.ticksPerSecond);
       return next;
     });
   }, [sim]);
 
-  const handleClearSelection = useCallback(() => {
-    setSelectedSystemId(null);
-    setSelectedEmpireId(null);
-    setSelectedEventId(null);
-  }, []);
-
-  const withRefresh = useCallback((fn: () => void) => {
-    fn();
-    refreshSnapshot();
-  }, [refreshSnapshot]);
-
-  const handleSelectEmpire = useCallback((id: Id | null) => {
-    setSelectedSystemId(null);
-    setSelectedEmpireId(id);
-    setSelectedEventId(null);
-  }, []);
-
-  const handleSelectSystem = useCallback((id: Id | null) => {
-    setSelectedSystemId(id);
-    setSelectedEventId(null);
-  }, []);
+  const handleClearSelection = useCallback(() => { setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedEventId(null); }, []);
+  const withRefresh = useCallback((fn: () => void) => { fn(); refreshSnapshot(); }, [refreshSnapshot]);
+  const handleSelectEmpire = useCallback((id: Id | null) => { setSelectedSystemId(null); setSelectedEmpireId(id); setSelectedEventId(null); }, []);
+  const handleSelectSystem = useCallback((id: Id | null) => { setSelectedSystemId(id); setSelectedEventId(null); }, []);
 
   const handleFoundEmpire = useCallback((systemId: Id) => {
     const id = sim.foundEmpireAtSystem(systemId);
-    if (id) {
-      setSelectedSystemId(null);
-      setSelectedEmpireId(id);
-    }
+    if (id) { setSelectedSystemId(null); setSelectedEmpireId(id); }
     refreshSnapshot();
   }, [sim, refreshSnapshot]);
 
@@ -238,13 +196,7 @@ export default function App() {
           onForcePeace={(a, b) => withRefresh(() => sim.forcePeace(a, b))}
         />
         <GalaxyPulse snapshot={snapshot} />
-        <EventLog
-          snapshot={snapshot}
-          minImportance={minImportance}
-          onMinImportanceChange={setMinImportance}
-          selectedEventId={selectedEventId}
-          onSelectEvent={handleSelectEvent}
-        />
+        <EventLog snapshot={snapshot} minImportance={minImportance} onMinImportanceChange={setMinImportance} selectedEventId={selectedEventId} onSelectEvent={handleSelectEvent} />
       </div>
     </div>
   );
