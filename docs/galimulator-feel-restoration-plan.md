@@ -4,19 +4,16 @@
 
 `galimulator-ng` already has most of the obvious Galimulator-like systems: empires, fleets, wars, peace, rebellion, collapse, emergence, rulers, dynasties, religions, ideologies, coups, culture drift, trade, monsters, artifacts, crises, top stories, map modes, and god controls.
 
-The remaining gap is not primarily feature coverage. The game currently risks feeling like a clean, coherent 4X simulation rather than a chaotic observer sandbox.
+The remaining gap is not mainly feature coverage. The game risks feeling like a clean, coherent 4X simulation instead of a chaotic observer sandbox that can also become a strange empire-control toy when the player chooses to intervene from inside history.
 
-The goal of this plan is to restore the missing feel:
+This plan restores the missing feel through four connected layers:
 
-- more visible motion
-- more local weirdness
-- more persistent scars
-- messier collapse
-- more disposable background life
-- more map-first storytelling
-- less sterile empire lifecycle behavior
+1. **Ambient Life** — more visible background motion and disposable ships.
+2. **Persistent Scars** — stars remember what happened there.
+3. **Messier History** — collapse, rebellion, crises, and moods leave visible consequences.
+4. **Empire Control** — the player can take over an empire and steer it without turning the game into a traditional 4X.
 
-No Galimulator content, assets, names, or exact mechanics should be copied. The target is an original browser sandbox that captures the same observer-driven energy: a galaxy that looks alive, absurd, and historically messy even when the player does nothing.
+No Galimulator content, assets, names, text, or exact mechanics should be copied. The goal is an original browser sandbox that captures the same kind of observer-driven energy: a galaxy that looks alive, absurd, playable, and historically messy even when the player mostly watches.
 
 ## Diagnosis
 
@@ -32,38 +29,48 @@ growth -> progress -> religion -> characters -> moods -> rulers -> politics
 
 That is good architecture, but it can produce a galaxy that feels composed rather than wild.
 
-The game has many dramatic systems, but many of them resolve into scalar changes and event log entries. The player may read that something happened, but the map itself may not feel transformed enough.
+Many systems currently resolve into scalar changes and event log entries. The player may read that something happened, but the map itself may not feel transformed enough.
 
-The missing layer is not another major strategic system. It is a texture layer: background life, local marks, persistent scars, and visible consequences.
+The missing pieces are:
 
-## Design Rule
+- background motion that makes the galaxy feel inhabited
+- local star identity and persistent historical scars
+- collapse that leaves messy residue instead of clean neutral systems
+- moods that are visible on the map, not just in inspector text
+- empire control that lets the player become a ruler inside the simulation
+- consequences that keep player intervention from feeling like a detached debug panel
+
+## Design Rules
 
 Keep the game an observer sandbox first.
 
-The player can intervene like a god, but autonomous history should remain the default experience.
+The player should be able to watch history unfold with no input. But when they choose an empire, they should feel like they are becoming a ruler, not just pressing god buttons.
 
 Every change in this plan should answer at least one of these questions:
 
-1. Does the galaxy look more alive while paused or watched passively?
+1. Does the galaxy look more alive while watched passively?
 2. Does a star system become more memorable after something happens there?
 3. Does collapse leave historical residue instead of simply clearing ownership?
 4. Can the player understand major drama from the map without reading the log?
 5. Does the simulation create odd, asymmetric incidents that feel like history?
+6. Can the player steer one empire without removing autonomous galactic history?
+7. Do player actions create consequences, opposition, politics, and future story?
 
 ## Implementation Overview
 
-Add one new cross-cutting layer:
+Add three cross-cutting layers:
 
 ```txt
 Ambient Life + Scars Layer
+Empire Control Layer
+Consequence Layer
 ```
 
-This layer should not replace existing simulation systems. It should listen to them and make their consequences visible.
+The first makes the galaxy feel alive and historically marked.
 
-It has two halves:
+The second lets the player take control of an empire from inside the simulation.
 
-1. Ambient ships: mostly cosmetic moving traffic that makes the galaxy feel inhabited.
-2. World markers: persistent map scars and local identities left by events.
+The third ensures player actions are not free debug commands: courts react, rivals respond, worlds destabilize, factions resist, and history remembers.
 
 ## Phase 1: Ambient Life
 
@@ -71,13 +78,13 @@ It has two halves:
 
 Increase visual swarm and background motion without distorting the strategic simulation.
 
-The current fleet model is mechanically sensible, but too sparse and strategic. Galimulator-like feel needs disposable motion: merchants, pilgrims, refugees, couriers, surveyors, missionaries, and noble retinues moving constantly along lanes.
+The current fleet model is mechanically sensible, but too sparse and strategic. A Galimulator-like sandbox needs disposable motion: merchants, pilgrims, refugees, couriers, surveyors, missionaries, and noble retinues moving constantly along lanes.
 
 These ships should mostly not matter. They exist to make the galaxy feel inhabited.
 
 ### Types
 
-Add a new type, probably in `src/types/sim.ts`:
+Add to `src/types/sim.ts`:
 
 ```ts
 export type AmbientShipKind =
@@ -136,7 +143,7 @@ Ambient ships should be triggered by existing systems:
 
 Ambient ships should:
 
-- follow starlane paths using the same pathing helpers as fleets
+- follow starlane paths using existing pathing helpers
 - despawn on arrival
 - have low memory/CPU cost
 - cap globally, for example `maxAmbientShips = numStars * 2`
@@ -144,14 +151,6 @@ Ambient ships should:
 - be hidden behind a view toggle if needed
 
 They should only rarely produce events. Most should just move.
-
-Possible rare event examples:
-
-```txt
-A refugee convoy from Vessa reached the Free Koro League.
-Pilgrims from the Lantern Faith gathered at Aun's holy world.
-A merchant flotilla vanished in the storm lanes near Ix.
-```
 
 ### Rendering
 
@@ -168,15 +167,13 @@ Suggested visual distinction:
 - survey: small ring
 - noble-retinue: brighter ornamental dot
 
-Do not assign high-contrast colors that compete with war fleets.
-
 ## Phase 2: World Markers / Persistent Scars
 
 ### Goal
 
 Make important stars remember what happened there.
 
-Right now events can alter system stats, but the map does not necessarily preserve visible historical identity. A star should become weird after enough history happens there.
+Systems already have population, resources, habitability, stability, owner, culture, religion, artifact, tech, event history, and starlane connections. That is enough data, but the map needs persistent local identity.
 
 ### Types
 
@@ -239,7 +236,7 @@ Add or strengthen markers from existing events:
 
 ### Marker Behavior
 
-Markers should have mechanical effects, but small ones.
+Markers should have small mechanical effects, but they should mainly create history texture.
 
 Examples:
 
@@ -263,21 +260,6 @@ transcendent-ruin:
   raises tech/religion weirdness and emergence candidate score
 ```
 
-Avoid making markers too deterministic or too balanced. Their job is to create history texture.
-
-### Rendering
-
-Render small persistent glyphs around systems.
-
-The player should be able to glance at the map and identify:
-
-- this was a capital
-- this place was ruined
-- this is holy
-- this place keeps rebelling
-- this region was hit by plague
-- this world has a strange artifact legacy
-
 System inspector should list active markers with short explanations.
 
 ## Phase 3: Messier Collapse
@@ -287,20 +269,6 @@ System inspector should list active markers with short explanations.
 Collapse should leave mess, not just neutral systems.
 
 Current collapse behavior should be expanded so the fall of a major empire creates visible historical residue.
-
-### Current Problem
-
-The current collapse roughly does:
-
-```txt
-for each owned system:
-  owner = null
-  stability -= 0.3
-create collapse event
-remove empire
-```
-
-This is mechanically clear but emotionally flat.
 
 ### Desired Behavior
 
@@ -318,8 +286,6 @@ Collapse should produce a bundle of consequences:
 - nearby tension spikes
 
 ### Suggested Collapse Algorithm
-
-Replace simple collapse with staged collapse:
 
 ```txt
 collapseEmpire(state, empire):
@@ -362,26 +328,13 @@ Successor states should inherit:
 - hatred/tension toward sibling successors
 - name fragments from old empire or capital
 
-### Warlord Pocket
-
-Warlord states should be small, aggressive, and temporary-feeling.
-
-```ts
-kind: "warlord"
-mood: "crusading" | "fortifying"
-ideology: "militarist"
-cohesion: medium-low
-aggression: high
-expansionism: medium
-```
-
 ## Phase 4: Mood Should Become Visible
 
 ### Goal
 
 Empire moods should be readable from behavior and visuals, not only from inspector text or event logs.
 
-Current moods mostly affect scalars: cohesion, stability, tech, expansion chance, war chance. Keep that, but add visible expression.
+Current moods mostly affect scalars: cohesion, stability, tech, expansion chance, and war chance. Keep that, but add visible expression.
 
 ### Mood Expression Table
 
@@ -417,16 +370,7 @@ transcending:
   map shockwave on completion
 ```
 
-### Implementation
-
-Add a `stepMoodExpression()` after `stepMoods()` or inside it.
-
-This function should not duplicate core mood mechanics. It should add:
-
-- ambient ships
-- temporary event flashes
-- world markers
-- render hints
+Add a `stepMoodExpression()` after `stepMoods()` or inside it. It should add ambient ships, temporary event flashes, world markers, and render hints, not duplicate core mood mechanics.
 
 ## Phase 5: Map-First Storytelling
 
@@ -456,7 +400,7 @@ The event log and Galaxy Pulse are useful, but the player should understand the 
    - Should never fight manual camera control.
 
 5. System inspector history
-   - Show markers and recent local events as a compact history.
+   - Show markers and recent local events as compact history.
    - Make old capitals, holy worlds, ruins, and battlefields feel discoverable.
 
 ## Phase 6: More Local Star Weirdness
@@ -464,30 +408,6 @@ The event log and Galaxy Pulse are useful, but the player should understand the 
 ### Goal
 
 Make individual stars memorable.
-
-Systems already have enough base data. Add local identity through markers and lightweight conditions.
-
-### Optional `WorldCondition`
-
-Instead of or in addition to markers:
-
-```ts
-export type WorldCondition =
-  | "fortress-world"
-  | "holy-world"
-  | "trade-hub"
-  | "pirate-nest"
-  | "quarantine-zone"
-  | "rebel-hotbed"
-  | "ancient-ruin"
-  | "shipyard"
-  | "decadent-capital"
-  | "frontier-colony";
-```
-
-Markers are probably better because they can be historical, named, time-bound, and inspectable.
-
-### Local Incident Examples
 
 Add small events that fire from marker/system state:
 
@@ -509,11 +429,9 @@ These should be small but frequent enough to make stars feel alive.
 
 Increase perceived chaos without overwhelming the simulation.
 
-Current weirdness is likely too rare to define the experience. Crises and monsters exist, but they may not appear often enough during normal watching.
+Current weirdness may be too rare to define the experience. Crises and monsters exist, but they may not appear often enough during normal watching.
 
-### Suggested Tuning
-
-Make event density scale with galaxy age and size.
+Make event density scale with galaxy age and size:
 
 ```txt
 base weirdness chance = 0.001
@@ -531,12 +449,6 @@ Possible target:
 - importance 5 event every 500-1200 ticks
 - monster/crisis rare, but not invisible
 
-### Important Distinction
-
-Do not make every event mechanically huge.
-
-The galaxy should feel noisy, but not every event should alter balance.
-
 Use three tiers:
 
 ```txt
@@ -550,11 +462,406 @@ historical events:
   affect empires, regions, collapse, religion, war, crisis
 ```
 
-## Phase 8: Preserve Strategic Clarity
+## Phase 8: Empire Control Mode
+
+### Goal
+
+Add a mode where the player takes control of one empire from inside the simulation.
+
+This should not become a full 4X with production queues, build trees, and micromanagement. It should feel like becoming the ruler of a living empire that already has momentum, factions, enemies, traditions, unstable worlds, and court figures.
+
+The player should steer history, not replace the simulation.
+
+### Difference From God Controls
+
+God controls are outside-history interventions:
+
+```txt
+boost world
+free system
+found empire
+strengthen empire
+destabilize empire
+force war
+force peace
+```
+
+Empire control should be inside-history rule:
+
+```txt
+issue imperial policy
+order fleets
+negotiate diplomacy
+manage succession pressure
+suppress or appease rebellions
+fund religious/cultural direction
+appoint court figures
+choose strategic priorities
+accept consequences
+```
+
+God controls should remain available as sandbox tools. Empire control should be a separate mode with limits, costs, and political reactions.
+
+### Player Role
+
+Add a `PlayerControlState`:
+
+```ts
+export interface PlayerControlState {
+  controlledEmpireId: Id | null;
+  mode: "observer" | "empire";
+  rulerPersona: "hands-off" | "conqueror" | "reformer" | "prophet" | "merchant" | "survivor";
+  authority: number;
+  legitimacy: number;
+  commandCooldowns: Record<string, number>;
+}
+```
+
+Extend `GalaxyState` or keep this in simulation-level state depending on save/load needs.
+
+If saved games should preserve control mode, include it in `SaveFile`.
+
+### Core Resources
+
+Empire control should use soft political resources, not a traditional economy UI.
+
+Suggested values:
+
+```txt
+authority:
+  how much direct command power the ruler has
+
+legitimacy:
+  how accepted the ruler is by worlds, court, and culture
+
+attention:
+  optional per-tick/command budget to prevent micromanagement
+
+favor:
+  optional relation with court, clergy, generals, merchants, frontier
+```
+
+A simple first version only needs `authority` and `legitimacy`.
+
+Authority should regenerate based on cohesion, capital stability, ruler traits, and court support.
+
+Legitimacy should rise from victories, peace, prosperity, same-culture rule, fulfilled policies, and religious alignment. It should fall from failed wars, high instability, culture mismatch, coups, forced commands, and repeated emergency decrees.
+
+### Empire Commands
+
+Initial command set:
+
+```txt
+Military:
+  rally fleet to selected border target
+  fortify selected system
+  order raid against enemy border world
+  recall selected fleet
+  prioritize war target
+
+Diplomacy:
+  propose peace
+  provoke war
+  improve relations
+  denounce rival
+  sponsor trade pact
+
+Internal Rule:
+  stabilize selected system
+  suppress unrest
+  grant autonomy
+  move capital
+  appoint court figure
+  purge disloyal court figure
+
+Expansion:
+  prioritize frontier direction
+  sponsor colonization of selected adjacent system
+  restrict expansion / consolidate borders
+
+Religion / Culture:
+  adopt local faith
+  sponsor state faith
+  tolerate foreign culture
+  assimilate selected world
+  back reform movement
+
+Technology / Wealth:
+  fund research push
+  fund shipyards
+  tax heavily
+  subsidize trade
+```
+
+Each command should have:
+
+```txt
+cost:
+  authority / wealth / legitimacy / cooldown
+
+requirements:
+  controlled empire, valid target, enough resources, relationship state, adjacency, etc.
+
+immediate effect:
+  launch fleet, alter tension, add marker, change priority, modify stability
+
+consequence:
+  court reaction, faction pressure, legitimacy change, future event chance
+```
+
+### Strategic Priorities Instead of Micromanagement
+
+The player should be able to set empire-wide priorities that bias autonomous behavior:
+
+```ts
+export type EmpirePriority =
+  | "balanced"
+  | "expand"
+  | "fortify"
+  | "conquer"
+  | "trade"
+  | "research"
+  | "convert"
+  | "stabilize"
+  | "survive";
+```
+
+Add to `Empire`:
+
+```ts
+playerPriority?: EmpirePriority;
+```
+
+The existing autonomous systems should read this as a modifier, not a hard override.
+
+Examples:
+
+```txt
+expand:
+  increases colonizer launch chance and survey ambient traffic
+
+fortify:
+  increases cohesion/stability behavior and patrols
+
+conquer:
+  increases war fleet chance and tension tolerance
+
+trade:
+  favors peace, trade routes, merchant traffic
+
+research:
+  increases breakthrough chance but costs wealth
+
+convert:
+  increases missionary/pilgrim traffic and religious pressure
+
+stabilize:
+  suppresses rebellion risk, slows expansion
+
+survive:
+  prioritizes peace, capital defense, cohesion, refugee absorption
+```
+
+### Court and Faction Reactions
+
+Empire control should use existing court characters.
+
+Characters should not just provide bonuses; they should react to player decisions.
+
+Examples:
+
+```txt
+admiral:
+  likes raids, conquest, fortification
+  dislikes repeated peace or military cuts
+
+minister:
+  likes trade, stability, wealth, consolidation
+  dislikes heavy war spending and purges
+
+prophet:
+  likes conversion, holy sites, crusades, state faith
+  dislikes tolerance of rival faiths
+
+pretender:
+  exploits low legitimacy, failed wars, purges, culture unrest
+```
+
+Add court reaction events:
+
+```txt
+Admiral Sava praised the campaign against Nox.
+Minister Iren warned that emergency taxation is breaking the capital.
+Prophet Olan denounced the toleration decree.
+Pretender Kael gathered support among the frontier worlds.
+```
+
+Low loyalty + low legitimacy should increase coup, pretender, and rebellion chances.
+
+### Command Consequences
+
+Player commands should create history.
+
+Examples:
+
+```txt
+Order raid:
+  launches fleet now
+  raises tension
+  may anger pacifist/ministers
+  may boost admiral renown
+  may create battlefield marker
+
+Suppress unrest:
+  raises short-term stability
+  lowers legitimacy
+  may create rebel-hotbed marker
+  may prevent immediate rebellion but worsen future revolt
+
+Grant autonomy:
+  raises stability on selected foreign-culture world
+  lowers central authority
+  may create autonomous-region marker
+  lowers rebellion chance
+
+Sponsor state faith:
+  increases conversion pressure
+  angers foreign-faith worlds
+  boosts prophet renown
+  may trigger schism/reform movement
+
+Move capital:
+  changes strategic center
+  costs legitimacy
+  old capital may gain dead-capital/resentful-core marker
+  new capital gains imperial-seat marker
+```
+
+### UI
+
+Add a clear mode switch:
+
+```txt
+Observer Mode
+Empire Control Mode
+God Controls
+```
+
+Empire control flow:
+
+1. Select empire.
+2. Click `Control Empire`.
+3. Camera follows controlled empire by default.
+4. Left/sidebar shows ruler panel:
+   - empire name
+   - ruler
+   - mood
+   - authority
+   - legitimacy
+   - active priority
+   - court figures
+   - active wars
+   - unstable systems
+   - suggested commands
+5. Clicking a star or rival empire reveals contextual commands.
+
+Examples:
+
+```txt
+Selected own system:
+  fortify
+  stabilize
+  move capital
+  sponsor faith
+  assimilate/tolerate culture
+
+Selected enemy border system:
+  raid
+  invade
+  denounce owner
+  claim world
+
+Selected neutral adjacent system:
+  sponsor colonization
+  survey
+
+Selected own fleet:
+  recall
+  reinforce
+  redirect if valid
+
+Selected rival empire:
+  propose peace
+  improve relations
+  provoke war
+  denounce
+```
+
+### AI Continues Running
+
+Even in empire control mode:
+
+- other empires remain autonomous
+- controlled empire still has autonomous baseline behavior
+- player priorities bias, not fully replace, autonomous behavior
+- court/faction systems can resist the player
+- low authority can block commands
+- low legitimacy can make commands backfire
+- collapse and coups can still happen
+
+The key feel is: the player is powerful, but not omnipotent.
+
+### Losing Control
+
+Empire control should support failure.
+
+The player can lose control if:
+
+- the empire collapses
+- a coup removes the ruler
+- the controlled empire transcends
+- pretenders win
+- all systems are conquered
+
+When that happens, offer:
+
+```txt
+return to observer
+continue as successor state
+continue as rebel faction
+choose another empire
+```
+
+This preserves the rise-and-fall fantasy instead of treating loss as game over.
+
+### Minimal First Version
+
+First implementation should be small:
+
+```txt
+- observer/empire mode switch
+- controlledEmpireId
+- authority + legitimacy
+- set empire priority
+- contextual commands:
+  - rally fleet
+  - fortify system
+  - stabilize system
+  - propose peace
+  - provoke war
+  - sponsor colonization
+- simple command costs/cooldowns
+- command events in history log
+- camera follow controlled empire
+```
+
+Do not implement full court/faction gameplay until the basic control loop feels good.
+
+## Phase 9: Preserve Strategic Clarity
 
 ### Risks
 
-This plan could accidentally clutter the map or slow the app.
+This plan could clutter the map, slow rendering, or turn the game into a traditional 4X.
 
 Mitigations:
 
@@ -565,14 +872,17 @@ Mitigations:
 - Do not clone large ambient objects into React every frame.
 - Canvas should read live state imperatively, like existing fleets.
 - UI snapshots can summarize counts, not every object.
+- Empire control commands should be broad and dramatic, not queue-based micromanagement.
+- Player priorities should bias autonomous behavior rather than replace it.
 
-### Suggested Caps
+Suggested caps:
 
 ```txt
 ambientShips <= numStars * 2
 worldMarkers <= numStars * 1.5
 markersPerSystem <= 4 visible, extra collapsed in inspector
 majorFloatingLabels <= 5 active
+contextualEmpireCommands <= 6 visible at once
 ```
 
 ## Files Likely Affected
@@ -588,6 +898,12 @@ Simulation lifecycle:
 - `src/sim/Events.ts`
 - `src/sim/Pathing.ts`
 
+New helpers:
+
+- `src/sim/Ambient.ts`
+- `src/sim/Markers.ts`
+- `src/sim/EmpireControl.ts`
+
 Existing systems to hook:
 
 - `src/sim/Trade.ts`
@@ -601,13 +917,15 @@ Rendering/UI:
 - canvas renderer files
 - `src/ui/InspectorPanel.tsx`
 - `src/ui/GalaxyPulse.tsx`
+- `src/ui/ControlPanel.tsx`
+- new empire-control panel/component
 - control/view options components
 
 Docs/tests:
 
 - `README.md`
 - headless report code
-- any save/load tests or fixtures
+- save/load tests or fixtures
 
 ## Suggested Build Order
 
@@ -671,7 +989,36 @@ Add:
 
 Add visible mood behaviors through ambient ships, markers, and render hints.
 
-### Step 7: Tune density
+### Step 7: Add minimal empire control
+
+Implement:
+
+- `controlledEmpireId`
+- observer/empire mode switch
+- authority + legitimacy
+- empire priority
+- rally fleet
+- fortify system
+- stabilize system
+- propose peace
+- provoke war
+- sponsor colonization
+- command costs/cooldowns
+- command events
+- camera follow controlled empire
+
+### Step 8: Add consequences and court reactions
+
+After the basic loop works:
+
+- court approval/disapproval
+- legitimacy swings
+- pretender pressure
+- faction/culture/religion backlash
+- command backfire events
+- continue as successor/rebel after collapse
+
+### Step 9: Tune density and performance
 
 Run headless milestones at 1,000 / 3,000 / 10,000 ticks.
 
@@ -684,11 +1031,13 @@ Track:
 - number of successor states
 - active wars
 - monster/crisis frequency
+- player command count if control mode is active
+- legitimacy/authority range
 - frame performance
 
 ## Success Criteria
 
-The change is successful when a passive observer can watch for a few minutes and say:
+The observer layer is successful when a passive observer can watch for a few minutes and say:
 
 ```txt
 That region is cursed.
@@ -701,18 +1050,29 @@ There are always little ships moving.
 The galaxy feels alive even when no major war is happening.
 ```
 
-The game should feel less like a clean strategic simulation and more like a strange living historical toy.
+The empire-control layer is successful when a player can take over an empire and say:
+
+```txt
+I saved this empire for a while.
+My conquest made the generals powerful.
+My crackdown created a worse rebellion later.
+My holy policy spread the faith but fractured the frontier.
+I lost the throne and continued as the successor state.
+I was steering history, not playing a separate 4X game.
+```
 
 ## Non-Goals
 
 - Do not copy Galimulator assets, names, exact text, or exact mechanics.
 - Do not turn the game into a full 4X.
+- Do not add production queues or deep micromanagement.
 - Do not make ambient ships strategically mandatory.
 - Do not overload the UI with dashboards.
 - Do not make every event important.
 - Do not sacrifice deterministic seeded simulation.
 - Do not move authoritative simulation state into React.
+- Do not make player empire control omnipotent.
 
 ## One-Sentence Summary
 
-Add an Ambient Life + Scars layer so existing systems leave visible motion, local weirdness, and persistent historical residue on the map.
+Add Ambient Life, Persistent Scars, and Empire Control so existing systems leave visible motion, local weirdness, historical residue, and playable ruler-level agency on the map.
