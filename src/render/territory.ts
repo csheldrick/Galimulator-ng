@@ -1,5 +1,7 @@
-import type { GalaxyState, Id } from "../types/sim";
+import type { GalaxyState, StarSystem } from "../types/sim";
 import { parseColorToRgb } from "./colors";
+
+export type MapMode = "empire" | "religion" | "wealth";
 
 // Resolution of the territory bitmap in world units per cell. Lower is
 // sharper but more expensive to rebuild.
@@ -7,6 +9,10 @@ const RES = 3;
 // How far a star's influence reaches; space beyond this stays black.
 const MAX_R = 42;
 const MARGIN = MAX_R + 8;
+
+// Unclaimed space inside the galaxy reads as dim slate, so the galaxy disc
+// has a visible shape against the void like Galimulator's neutral zones.
+const NEUTRAL_RGB: [number, number, number] = [88, 98, 112];
 
 export interface TerritoryBitmap {
   canvas: HTMLCanvasElement;
@@ -16,17 +22,44 @@ export interface TerritoryBitmap {
   worldH: number;
 }
 
-// Cheap signature of who owns what; the bitmap only rebuilds when it changes.
-export function ownershipKey(snap: Readonly<GalaxyState>): string {
-  let key = "";
-  for (const sys of Object.values(snap.systems)) key += (sys.ownerEmpireId ?? ".") + "|";
+function wealthHeat(sys: StarSystem): [string, [number, number, number]] {
+  // poor worlds cool blue, rich worlds hot gold
+  const v = Math.max(0, Math.min(1, (sys.population / 2 + sys.resources) / 2 + sys.techLevel * 0.12));
+  const bucket = Math.round(v * 10);
+  const r = Math.round(40 + 215 * v);
+  const g = Math.round(70 + 140 * v);
+  const b = Math.round(160 - 120 * v);
+  return [`w${bucket}`, [r, g, b]];
+}
+
+// Region group key + color for a system under the active map mode. Cells with
+// different keys get a bright border between them.
+function systemRegion(snap: Readonly<GalaxyState>, sys: StarSystem, mode: MapMode): { key: string; rgb: [number, number, number]; neutral: boolean } {
+  if (mode === "religion") {
+    const religion = sys.religionId ? snap.religions[sys.religionId] : null;
+    if (!religion) return { key: "none", rgb: NEUTRAL_RGB, neutral: true };
+    return { key: religion.id, rgb: parseColorToRgb(religion.color), neutral: false };
+  }
+  if (mode === "wealth") {
+    const [key, rgb] = wealthHeat(sys);
+    return { key, rgb, neutral: !sys.ownerEmpireId };
+  }
+  const emp = sys.ownerEmpireId ? snap.empires[sys.ownerEmpireId] : null;
+  if (!emp) return { key: "none", rgb: NEUTRAL_RGB, neutral: true };
+  return { key: emp.id, rgb: parseColorToRgb(emp.color), neutral: false };
+}
+
+// Cheap signature of the regions; the bitmap only rebuilds when it changes.
+export function ownershipKey(snap: Readonly<GalaxyState>, mode: MapMode): string {
+  let key = mode + "|";
+  for (const sys of Object.values(snap.systems)) key += systemRegion(snap, sys, mode).key + "|";
   return key;
 }
 
 // Nearest-star (Voronoi-style) region fill: every grid cell takes the color
-// of its closest star's owner, clipped to MAX_R, with brightened cells along
-// ownership borders so empires read as solid shapes with crisp edges.
-export function buildTerritoryBitmap(snap: Readonly<GalaxyState>): TerritoryBitmap | null {
+// of its closest star's region, clipped to MAX_R, with brightened cells along
+// region borders so empires read as solid shapes with crisp edges.
+export function buildTerritoryBitmap(snap: Readonly<GalaxyState>, mode: MapMode): TerritoryBitmap | null {
   const systems = Object.values(snap.systems);
   if (systems.length === 0) return null;
 
@@ -41,23 +74,34 @@ export function buildTerritoryBitmap(snap: Readonly<GalaxyState>): TerritoryBitm
   const W = Math.max(1, Math.ceil((maxX - minX) / RES));
   const H = Math.max(1, Math.ceil((maxY - minY) / RES));
 
-  const empireIds = Object.keys(snap.empires);
-  const empIndexById: Record<Id, number> = {};
-  const empRgb: Array<[number, number, number]> = [];
-  empireIds.forEach((id, i) => {
-    empIndexById[id] = i;
-    empRgb.push(parseColorToRgb(snap.empires[id].color));
+  // resolve each system's region once
+  const regionKeyOf: string[] = [];
+  const regionRgbOf: Array<[number, number, number]> = [];
+  const regionNeutralOf: boolean[] = [];
+  const regionIdxByKey = new Map<string, number>();
+  const regionIdxOfSystem = new Int32Array(systems.length);
+  systems.forEach((s, i) => {
+    const region = systemRegion(snap, s, mode);
+    let idx = regionIdxByKey.get(region.key);
+    if (idx === undefined) {
+      idx = regionKeyOf.length;
+      regionIdxByKey.set(region.key, idx);
+      regionKeyOf.push(region.key);
+      regionRgbOf.push(region.rgb);
+      regionNeutralOf.push(region.neutral);
+    }
+    regionIdxOfSystem[i] = idx;
   });
 
   const BUCKET = 64;
-  const buckets = new Map<string, typeof systems>();
-  for (const s of systems) {
+  const buckets = new Map<string, number[]>();
+  systems.forEach((s, i) => {
     const k = `${Math.floor(s.x / BUCKET)},${Math.floor(s.y / BUCKET)}`;
     const list = buckets.get(k);
-    if (list) list.push(s); else buckets.set(k, [s]);
-  }
+    if (list) list.push(i); else buckets.set(k, [i]);
+  });
 
-  const ownerIdx = new Int32Array(W * H).fill(-1);
+  const cellRegion = new Int32Array(W * H).fill(-1);
   const reach = Math.ceil(MAX_R / BUCKET);
   for (let gy = 0; gy < H; gy++) {
     const wy = minY + (gy + 0.5) * RES;
@@ -66,23 +110,20 @@ export function buildTerritoryBitmap(snap: Readonly<GalaxyState>): TerritoryBitm
       const wx = minX + (gx + 0.5) * RES;
       const bx = Math.floor(wx / BUCKET);
       let bestD = MAX_R * MAX_R;
-      let bestOwner: Id | null = null;
-      let found = false;
+      let bestSys = -1;
       for (let oy = -reach; oy <= reach; oy++) {
         for (let ox = -reach; ox <= reach; ox++) {
           const list = buckets.get(`${bx + ox},${by + oy}`);
           if (!list) continue;
-          for (const s of list) {
+          for (const i of list) {
+            const s = systems[i];
             const dx = s.x - wx, dy = s.y - wy;
             const d = dx * dx + dy * dy;
-            if (d < bestD) { bestD = d; bestOwner = s.ownerEmpireId; found = true; }
+            if (d < bestD) { bestD = d; bestSys = i; }
           }
         }
       }
-      if (found && bestOwner !== null) {
-        const idx = empIndexById[bestOwner];
-        if (idx !== undefined) ownerIdx[gy * W + gx] = idx;
-      }
+      if (bestSys >= 0) cellRegion[gy * W + gx] = regionIdxOfSystem[bestSys];
     }
   }
 
@@ -96,17 +137,29 @@ export function buildTerritoryBitmap(snap: Readonly<GalaxyState>): TerritoryBitm
   for (let gy = 0; gy < H; gy++) {
     for (let gx = 0; gx < W; gx++) {
       const i = gy * W + gx;
-      const owner = ownerIdx[i];
-      if (owner < 0) continue;
+      const region = cellRegion[i];
+      if (region < 0) continue;
       const isBorder =
-        (gx > 0 && ownerIdx[i - 1] !== owner) ||
-        (gx < W - 1 && ownerIdx[i + 1] !== owner) ||
-        (gy > 0 && ownerIdx[i - W] !== owner) ||
-        (gy < H - 1 && ownerIdx[i + W] !== owner);
-      const [r, g, b] = empRgb[owner];
+        (gx > 0 && cellRegion[i - 1] !== region && cellRegion[i - 1] >= 0) ||
+        (gx < W - 1 && cellRegion[i + 1] !== region && cellRegion[i + 1] >= 0) ||
+        (gy > 0 && cellRegion[i - W] !== region && cellRegion[i - W] >= 0) ||
+        (gy < H - 1 && cellRegion[i + W] !== region && cellRegion[i + W] >= 0);
+      const isEdge =
+        (gx > 0 && cellRegion[i - 1] < 0) || (gx < W - 1 && cellRegion[i + 1] < 0) ||
+        (gy > 0 && cellRegion[i - W] < 0) || (gy < H - 1 && cellRegion[i + W] < 0);
+      const [r, g, b] = regionRgbOf[region];
+      const neutral = regionNeutralOf[region];
       const p = i * 4;
-      data[p] = r; data[p + 1] = g; data[p + 2] = b;
-      data[p + 3] = isBorder ? 215 : 92;
+      if (isBorder && !neutral) {
+        // bright, slightly whitened ridge between regions
+        data[p] = Math.min(255, r + (255 - r) * 0.35);
+        data[p + 1] = Math.min(255, g + (255 - g) * 0.35);
+        data[p + 2] = Math.min(255, b + (255 - b) * 0.35);
+        data[p + 3] = 245;
+      } else {
+        data[p] = r; data[p + 1] = g; data[p + 2] = b;
+        data[p + 3] = neutral ? 52 : isEdge ? 110 : 158;
+      }
     }
   }
   ctx.putImageData(img, 0, 0);

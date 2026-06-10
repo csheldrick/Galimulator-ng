@@ -7,6 +7,10 @@ export function resetEventCounter(): void {
   _eventCounter = 0;
 }
 
+// Saved games restore the counter so event ids keep incrementing without collisions.
+export function getEventCounter(): number { return _eventCounter; }
+export function setEventCounter(value: number): void { _eventCounter = Math.max(0, Math.floor(value)); }
+
 export function createEvent(
   state: GalaxyState,
   tick: number,

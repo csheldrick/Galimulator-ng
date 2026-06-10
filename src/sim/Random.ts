@@ -39,4 +39,7 @@ export class SeededRandom implements PRNG {
     c.state = this.state;
     return c;
   }
+
+  getState(): number { return this.state; }
+  setState(state: number): void { this.state = (state >>> 0) || 0x9e3779b9; }
 }

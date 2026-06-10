@@ -7,6 +7,8 @@ export interface PRNG {
   range(min: number, max: number): number;
   pick<T>(items: readonly T[]): T;
   clone(): PRNG;
+  getState(): number;
+  setState(state: number): void;
 }
 
 export type EventType =
@@ -21,7 +23,17 @@ export type EventType =
   | "technology-breakthrough"
   | "succession"
   | "mood-shift"
-  | "transcended";
+  | "transcended"
+  | "religion-founded"
+  | "religion-adopted"
+  | "trade-established"
+  | "trade-severed"
+  | "monster-spawned"
+  | "monster-attack"
+  | "monster-slain"
+  | "artifact-discovered"
+  | "galactic-crisis"
+  | "coup";
 
 export interface SimEvent {
   id: Id;
@@ -45,6 +57,9 @@ export interface StarSystem {
   stability: number;
   ownerEmpireId: Id | null;
   cultureId: Id;
+  religionId: Id | null;
+  /** Name of a precursor artifact buried here, if any. */
+  artifactName: string | null;
   techLevel: number;
   recentEventIds: Id[];
   connectedSystemIds: Id[];
@@ -52,10 +67,14 @@ export interface StarSystem {
 
 export type FleetKind = "colonizer" | "war" | "patrol";
 
+/** Ship class shapes speed/strength tradeoffs and the glyph on the map. */
+export type ShipClass = "settler" | "raider" | "strike" | "armada";
+
 export interface Fleet {
   id: Id;
   name: string;
   kind: FleetKind;
+  shipClass: ShipClass;
   ownerEmpireId: Id;
   originSystemId: Id;
   targetSystemId: Id;
@@ -92,6 +111,14 @@ export type EmpireMood =
   | "crusading"
   | "transcending";
 
+export type Ideology =
+  | "militarist"
+  | "pacifist"
+  | "spiritualist"
+  | "materialist"
+  | "expansionist"
+  | "isolationist";
+
 export interface Ruler {
   name: string;
   title: string;
@@ -100,12 +127,49 @@ export interface Ruler {
   accessionTick: number;
 }
 
+export interface Religion {
+  id: Id;
+  name: string;
+  color: string;
+  foundedTick: number;
+  holySystemId: Id;
+}
+
+export interface TradeRoute {
+  id: Id;
+  empireAId: Id;
+  empireBId: Id;
+  systemAId: Id;
+  systemBId: Id;
+  establishedTick: number;
+}
+
+export type MonsterKind = "leviathan" | "wraith" | "swarm";
+
+export interface Monster {
+  id: Id;
+  name: string;
+  kind: MonsterKind;
+  /** Lane route currently being followed, like a fleet. */
+  path: Id[];
+  legIndex: number;
+  legProgress: number;
+  x: number;
+  y: number;
+  speed: number;
+  hp: number;
+  maxHp: number;
+  strength: number;
+  spawnedTick: number;
+}
+
 export interface Empire {
   id: Id;
   name: string;
   color: string;
   mood: EmpireMood;
   moodSince: number;
+  ideology: Ideology;
   ruler: Ruler;
   capitalSystemId: Id;
   ownedSystemIds: Id[];
@@ -117,6 +181,7 @@ export interface Empire {
   expansionism: number;
   techLevel: number;
   cultureId: Id;
+  stateReligionId: Id | null;
   relationshipByEmpireId: Record<Id, EmpireRelationship>;
   activeWarEmpireIds: Id[];
   historicalEventIds: Id[];
@@ -128,6 +193,9 @@ export interface GalaxyState {
   systems: Record<Id, StarSystem>;
   empires: Record<Id, Empire>;
   fleets: Record<Id, Fleet>;
+  religions: Record<Id, Religion>;
+  tradeRoutes: Record<Id, TradeRoute>;
+  monsters: Record<Id, Monster>;
   events: Record<Id, SimEvent>;
   eventLog: Id[];
 }
@@ -137,4 +205,13 @@ export interface SimSettings {
   numStars: number;
   numEmpires: number;
   ticksPerSecond: number;
+}
+
+/** Saved-game envelope; rngState lets a loaded galaxy continue deterministically. */
+export interface SaveFile {
+  version: number;
+  settings: SimSettings;
+  rngState: number;
+  eventCounter: number;
+  state: GalaxyState;
 }

@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { GalaxyState, Id, SimSettings } from "../types/sim";
 import type { ViewOptions } from "../render/GalaxyCanvas";
-import { MOOD_LABEL, MOOD_COLOR, rulerDisplayName } from "../sim/Moods";
+import type { MapMode } from "../render/territory";
+import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 
 type EmpireSort = "systems" | "population" | "military" | "tech" | "wars" | "name";
 
@@ -18,6 +19,7 @@ interface Props {
   onResetCamera: () => void;
   onExportJson: () => void;
   onExportReport: () => void;
+  onImportSave: (text: string) => void;
   onSelectEmpire: (id: Id) => void;
   settings: SimSettings;
   onSettingsChange: (s: Partial<SimSettings>) => void;
@@ -40,6 +42,7 @@ export function ControlPanel({
   onResetCamera,
   onExportJson,
   onExportReport,
+  onImportSave,
   onSelectEmpire,
   settings,
   onSettingsChange,
@@ -48,6 +51,7 @@ export function ControlPanel({
 }: Props) {
   const [empireQuery, setEmpireQuery] = useState("");
   const [empireSort, setEmpireSort] = useState<EmpireSort>("systems");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const empires = Object.values(snapshot.empires);
   const systems = Object.values(snapshot.systems);
   const fleets = Object.values(snapshot.fleets);
@@ -99,7 +103,7 @@ export function ControlPanel({
             <b>{selectedEmpire.name}</b>
             <span className="mood-badge" style={{ color: MOOD_COLOR[selectedEmpire.mood] }}>{MOOD_LABEL[selectedEmpire.mood]}</span>
           </div>
-          <div className="selected-empire-ruler">{rulerDisplayName(selectedEmpire)}</div>
+          <div className="selected-empire-ruler">{rulerDisplayName(selectedEmpire)} · <span style={{ color: IDEOLOGY_COLOR[selectedEmpire.ideology] }}>{IDEOLOGY_LABEL[selectedEmpire.ideology]}</span></div>
           <div className="selected-empire-stats">
             <span>{selectedEmpire.ownedSystemIds.length} systems</span>
             <span>{fmt(selectedEmpire.population / 1000)}K pop</span>
@@ -123,6 +127,14 @@ export function ControlPanel({
       </div>
 
       <div className="section-title">View</div>
+      <div className="control-row">
+        <label>Map</label>
+        <select style={{ flex: 1 }} value={viewOptions.mapMode} onChange={e => onViewOptionsChange({ ...viewOptions, mapMode: e.target.value as MapMode })}>
+          <option value="empire">Empires</option>
+          <option value="religion">Religions</option>
+          <option value="wealth">Wealth</option>
+        </select>
+      </div>
       <div className="toggle-grid">
         <label><input type="checkbox" checked={viewOptions.territory} onChange={e => setView("territory", e.target.checked)} /> Territory</label>
         <label><input type="checkbox" checked={viewOptions.lanes} onChange={e => setView("lanes", e.target.checked)} /> Lanes</label>
@@ -130,13 +142,30 @@ export function ControlPanel({
         <label><input type="checkbox" checked={viewOptions.wars} onChange={e => setView("wars", e.target.checked)} /> Wars</label>
         <label><input type="checkbox" checked={viewOptions.events} onChange={e => setView("events", e.target.checked)} /> Events</label>
         <label><input type="checkbox" checked={viewOptions.fleets} onChange={e => setView("fleets", e.target.checked)} /> Fleets</label>
+        <label><input type="checkbox" checked={viewOptions.trade} onChange={e => setView("trade", e.target.checked)} /> Trade</label>
+        <label><input type="checkbox" checked={viewOptions.monsters} onChange={e => setView("monsters", e.target.checked)} /> Monsters</label>
       </div>
 
-      <div className="section-title">Export</div>
+      <div className="section-title">Save / Load</div>
       <div className="btn-row">
-        <button onClick={onExportJson}>JSON</button>
+        <button onClick={onExportJson}>Save</button>
+        <button onClick={() => fileInputRef.current?.click()}>Load</button>
         <button onClick={onExportReport}>Report</button>
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,application/json"
+        style={{ display: "none" }}
+        onChange={e => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => { if (typeof reader.result === "string") onImportSave(reader.result); };
+          reader.readAsText(file);
+        }}
+      />
 
       <div className="section-title">Settings</div>
       <div className="control-row"><label>Speed</label><input type="range" min={1} max={20} step={1} value={settings.ticksPerSecond} onChange={e => onSettingsChange({ ticksPerSecond: Number(e.target.value) })} /><span>{settings.ticksPerSecond}x</span></div>

@@ -7,11 +7,11 @@ import { ControlPanel } from "../ui/ControlPanel";
 import { InspectorPanel } from "../ui/InspectorPanel";
 import { GalaxyPulse } from "../ui/GalaxyPulse";
 import { EventLog } from "../ui/EventLog";
-import { MOOD_LABEL, rulerDisplayName } from "../sim/Moods";
+import { MOOD_LABEL, IDEOLOGY_LABEL, rulerDisplayName } from "../sim/Moods";
 import "./App.css";
 
 const DEFAULT_SETTINGS: SimSettings = { seed: 42, numStars: 400, numEmpires: 12, ticksPerSecond: 4 };
-const DEFAULT_VIEW: ViewOptions = { territory: true, lanes: true, labels: true, wars: true, events: true, fleets: true };
+const DEFAULT_VIEW: ViewOptions = { territory: true, lanes: true, labels: true, wars: true, events: true, fleets: true, trade: true, monsters: true, mapMode: "empire" };
 
 function downloadText(filename: string, content: string, type = "text/plain") {
   const blob = new Blob([content], { type });
@@ -31,14 +31,22 @@ function buildReport(snapshot: Readonly<GalaxyState>): string {
   const wars = new Set<string>();
   for (const e of empires) for (const w of e.activeWarEmpireIds) wars.add([e.id, w].sort().join("~"));
   const events = [...snapshot.eventLog].slice(-80).map(id => snapshot.events[id]).filter(Boolean);
+  const religions = Object.values(snapshot.religions).map(r => {
+    const followers = systems.filter(s => s.religionId === r.id).length;
+    return { r, followers };
+  }).sort((a, b) => b.followers - a.followers);
   return [
     `# galimulator-ng history report`, ``,
     `Seed: ${snapshot.seed}`, `Tick: ${snapshot.tick}`, `Systems: ${systems.length}`,
     `Owned systems: ${systems.filter(s => s.ownerEmpireId).length}`,
     `Empires: ${empires.length}`, `Active wars: ${wars.size}`,
-    `Fleets in transit: ${Object.keys(snapshot.fleets).length}`, ``,
+    `Fleets in transit: ${Object.keys(snapshot.fleets).length}`,
+    `Trade routes: ${Object.keys(snapshot.tradeRoutes).length}`,
+    `Monsters at large: ${Object.keys(snapshot.monsters).length}`, ``,
     `## Leading empires`,
-    ...empires.slice(0, 12).map((e, i) => `${i + 1}. ${e.name} — ${e.ownedSystemIds.length} systems, ${MOOD_LABEL[e.mood].toLowerCase()}, ruled by ${rulerDisplayName(e)} of the ${e.ruler.dynasty} dynasty, pop ${Math.round(e.population)}, tech ${e.techLevel.toFixed(2)}, cohesion ${e.cohesion.toFixed(2)}`),
+    ...empires.slice(0, 12).map((e, i) => `${i + 1}. ${e.name} — ${e.ownedSystemIds.length} systems, ${MOOD_LABEL[e.mood].toLowerCase()}, ${IDEOLOGY_LABEL[e.ideology].toLowerCase()}, ruled by ${rulerDisplayName(e)} of the ${e.ruler.dynasty} dynasty, pop ${Math.round(e.population)}, tech ${e.techLevel.toFixed(2)}, cohesion ${e.cohesion.toFixed(2)}`),
+    ``, `## Faiths`,
+    ...religions.map(({ r, followers }) => `- ${r.name} — ${followers} worlds (holy world: ${snapshot.systems[r.holySystemId]?.name ?? "lost"})`),
     ``, `## Recent history`, ...events.map(ev => `- [${ev.tick}] ${ev.title}: ${ev.description}`), ``,
   ].join("\n");
 }
@@ -103,12 +111,22 @@ export default function App() {
     setSelectedFleetId(null);
   }, [sim, withRefresh]);
 
-  const handleExportJson = useCallback(() => { const snap = sim.getSnapshot(); downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.json`, JSON.stringify(snap, null, 2), "application/json"); }, [sim]);
+  const handleExportJson = useCallback(() => { const snap = sim.getSnapshot(); downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.json`, sim.exportSave(), "application/json"); }, [sim]);
   const handleExportReport = useCallback(() => { const snap = sim.getSnapshot(); downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.md`, buildReport(snap), "text/markdown"); }, [sim]);
+
+  const handleImportSave = useCallback((text: string) => {
+    const error = sim.importSave(text);
+    if (error) { window.alert(error); return; }
+    setRunning(false);
+    setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedFleetId(null); setSelectedEventId(null);
+    setSettings(sim.getSettings());
+    setResetCameraToken(t => t + 1);
+    refreshSnapshot();
+  }, [sim, refreshSnapshot]);
 
   return (
     <div className="app-layout">
-      <ControlPanel snapshot={snapshot} selectedEmpireId={selectedEmpireId} running={running} onStart={handleStart} onPause={handlePause} onStep={handleStep} onRunTicks={handleRunTicks} onReset={handleReset} onNewSeed={handleNewSeed} onResetCamera={() => setResetCameraToken(t => t + 1)} onExportJson={handleExportJson} onExportReport={handleExportReport} onSelectEmpire={handleSelectEmpire} settings={settings} onSettingsChange={handleSettingsChange} viewOptions={viewOptions} onViewOptionsChange={setViewOptions} />
+      <ControlPanel snapshot={snapshot} selectedEmpireId={selectedEmpireId} running={running} onStart={handleStart} onPause={handlePause} onStep={handleStep} onRunTicks={handleRunTicks} onReset={handleReset} onNewSeed={handleNewSeed} onResetCamera={() => setResetCameraToken(t => t + 1)} onExportJson={handleExportJson} onExportReport={handleExportReport} onImportSave={handleImportSave} onSelectEmpire={handleSelectEmpire} settings={settings} onSettingsChange={handleSettingsChange} viewOptions={viewOptions} onViewOptionsChange={setViewOptions} />
       <div className="canvas-area">
         <GalaxyCanvas simulation={sim} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} viewOptions={viewOptions} resetCameraToken={resetCameraToken} onSelectSystem={handleSelectSystem} onSelectEmpire={setSelectedEmpireId} onSelectFleet={handleSelectFleet} />
       </div>

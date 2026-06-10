@@ -13,6 +13,16 @@ const LABELS: Record<string, string> = {
   "succession": "Successions",
   "mood-shift": "Mood Shifts",
   "transcended": "Transcended",
+  "religion-founded": "New Faiths",
+  "religion-adopted": "Conversions",
+  "trade-established": "Trade Pacts",
+  "trade-severed": "Trade Cuts",
+  "monster-spawned": "Monsters",
+  "monster-attack": "Rampages",
+  "monster-slain": "Slayings",
+  "artifact-discovered": "Artifacts",
+  "galactic-crisis": "Crises",
+  "coup": "Coups",
 };
 
 interface Props { snapshot: Readonly<GalaxyState>; }
@@ -57,6 +67,12 @@ export function GalaxyPulse({ snapshot }: Props) {
         <div><b>{fleets.filter(f => f.kind === "war").length}</b><span>warships</span></div>
         <div><b>{avgCohesion.toFixed(2)}</b><span>cohesion</span></div>
         <div><b>{empires.length}</b><span>powers</span></div>
+      </div>
+      <div className="pulse-grid compact">
+        <div><b>{Object.keys(snapshot.tradeRoutes).length}</b><span>trade</span></div>
+        <div><b>{Object.keys(snapshot.monsters).length}</b><span>monsters</span></div>
+        <div><b>{Object.keys(snapshot.religions).length}</b><span>faiths</span></div>
+        <div><b>{Object.values(snapshot.systems).filter(s => s.artifactName).length}</b><span>relics</span></div>
       </div>
       <div className="pulse-bars">
         {topCounts.map(([type, count]) => {
