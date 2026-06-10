@@ -8,6 +8,14 @@ function dist(a: StarSystem, b: StarSystem): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
+function fleetName(kind: FleetKind, empire: Empire, target: StarSystem, rng: PRNG): string {
+  const prefix = kind === "war" ? rng.pick(["Spear", "Hammer", "Vanguard", "Dagger", "Iron"])
+    : rng.pick(["Hope", "Horizon", "Seed", "Dawn", "Pilgrim"]);
+  const suffix = kind === "war" ? rng.pick(["Strike Fleet", "Battle Group", "Expedition", "Armada"])
+    : rng.pick(["Colony Fleet", "Settler Wing", "Migration", "Expedition"]);
+  return `${prefix} ${suffix} to ${target.name}`;
+}
+
 function findNearestUnowned(state: GalaxyState, empire: Empire, maxDist: number): StarSystem | null {
   let best: StarSystem | null = null;
   let bestScore = -Infinity;
@@ -72,6 +80,7 @@ function launchFleet(state: GalaxyState, empire: Empire, origin: StarSystem, tar
   const id = `fleet-${state.tick}-${Object.keys(state.fleets).length}-${rng.nextInt(0, 9999)}`;
   const fleet: Fleet = {
     id,
+    name: fleetName(kind, empire, target, rng),
     kind,
     ownerEmpireId: empire.id,
     originSystemId: origin.id,
@@ -184,10 +193,7 @@ function stepFleets(state: GalaxyState, rng: PRNG): void {
     const origin = state.systems[fleet.originSystemId];
     const target = state.systems[fleet.targetSystemId];
     const owner = state.empires[fleet.ownerEmpireId];
-    if (!origin || !target || !owner) {
-      delete state.fleets[fleet.id];
-      continue;
-    }
+    if (!origin || !target || !owner) { delete state.fleets[fleet.id]; continue; }
     fleet.progress = Math.min(1, fleet.progress + fleet.speed);
     fleet.x = origin.x + (target.x - origin.x) * fleet.progress;
     fleet.y = origin.y + (target.y - origin.y) * fleet.progress;
@@ -208,7 +214,7 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
     target.cultureId = owner.cultureId;
     owner.ownedSystemIds.push(target.id);
     target.stability = Math.max(target.stability, 0.55);
-    createEvent(state, state.tick, "system-colonized", `${owner.name} colonized ${target.name}`, `${owner.name} sent a colony fleet to ${target.name}.`, 1, [owner.id], [target.id]);
+    createEvent(state, state.tick, "system-colonized", `${owner.name} colonized ${target.name}`, `${fleet.name} arrived and founded a colony for ${owner.name}.`, 1, [owner.id], [target.id]);
     return;
   }
 
@@ -230,20 +236,17 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
       owner.cohesion = Math.min(1, owner.cohesion + 0.01);
       defender.cohesion = Math.max(0.1, defender.cohesion - 0.05);
       if (defender.capitalSystemId === target.id && defender.ownedSystemIds.length > 0) defender.capitalSystemId = defender.ownedSystemIds[0];
-      createEvent(state, state.tick, "border-conflict", `${owner.name} captured ${target.name}`, `${owner.name} seized ${target.name} after a fleet assault on ${defender.name}.`, 3, [owner.id, defenderId], [target.id]);
+      createEvent(state, state.tick, "border-conflict", `${owner.name} captured ${target.name}`, `${fleet.name} seized ${target.name} from ${defender.name}.`, 3, [owner.id, defenderId], [target.id]);
     } else {
       owner.cohesion = Math.max(0.1, owner.cohesion - 0.02);
-      createEvent(state, state.tick, "border-conflict", `${owner.name} failed at ${target.name}`, `${defender.name} repelled a fleet assault from ${owner.name}.`, 2, [owner.id, defenderId], [target.id]);
+      createEvent(state, state.tick, "border-conflict", `${owner.name} failed at ${target.name}`, `${fleet.name} was repelled by ${defender.name}.`, 2, [owner.id, defenderId], [target.id]);
     }
   }
 }
 
 function stepCollapse(state: GalaxyState, rng: PRNG): void {
   for (const emp of Object.values(state.empires)) {
-    if (emp.ownedSystemIds.length === 0) {
-      collapseEmpire(state, emp);
-      continue;
-    }
+    if (emp.ownedSystemIds.length === 0) { collapseEmpire(state, emp); continue; }
     const overextension = Math.max(0, emp.ownedSystemIds.length - 15) * 0.005;
     const warStrain = emp.activeWarEmpireIds.length * 0.02;
     const collapseRisk = (1 - emp.cohesion) * 0.05 + overextension + warStrain;
@@ -309,9 +312,7 @@ function collapseEmpire(state: GalaxyState, empire: Empire): void {
     delete other.relationshipByEmpireId[empire.id];
     other.activeWarEmpireIds = other.activeWarEmpireIds.filter(id => id !== empire.id);
   }
-  for (const fleet of Object.values(state.fleets)) {
-    if (fleet.ownerEmpireId === empire.id) delete state.fleets[fleet.id];
-  }
+  for (const fleet of Object.values(state.fleets)) if (fleet.ownerEmpireId === empire.id) delete state.fleets[fleet.id];
 }
 
 export function executeTick(state: GalaxyState, rng: PRNG): void {
