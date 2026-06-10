@@ -2,7 +2,7 @@
 
 A browser-based real-time galaxy civilization sandbox inspired by the observer-driven feel of Galimulator.
 
-The simulation generates a seeded galaxy, spawns autonomous empires, and lets galactic history unfold through expansion, war, peace, rebellion, collapse, golden ages, and technological breakthroughs.
+The simulation generates a seeded galaxy, spawns autonomous empires, and lets galactic history unfold through expansion, fleet travel, war, peace, rebellion, collapse, golden ages, and technological breakthroughs.
 
 ## Run
 
@@ -38,7 +38,9 @@ Implemented:
 - Procedural star/system names
 - Initial empire spawning on high-habitability systems
 - Empire colors, traits, cohesion, aggression, expansionism, wealth, military, technology
-- Autonomous system colonization
+- Autonomous colony fleet launching
+- Autonomous war fleet launching
+- Fleet travel, arrival, colonization, and assault resolution
 - Passive population, stability, wealth, and military updates
 - Neighbor detection
 - Relationship/tension model
@@ -63,12 +65,16 @@ Implemented:
 - Speed, star count, empire count, and seed controls
 - Camera reset
 - Galaxy stats cards
-- Top empire ranking
+- Full empire navigation in the left sidebar
+- Empire search and sort modes
+- Selected empire summary card
+- Galaxy Pulse activity panel
 - View toggles:
   - territory halos
   - labels
   - war lines
   - event flashes
+  - fleets
 - Clickable systems
 - Empire inspector
 - System inspector
@@ -101,7 +107,7 @@ Empire controls:
 - Drag: pan
 - Mouse wheel: zoom
 - Click star: inspect system
-- Click empire in panel: inspect empire
+- Click empire in left sidebar: inspect empire
 - Click event: jump to related system or empire
 
 ## Architecture
@@ -111,11 +117,13 @@ Simulation class
   owns mutable GalaxyState
   owns seeded PRNG
   advances only through deterministic ticks
+  owns systems, empires, fleets, events
   exposes immutable snapshots
 
 Canvas renderer
   requestAnimationFrame loop
   reads snapshots directly
+  draws systems, territories, wars, fleets, events, labels
   does not mutate simulation state
 
 React UI
@@ -148,6 +156,7 @@ Complete.
 - neighboring empires
 - tension model
 - war declarations
+- fleet-based war missions
 - simple war outcomes
 - territory changes
 - event logging
@@ -156,7 +165,7 @@ Complete.
 
 ### Milestone 3: Collapse and emergence
 
-Complete for the initial sandbox scope.
+Complete for the current sandbox scope.
 
 - cohesion/stability model
 - rebellions
@@ -173,26 +182,30 @@ Substantially complete for Canvas 2D scope.
 - territory halos
 - selected empire highlighting
 - war overlays
+- fleet routes and moving fleet glyphs
 - event flashes
 - capital labels
 - optional labels
 - hover tooltip
 
-## Intentionally deferred
+## Next Galimulator-like depth targets
 
-These are future depth features, not missing from the current milestone scope:
+These are the next areas that would make it feel much closer to Galimulator rather than simply a polished observer sim:
 
+- ships/fleets with names and selectable inspectors
+- multiple fleet classes
+- leaders/rulers
 - religions
 - ideologies
 - internal politics
 - dynasty/leader simulation
-- deep culture drift
-- economy/trade routes
-- complex technologies
+- culture drift
+- trade routes
+- special galactic events
+- weird artifacts / monsters / crises
 - save-file rehydration with PRNG continuation
-- WebGL renderer
 - mobile/touch-optimized controls
-- actual Galimulator content/assets
+- actual Galimulator content/assets should not be copied
 
 ## Design rule
 
