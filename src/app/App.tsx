@@ -22,6 +22,44 @@ const DEFAULT_VIEW: ViewOptions = {
   events: true,
 };
 
+function downloadText(filename: string, content: string, type = "text/plain") {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function buildReport(snapshot: Readonly<GalaxyState>): string {
+  const empires = Object.values(snapshot.empires).sort((a, b) => b.ownedSystemIds.length - a.ownedSystemIds.length);
+  const systems = Object.values(snapshot.systems);
+  const wars = new Set<string>();
+  for (const e of empires) for (const w of e.activeWarEmpireIds) wars.add([e.id, w].sort().join("~"));
+  const events = [...snapshot.eventLog].slice(-80).map(id => snapshot.events[id]).filter(Boolean);
+
+  return [
+    `# galimulator-ng history report`,
+    ``,
+    `Seed: ${snapshot.seed}`,
+    `Tick: ${snapshot.tick}`,
+    `Systems: ${systems.length}`,
+    `Owned systems: ${systems.filter(s => s.ownerEmpireId).length}`,
+    `Empires: ${empires.length}`,
+    `Active wars: ${wars.size}`,
+    ``,
+    `## Leading empires`,
+    ...empires.slice(0, 12).map((e, i) => `${i + 1}. ${e.name} — ${e.ownedSystemIds.length} systems, pop ${Math.round(e.population)}, tech ${e.techLevel.toFixed(2)}, cohesion ${e.cohesion.toFixed(2)}`),
+    ``,
+    `## Recent history`,
+    ...events.map(ev => `- [${ev.tick}] ${ev.title}: ${ev.description}`),
+    ``,
+  ].join("\n");
+}
+
 export default function App() {
   const [sim] = useState(() => new Simulation(DEFAULT_SETTINGS));
   const [snapshot, setSnapshot] = useState<Readonly<GalaxyState>>(
@@ -138,6 +176,16 @@ export default function App() {
     setSelectedEmpireId(systemId ? (snapshot.systems[systemId]?.ownerEmpireId ?? empireId ?? null) : (empireId ?? null));
   }, [snapshot]);
 
+  const handleExportJson = useCallback(() => {
+    const snap = sim.getSnapshot();
+    downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.json`, JSON.stringify(snap, null, 2), "application/json");
+  }, [sim]);
+
+  const handleExportReport = useCallback(() => {
+    const snap = sim.getSnapshot();
+    downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.md`, buildReport(snap), "text/markdown");
+  }, [sim]);
+
   return (
     <div className="app-layout">
       <ControlPanel
@@ -150,6 +198,8 @@ export default function App() {
         onReset={handleReset}
         onNewSeed={handleNewSeed}
         onResetCamera={() => setResetCameraToken(t => t + 1)}
+        onExportJson={handleExportJson}
+        onExportReport={handleExportReport}
         settings={settings}
         onSettingsChange={handleSettingsChange}
         viewOptions={viewOptions}
