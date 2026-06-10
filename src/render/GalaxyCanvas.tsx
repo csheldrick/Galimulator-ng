@@ -112,7 +112,7 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
   const pinchRef = useRef<{ dist: number } | null>(null);
   const hoverRef = useRef<Id | null>(null);
   const zoomAnimRef = useRef<{ target: number; wx: number; wy: number; cx: number; cy: number } | null>(null);
-  const territoryRef = useRef<{ key: string; bitmap: TerritoryBitmap | null; lastBuild: number; lastSnap: unknown }>({ key: "", bitmap: null, lastBuild: 0, lastSnap: null });
+  const territoryRef = useRef<{ key: string; bitmap: TerritoryBitmap | null; lastBuild: number; lastRevision: number; lastMode: MapMode }>({ key: "", bitmap: null, lastBuild: 0, lastRevision: -1, lastMode: "empire" });
 
   useEffect(() => { camRef.current = { x: 600, y: 450, zoom: 0.8 }; zoomAnimRef.current = null; }, [resetCameraToken]);
 
@@ -126,7 +126,7 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
       const dpr = window.devicePixelRatio || 1;
       const w = canvas!.width / dpr, h = canvas!.height / dpr, cam = camRef.current;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const snap = simulation.getSnapshot();
+      const snap = simulation.getLiveState();
       const selectedEmpire = selectedEmpireId ? snap.empires[selectedEmpireId] : null;
       const now = performance.now();
 
@@ -145,8 +145,12 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
 
       if (viewOptions.territory) {
         const cache = territoryRef.current;
-        if (cache.lastSnap !== snap) {
-          cache.lastSnap = snap;
+        // Only re-derive ownership when the sim actually advanced or the map mode
+        // changed — not every animation frame — so panning/zooming stays cheap.
+        const revision = simulation.getRevision();
+        if (revision !== cache.lastRevision || viewOptions.mapMode !== cache.lastMode) {
+          cache.lastRevision = revision;
+          cache.lastMode = viewOptions.mapMode;
           const key = ownershipKey(snap, viewOptions.mapMode);
           if (key !== cache.key && now - cache.lastBuild > 100) {
             cache.key = key;
@@ -415,7 +419,7 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
 
   const findFleetAt = useCallback((cx: number, cy: number): Id | null => {
     const canvas = canvasRef.current; if (!canvas) return null;
-    const snap = simulation.getSnapshot(); const cam = camRef.current; const w = canvas.offsetWidth, h = canvas.offsetHeight;
+    const snap = simulation.getLiveState(); const cam = camRef.current; const w = canvas.offsetWidth, h = canvas.offsetHeight;
     let best: Id | null = null; let bestD = 14;
     for (const fleet of Object.values(snap.fleets)) {
       const [sx, sy] = worldToScreen(fleet.x, fleet.y, cam, w, h);
@@ -427,7 +431,7 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
 
   const findSystemAt = useCallback((cx: number, cy: number): Id | null => {
     const canvas = canvasRef.current; if (!canvas) return null;
-    const snap = simulation.getSnapshot(); const cam = camRef.current; const w = canvas.offsetWidth, h = canvas.offsetHeight;
+    const snap = simulation.getLiveState(); const cam = camRef.current; const w = canvas.offsetWidth, h = canvas.offsetHeight;
     let best: Id | null = null; let bestD = 16;
     for (const sys of Object.values(snap.systems)) {
       const [sx, sy] = worldToScreen(sys.x, sys.y, cam, w, h);
@@ -506,13 +510,13 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
     const [cx, cy] = localPos(e);
     const fleetId = viewOptions.fleets ? findFleetAt(cx, cy) : null;
     if (fleetId) {
-      const snap = simulation.getSnapshot(); const fleet = snap.fleets[fleetId];
+      const snap = simulation.getLiveState(); const fleet = snap.fleets[fleetId];
       onSelectFleet(fleetId); onSelectSystem(null); onSelectEmpire(fleet?.ownerEmpireId ?? null); return;
     }
     const sysId = findSystemAt(cx, cy);
     if (sysId) {
       onSelectFleet(null); onSelectSystem(sysId);
-      const snap = simulation.getSnapshot(); const sys = snap.systems[sysId];
+      const snap = simulation.getLiveState(); const sys = snap.systems[sysId];
       if (sys?.ownerEmpireId) onSelectEmpire(sys.ownerEmpireId); else onSelectEmpire(null);
     } else { onSelectFleet(null); onSelectSystem(null); onSelectEmpire(null); }
   }, [simulation, viewOptions.fleets, findFleetAt, findSystemAt, onSelectSystem, onSelectEmpire, onSelectFleet]);
