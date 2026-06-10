@@ -18,6 +18,9 @@ const TYPE_COLORS: Record<string, string> = {
   "rebellion": "#e9c46a",
   "golden-age": "#ffd166",
   "technology-breakthrough": "#6a4c93",
+  "succession": "#c8b6ff",
+  "mood-shift": "#90e0ef",
+  "transcended": "#f9f871",
 };
 
 export function EventLog({

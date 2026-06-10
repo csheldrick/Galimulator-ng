@@ -10,6 +10,9 @@ const LABELS: Record<string, string> = {
   "rebellion": "Rebellions",
   "golden-age": "Golden Ages",
   "technology-breakthrough": "Tech",
+  "succession": "Successions",
+  "mood-shift": "Mood Shifts",
+  "transcended": "Transcended",
 };
 
 interface Props { snapshot: Readonly<GalaxyState>; }

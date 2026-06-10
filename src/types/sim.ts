@@ -18,7 +18,10 @@ export type EventType =
   | "empire-collapsed"
   | "rebellion"
   | "golden-age"
-  | "technology-breakthrough";
+  | "technology-breakthrough"
+  | "succession"
+  | "mood-shift"
+  | "transcended";
 
 export interface SimEvent {
   id: Id;
@@ -44,6 +47,7 @@ export interface StarSystem {
   cultureId: Id;
   techLevel: number;
   recentEventIds: Id[];
+  connectedSystemIds: Id[];
 }
 
 export type FleetKind = "colonizer" | "war" | "patrol";
@@ -55,9 +59,19 @@ export interface Fleet {
   ownerEmpireId: Id;
   originSystemId: Id;
   targetSystemId: Id;
+  /** Starlane route from origin to target, inclusive of both endpoints. */
+  path: Id[];
+  /** Index of the lane leg currently being traversed: path[legIndex] -> path[legIndex + 1]. */
+  legIndex: number;
+  /** 0..1 progress along the current leg. */
+  legProgress: number;
+  /** Total route length in world units. */
+  totalDist: number;
   x: number;
   y: number;
+  /** Overall 0..1 progress along the whole route. */
   progress: number;
+  /** World units travelled per tick. */
   speed: number;
   strength: number;
   createdTick: number;
@@ -70,10 +84,29 @@ export interface EmpireRelationship {
   atWar: boolean;
 }
 
+export type EmpireMood =
+  | "expanding"
+  | "fortifying"
+  | "degenerating"
+  | "rioting"
+  | "crusading"
+  | "transcending";
+
+export interface Ruler {
+  name: string;
+  title: string;
+  dynasty: string;
+  ordinal: number;
+  accessionTick: number;
+}
+
 export interface Empire {
   id: Id;
   name: string;
   color: string;
+  mood: EmpireMood;
+  moodSince: number;
+  ruler: Ruler;
   capitalSystemId: Id;
   ownedSystemIds: Id[];
   population: number;

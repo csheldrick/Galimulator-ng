@@ -1,6 +1,6 @@
 import type { GalaxyState, SimSettings, Id, Empire, EmpireRelationship } from "../types/sim";
 import { SeededRandom } from "./Random";
-import { generateGalaxy } from "./Galaxy";
+import { generateGalaxy, makeRuler } from "./Galaxy";
 import { executeTick } from "./Tick";
 import { createEvent } from "./Events";
 
@@ -148,7 +148,9 @@ export class Simulation {
     const id = `god-emp-${this.state.tick}-${Object.keys(this.state.empires).length}`;
     const cultureId = `culture-${id}`;
     const empire: Empire = {
-      id, name: `${sys.name} Ascendancy`, color: `hsl(${this.rng.nextInt(0, 360)},75%,58%)`, capitalSystemId: sys.id,
+      id, name: `${sys.name} Ascendancy`, color: `hsl(${this.rng.nextInt(0, 360)},75%,58%)`,
+      mood: "expanding", moodSince: this.state.tick, ruler: makeRuler(this.rng, this.state.tick),
+      capitalSystemId: sys.id,
       ownedSystemIds: [sys.id], population: Math.max(sys.population * 1000, 500), wealth: 300, militaryStrength: 120,
       cohesion: 0.8, aggression: this.rng.range(0.2, 0.8), expansionism: this.rng.range(0.4, 0.9), techLevel: Math.max(sys.techLevel, 0.5),
       cultureId, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [],

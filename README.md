@@ -35,14 +35,19 @@ npm run build
 Implemented:
 
 - Procedural spiral-ish galaxy generation
+- Starlane network connecting every system (nearest-neighbor links plus connectivity stitching)
 - Procedural star/system names
 - Initial empire spawning on high-habitability systems
 - Empire colors, traits, cohesion, aggression, expansionism, wealth, military, technology
+- Empire moods (expanding, fortifying, degenerating, rioting, crusading, transcending) that change behavior and emit events
+- Named rulers with titles and dynasties; deaths, successions, and dynasty turnover
+- Lane-based expansion: empires colonize only systems adjacent to their territory, so they grow as contiguous regions
 - Autonomous colony fleet launching
-- Autonomous war fleet launching
-- Fleet travel, arrival, colonization, and assault resolution
+- Autonomous war fleet launching against lane-border systems
+- Multi-hop fleet travel along starlane routes (BFS pathing)
+- Fleet arrival, colonization, and assault resolution
 - Passive population, stability, wealth, and military updates
-- Neighbor detection
+- Lane-based neighbor detection
 - Relationship/tension model
 - War declarations
 - Peace treaties
@@ -51,6 +56,8 @@ Implemented:
 - Overextension/war-strain collapse pressure
 - Rebellions and splinter empires
 - Full empire collapse
+- Transcendence: high-tech empires may ascend and leave the galaxy in a blaze of glory
+- New empires emerge from the ruins, so the galaxy never goes quiet
 - Golden ages
 - Technology breakthroughs
 - Global, empire, and system event history
@@ -70,8 +77,9 @@ Implemented:
 - Selected empire summary card
 - Galaxy Pulse activity panel
 - View toggles:
-  - territory halos
-  - labels
+  - territory (solid Voronoi-style region fill with crisp borders)
+  - starlanes
+  - labels (empire names drawn across territory, scaled by empire size)
   - war lines
   - event flashes
   - fleets
@@ -123,7 +131,8 @@ Simulation class
 Canvas renderer
   requestAnimationFrame loop
   reads snapshots directly
-  draws systems, territories, wars, fleets, events, labels
+  draws territory bitmap, starlanes, systems, wars, fleets, events, empire names
+  territory is a cached nearest-star region bitmap rebuilt only when ownership changes
   does not mutate simulation state
 
 React UI
@@ -190,15 +199,14 @@ Substantially complete for Canvas 2D scope.
 
 ## Next Galimulator-like depth targets
 
-These are the next areas that would make it feel much closer to Galimulator rather than simply a polished observer sim:
+Done so far: starlanes, lane-based contiguous expansion, multi-hop fleet routing, solid territory regions with empire names drawn across them, empire moods, rulers/dynasties/successions, transcendence, and empire emergence.
 
-- ships/fleets with names and selectable inspectors
+Remaining areas that would push the feel further:
+
 - multiple fleet classes
-- leaders/rulers
 - religions
 - ideologies
 - internal politics
-- dynasty/leader simulation
 - culture drift
 - trade routes
 - special galactic events

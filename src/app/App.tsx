@@ -7,10 +7,11 @@ import { ControlPanel } from "../ui/ControlPanel";
 import { InspectorPanel } from "../ui/InspectorPanel";
 import { GalaxyPulse } from "../ui/GalaxyPulse";
 import { EventLog } from "../ui/EventLog";
+import { MOOD_LABEL, rulerDisplayName } from "../sim/Moods";
 import "./App.css";
 
 const DEFAULT_SETTINGS: SimSettings = { seed: 42, numStars: 400, numEmpires: 12, ticksPerSecond: 4 };
-const DEFAULT_VIEW: ViewOptions = { territory: true, borders: true, labels: false, wars: true, events: true, fleets: true };
+const DEFAULT_VIEW: ViewOptions = { territory: true, lanes: true, labels: true, wars: true, events: true, fleets: true };
 
 function downloadText(filename: string, content: string, type = "text/plain") {
   const blob = new Blob([content], { type });
@@ -37,7 +38,7 @@ function buildReport(snapshot: Readonly<GalaxyState>): string {
     `Empires: ${empires.length}`, `Active wars: ${wars.size}`,
     `Fleets in transit: ${Object.keys(snapshot.fleets).length}`, ``,
     `## Leading empires`,
-    ...empires.slice(0, 12).map((e, i) => `${i + 1}. ${e.name} — ${e.ownedSystemIds.length} systems, pop ${Math.round(e.population)}, tech ${e.techLevel.toFixed(2)}, cohesion ${e.cohesion.toFixed(2)}`),
+    ...empires.slice(0, 12).map((e, i) => `${i + 1}. ${e.name} — ${e.ownedSystemIds.length} systems, ${MOOD_LABEL[e.mood].toLowerCase()}, ruled by ${rulerDisplayName(e)} of the ${e.ruler.dynasty} dynasty, pop ${Math.round(e.population)}, tech ${e.techLevel.toFixed(2)}, cohesion ${e.cohesion.toFixed(2)}`),
     ``, `## Recent history`, ...events.map(ev => `- [${ev.tick}] ${ev.title}: ${ev.description}`), ``,
   ].join("\n");
 }

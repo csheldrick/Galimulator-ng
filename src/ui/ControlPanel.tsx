@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { GalaxyState, Id, SimSettings } from "../types/sim";
 import type { ViewOptions } from "../render/GalaxyCanvas";
+import { MOOD_LABEL, MOOD_COLOR, rulerDisplayName } from "../sim/Moods";
 
 type EmpireSort = "systems" | "population" | "military" | "tech" | "wars" | "name";
 
@@ -96,7 +97,9 @@ export function ControlPanel({
           <div className="selected-empire-title">
             <span className="emp-dot" style={{ background: selectedEmpire.color }} />
             <b>{selectedEmpire.name}</b>
+            <span className="mood-badge" style={{ color: MOOD_COLOR[selectedEmpire.mood] }}>{MOOD_LABEL[selectedEmpire.mood]}</span>
           </div>
+          <div className="selected-empire-ruler">{rulerDisplayName(selectedEmpire)}</div>
           <div className="selected-empire-stats">
             <span>{selectedEmpire.ownedSystemIds.length} systems</span>
             <span>{fmt(selectedEmpire.population / 1000)}K pop</span>
@@ -122,7 +125,7 @@ export function ControlPanel({
       <div className="section-title">View</div>
       <div className="toggle-grid">
         <label><input type="checkbox" checked={viewOptions.territory} onChange={e => setView("territory", e.target.checked)} /> Territory</label>
-        <label><input type="checkbox" checked={viewOptions.borders} onChange={e => setView("borders", e.target.checked)} /> Borders</label>
+        <label><input type="checkbox" checked={viewOptions.lanes} onChange={e => setView("lanes", e.target.checked)} /> Lanes</label>
         <label><input type="checkbox" checked={viewOptions.labels} onChange={e => setView("labels", e.target.checked)} /> Labels</label>
         <label><input type="checkbox" checked={viewOptions.wars} onChange={e => setView("wars", e.target.checked)} /> Wars</label>
         <label><input type="checkbox" checked={viewOptions.events} onChange={e => setView("events", e.target.checked)} /> Events</label>
@@ -155,9 +158,10 @@ export function ControlPanel({
       </div>
       <div className="sidebar-empire-list">
         {filteredEmpires.map(e => (
-          <button key={e.id} className={e.id === selectedEmpireId ? "sidebar-empire selected" : "sidebar-empire"} onClick={() => onSelectEmpire(e.id)} title={`${e.name} — ${e.ownedSystemIds.length} systems, ${Math.round(e.population)} population`}>
+          <button key={e.id} className={e.id === selectedEmpireId ? "sidebar-empire selected" : "sidebar-empire"} onClick={() => onSelectEmpire(e.id)} title={`${e.name} — ${MOOD_LABEL[e.mood]}, ruled by ${rulerDisplayName(e)} — ${e.ownedSystemIds.length} systems, ${Math.round(e.population)} population`}>
             <span className="emp-dot" style={{ background: e.color }} />
             <span className="emp-name">{e.name}</span>
+            <span className="emp-mood-dot" style={{ background: MOOD_COLOR[e.mood] }} title={MOOD_LABEL[e.mood]} />
             <span className="emp-size">{e.ownedSystemIds.length}</span>
           </button>
         ))}
