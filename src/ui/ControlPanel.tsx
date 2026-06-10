@@ -1,8 +1,6 @@
 import type { SimSettings } from "../types/sim";
-import type { Simulation } from "../sim/Simulation";
 
 interface Props {
-  simulation: Simulation;
   running: boolean;
   onStart: () => void;
   onPause: () => void;
