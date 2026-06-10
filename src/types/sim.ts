@@ -106,6 +106,32 @@ export interface SystemMarker {
   label?: string;
 }
 
+export type ArtifactKind =
+  | "research-lab"
+  | "fleet-base"
+  | "holy-monument"
+  | "financial-center"
+  | "sentinel-station"
+  | "stellar-forcefield"
+  | "mind-control-hub"
+  | "lost-archive"
+  | "strange-engine";
+
+export interface Artifact {
+  id: Id;
+  name: string;
+  kind: ArtifactKind;
+  systemId: Id;
+  ownerEmpireId: Id | null;
+  origin: "precursor" | "built" | "gift" | "oddity";
+  createdTick: number;
+  discoveredTick?: number;
+  capturedTick?: number;
+  active: boolean;
+  cooldownUntilTick?: number;
+  historicalEventIds: Id[];
+}
+
 export interface StarSystem {
   id: Id;
   name: string;
@@ -120,6 +146,8 @@ export interface StarSystem {
   religionId: Id | null;
   /** Name of a precursor artifact buried here, if any. */
   artifactName: string | null;
+  /** First-class artifact hosted here, if any. */
+  artifactId?: Id | null;
   techLevel: number;
   recentEventIds: Id[];
   connectedSystemIds: Id[];
@@ -133,7 +161,7 @@ export interface StarSystem {
   planets?: PlanetTag[];
 }
 
-export type FleetKind = "colonizer" | "war" | "patrol" | "merchant" | "pilgrim" | "refugee";
+export type FleetKind = "colonizer" | "war" | "patrol" | "merchant" | "pilgrim" | "refugee" | "flagship";
 
 /** Ship class shapes speed/strength tradeoffs and the glyph on the map. */
 export type ShipClass = "settler" | "raider" | "strike" | "armada";
@@ -317,6 +345,8 @@ export type EmpirePriority =
   | "stabilize"
   | "survive";
 
+export type SpyMission = "steal-tech" | "incite-riots" | "improve-relations" | "sabotage-fleet";
+
 export interface PlayerControlState {
   controlledEmpireId: Id | null;
   mode: "observer" | "empire";
@@ -324,6 +354,8 @@ export interface PlayerControlState {
   legitimacy: number;
   /** Tick timestamps when each command was last issued, for cooldown tracking. */
   commandCooldowns: Record<string, number>;
+  flagshipFleetId?: Id | null;
+  corruption?: number;
 }
 
 export type GalaxyShape =
@@ -361,6 +393,7 @@ export interface GalaxyState {
   eventLog: Id[];
   alliances: Record<Id, Alliance>;
   playerControl: PlayerControlState;
+  artifacts?: Record<Id, Artifact>;
 }
 
 export interface SimSettings {
