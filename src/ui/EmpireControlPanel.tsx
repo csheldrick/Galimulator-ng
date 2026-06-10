@@ -1,4 +1,4 @@
-import type { GalaxyState, Id, EmpirePriority, PlayerControlState } from "../types/sim";
+import type { ArtifactKind, GalaxyState, Id, EmpirePriority, PlayerControlState, SpyMission } from "../types/sim";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL } from "../sim/Characters";
 
@@ -11,11 +11,16 @@ interface Props {
   onStopControl: () => void;
   onSetPriority: (p: EmpirePriority) => void;
   onRallyFleet: (systemId: Id) => void;
+  onMoveFlagship: (systemId: Id) => void;
   onFortify: (systemId: Id) => void;
   onStabilize: (systemId: Id) => void;
+  onBuildArtifact: (systemId: Id, kind?: ArtifactKind) => void;
   onProposePeace: (empireId: Id) => void;
   onProvokeWar: (empireId: Id) => void;
+  onSpyMission: (empireId: Id, mission: SpyMission) => void;
   onSponsorColonization: (systemId: Id) => void;
+  onAdoptReligion: (religionId: Id) => void;
+  onReformGovernment: () => void;
 }
 
 const PRIORITY_LABELS: Record<EmpirePriority, string> = {
@@ -35,6 +40,8 @@ const PRIORITY_DESC: Record<EmpirePriority, string> = {
   survive: "Prioritize peace and defense",
 };
 
+const ARTIFACT_KINDS: ArtifactKind[] = ["research-lab", "fleet-base", "holy-monument", "financial-center", "sentinel-station", "stellar-forcefield", "mind-control-hub", "lost-archive", "strange-engine"];
+
 function Bar({ value, max = 100, color }: { value: number; max?: number; color: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -49,12 +56,14 @@ function Bar({ value, max = 100, color }: { value: number; max?: number; color: 
 export function EmpireControlPanel({
   snapshot, playerControl, selectedSystemId, selectedEmpireId,
   onStartControl, onStopControl, onSetPriority,
-  onRallyFleet, onFortify, onStabilize, onProposePeace, onProvokeWar, onSponsorColonization,
+  onRallyFleet, onMoveFlagship, onFortify, onStabilize, onBuildArtifact,
+  onProposePeace, onProvokeWar, onSpyMission, onSponsorColonization, onAdoptReligion, onReformGovernment,
 }: Props) {
-  const { mode, controlledEmpireId, authority, legitimacy, commandCooldowns } = playerControl;
+  const { mode, controlledEmpireId, authority, legitimacy, commandCooldowns, corruption = 0, flagshipFleetId } = playerControl;
   const controlled = controlledEmpireId ? snapshot.empires[controlledEmpireId] : null;
   const selectedSys = selectedSystemId ? snapshot.systems[selectedSystemId] : null;
   const selectedEmp = selectedEmpireId ? snapshot.empires[selectedEmpireId] : null;
+  const flagship = flagshipFleetId ? snapshot.fleets[flagshipFleetId] : null;
 
   const cooldownLeft = (key: string, cd: number) => {
     const last = commandCooldowns[key] ?? 0;
@@ -114,6 +123,7 @@ export function EmpireControlPanel({
   const selectedIsEnemy = selectedEmpireId && selectedEmpireId !== controlled.id;
   const atWarWith = selectedIsEnemy && controlled.activeWarEmpireIds.includes(selectedEmpireId!);
   const notAtWarWith = selectedIsEnemy && !controlled.activeWarEmpireIds.includes(selectedEmpireId!);
+  const religions = Object.values(snapshot.religions);
 
   return (
     <div className="empire-control-panel">
@@ -126,7 +136,7 @@ export function EmpireControlPanel({
           {rulerDisplayName(controlled)} · <span style={{ color: MOOD_COLOR[controlled.mood] }}>{MOOD_LABEL[controlled.mood]}</span>
         </div>
         <div style={{ fontSize: 10, color: "rgba(200,220,255,0.5)" }}>
-          {IDEOLOGY_LABEL[controlled.ideology]} · {controlled.ownedSystemIds.length} systems{atWar.length > 0 ? ` · ${atWar.length} wars` : ""}
+          {IDEOLOGY_LABEL[controlled.ideology]} · {controlled.ownedSystemIds.length} systems{atWar.length > 0 ? ` · ${atWar.length} wars` : ""}{flagship ? ` · flagship active` : ""}
         </div>
       </div>
 
@@ -139,6 +149,10 @@ export function EmpireControlPanel({
           <span>Legitimacy</span><span>{Math.round(legitimacy)}/100</span>
         </div>
         <Bar value={legitimacy} color={legitimacy < 30 ? "#ff595e" : legitimacy < 60 ? "#f4a261" : "#8ac926"} />
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "rgba(200,220,255,0.6)", marginBottom: 2, marginTop: 4 }}>
+          <span>Corruption</span><span>{Math.round(corruption)}/100</span>
+        </div>
+        <Bar value={corruption} color={corruption > 65 ? "#ff595e" : corruption > 35 ? "#f4a261" : "#8ac926"} />
       </div>
 
       <div style={{ marginBottom: 8 }}>
@@ -175,7 +189,11 @@ export function EmpireControlPanel({
           <>
             <CmdBtn label="Fortify" onClick={() => onFortify(selectedSystemId!)} cooldownKey="fortify" cooldown={20} disabled={authority < 15} />
             <CmdBtn label="Stabilize" onClick={() => onStabilize(selectedSystemId!)} cooldownKey="stabilize" cooldown={10} disabled={authority < 10} />
+            <CmdBtn label="Build Artifact" onClick={() => onBuildArtifact(selectedSystemId!, ARTIFACT_KINDS[0])} cooldownKey="artifact" cooldown={120} disabled={authority < 45 || controlled.wealth < 450 || !!selectedSys?.artifactId} />
           </>
+        )}
+        {selectedSys && (
+          <CmdBtn label="Move Flagship" onClick={() => onMoveFlagship(selectedSystemId!)} cooldownKey="flagship" cooldown={8} disabled={authority < 8} />
         )}
         {(isEnemy || ownsSys) && (
           <CmdBtn label="Rally Fleet" onClick={() => onRallyFleet(selectedSystemId!)} cooldownKey="rally" cooldown={15} disabled={authority < 20} />
@@ -189,6 +207,12 @@ export function EmpireControlPanel({
         {notAtWarWith && (
           <CmdBtn label="Provoke War" onClick={() => onProvokeWar(selectedEmpireId!)} cooldownKey="war" cooldown={40} disabled={authority < 30} />
         )}
+        {selectedIsEnemy && (
+          <>
+            <CmdBtn label="Spy: Steal Tech" onClick={() => onSpyMission(selectedEmpireId!, "steal-tech")} cooldownKey="spy-steal-tech" cooldown={70} disabled={authority < 25} />
+            <CmdBtn label="Spy: Incite Riots" onClick={() => onSpyMission(selectedEmpireId!, "incite-riots")} cooldownKey="spy-incite-riots" cooldown={70} disabled={authority < 25} />
+          </>
+        )}
         {atWar.length > 0 && !atWarWith && !selectedIsEnemy && (
           atWar.slice(0, 2).map(eid => {
             const e = snapshot.empires[eid];
@@ -196,6 +220,10 @@ export function EmpireControlPanel({
             return <CmdBtn key={eid} label={`Peace: ${e.name.split(" ")[0]}`} onClick={() => onProposePeace(eid)} cooldownKey="peace" cooldown={30} disabled={authority < 25} />;
           })
         )}
+        {religions.length > 0 && (
+          <CmdBtn label="Adopt Major Faith" onClick={() => onAdoptReligion(religions[0].id)} cooldownKey="religion" cooldown={90} disabled={authority < 35 || controlled.stateReligionId === religions[0].id} />
+        )}
+        <CmdBtn label="Reform Gov" onClick={onReformGovernment} cooldownKey="reform" cooldown={140} disabled={authority < 35 || corruption < 10} />
         {!selectedSys && !selectedIsEnemy && (
           <div style={{ fontSize: 10, color: "rgba(200,220,255,0.35)", gridColumn: "1/-1" }}>
             Select a system or empire to see contextual commands.
