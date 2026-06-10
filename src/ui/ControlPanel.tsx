@@ -49,12 +49,14 @@ export function ControlPanel({
   const [empireSort, setEmpireSort] = useState<EmpireSort>("systems");
   const empires = Object.values(snapshot.empires);
   const systems = Object.values(snapshot.systems);
+  const fleets = Object.values(snapshot.fleets);
   const populated = systems.filter(s => s.ownerEmpireId).length;
   const totalPop = empires.reduce((sum, e) => sum + e.population, 0);
   const activeWars = new Set<string>();
   for (const e of empires) for (const w of e.activeWarEmpireIds) activeWars.add([e.id, w].sort().join("~"));
 
   const selectedEmpire = selectedEmpireId ? snapshot.empires[selectedEmpireId] : null;
+  const selectedFleetCount = selectedEmpireId ? fleets.filter(f => f.ownerEmpireId === selectedEmpireId).length : 0;
   const filteredEmpires = useMemo(() => {
     const q = empireQuery.trim().toLowerCase();
     return [...empires]
@@ -85,8 +87,8 @@ export function ControlPanel({
         <div><b>{empires.length}</b><span>empires</span></div>
         <div><b>{populated}</b><span>owned</span></div>
         <div><b>{activeWars.size}</b><span>wars</span></div>
+        <div><b>{fleets.length}</b><span>fleets</span></div>
         <div><b>{fmt(totalPop / 1000)}K</b><span>pop</span></div>
-        <div><b>{snapshot.eventLog.length}</b><span>events</span></div>
       </div>
 
       {selectedEmpire && (
@@ -99,17 +101,14 @@ export function ControlPanel({
             <span>{selectedEmpire.ownedSystemIds.length} systems</span>
             <span>{fmt(selectedEmpire.population / 1000)}K pop</span>
             <span>{fmt(selectedEmpire.militaryStrength)} mil</span>
-            <span>{selectedEmpire.activeWarEmpireIds.length} wars</span>
+            <span>{selectedFleetCount} fleets</span>
           </div>
         </div>
       )}
 
       <div className="section-title">Simulation</div>
       <div className="btn-row">
-        {running
-          ? <button onClick={onPause}>⏸ Pause</button>
-          : <button onClick={onStart}>▶ Start</button>
-        }
+        {running ? <button onClick={onPause}>⏸ Pause</button> : <button onClick={onStart}>▶ Start</button>}
         <button onClick={onStep} disabled={running}>Step</button>
         <button onClick={() => onRunTicks(25)} disabled={running}>+25</button>
         <button onClick={() => onRunTicks(100)} disabled={running}>+100</button>
@@ -126,6 +125,7 @@ export function ControlPanel({
         <label><input type="checkbox" checked={viewOptions.labels} onChange={e => setView("labels", e.target.checked)} /> Labels</label>
         <label><input type="checkbox" checked={viewOptions.wars} onChange={e => setView("wars", e.target.checked)} /> Wars</label>
         <label><input type="checkbox" checked={viewOptions.events} onChange={e => setView("events", e.target.checked)} /> Events</label>
+        <label><input type="checkbox" checked={viewOptions.fleets} onChange={e => setView("fleets", e.target.checked)} /> Fleets</label>
       </div>
 
       <div className="section-title">Export</div>
@@ -135,33 +135,14 @@ export function ControlPanel({
       </div>
 
       <div className="section-title">Settings</div>
-      <div className="control-row">
-        <label>Speed</label>
-        <input type="range" min={1} max={20} step={1} value={settings.ticksPerSecond} onChange={e => onSettingsChange({ ticksPerSecond: Number(e.target.value) })} />
-        <span>{settings.ticksPerSecond}x</span>
-      </div>
-      <div className="control-row">
-        <label>Stars</label>
-        <input type="range" min={100} max={1000} step={50} value={settings.numStars} onChange={e => onSettingsChange({ numStars: Number(e.target.value) })} />
-        <span>{settings.numStars}</span>
-      </div>
-      <div className="control-row">
-        <label>Empires</label>
-        <input type="range" min={4} max={24} step={1} value={settings.numEmpires} onChange={e => onSettingsChange({ numEmpires: Number(e.target.value) })} />
-        <span>{settings.numEmpires}</span>
-      </div>
-      <div className="control-row seed-row">
-        <label>Seed</label>
-        <input type="number" value={settings.seed} onChange={e => onSettingsChange({ seed: Number(e.target.value) || 0 })} />
-      </div>
+      <div className="control-row"><label>Speed</label><input type="range" min={1} max={20} step={1} value={settings.ticksPerSecond} onChange={e => onSettingsChange({ ticksPerSecond: Number(e.target.value) })} /><span>{settings.ticksPerSecond}x</span></div>
+      <div className="control-row"><label>Stars</label><input type="range" min={100} max={1000} step={50} value={settings.numStars} onChange={e => onSettingsChange({ numStars: Number(e.target.value) })} /><span>{settings.numStars}</span></div>
+      <div className="control-row"><label>Empires</label><input type="range" min={4} max={24} step={1} value={settings.numEmpires} onChange={e => onSettingsChange({ numEmpires: Number(e.target.value) })} /><span>{settings.numEmpires}</span></div>
+      <div className="control-row seed-row"><label>Seed</label><input type="number" value={settings.seed} onChange={e => onSettingsChange({ seed: Number(e.target.value) || 0 })} /></div>
 
       <div className="section-title">Empires</div>
       <div className="empire-nav-tools">
-        <input
-          placeholder="Filter empires..."
-          value={empireQuery}
-          onChange={e => setEmpireQuery(e.target.value)}
-        />
+        <input placeholder="Filter empires..." value={empireQuery} onChange={e => setEmpireQuery(e.target.value)} />
         <select value={empireSort} onChange={e => setEmpireSort(e.target.value as EmpireSort)}>
           <option value="systems">Systems</option>
           <option value="population">Population</option>
@@ -173,12 +154,7 @@ export function ControlPanel({
       </div>
       <div className="sidebar-empire-list">
         {filteredEmpires.map(e => (
-          <button
-            key={e.id}
-            className={e.id === selectedEmpireId ? "sidebar-empire selected" : "sidebar-empire"}
-            onClick={() => onSelectEmpire(e.id)}
-            title={`${e.name} — ${e.ownedSystemIds.length} systems, ${Math.round(e.population)} population`}
-          >
+          <button key={e.id} className={e.id === selectedEmpireId ? "sidebar-empire selected" : "sidebar-empire"} onClick={() => onSelectEmpire(e.id)} title={`${e.name} — ${e.ownedSystemIds.length} systems, ${Math.round(e.population)} population`}>
             <span className="emp-dot" style={{ background: e.color }} />
             <span className="emp-name">{e.name}</span>
             <span className="emp-size">{e.ownedSystemIds.length}</span>
