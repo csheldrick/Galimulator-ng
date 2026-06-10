@@ -46,6 +46,22 @@ export interface StarSystem {
   recentEventIds: Id[];
 }
 
+export type FleetKind = "colonizer" | "war" | "patrol";
+
+export interface Fleet {
+  id: Id;
+  kind: FleetKind;
+  ownerEmpireId: Id;
+  originSystemId: Id;
+  targetSystemId: Id;
+  x: number;
+  y: number;
+  progress: number;
+  speed: number;
+  strength: number;
+  createdTick: number;
+}
+
 export interface EmpireRelationship {
   targetEmpireId: Id;
   tension: number;
@@ -77,6 +93,7 @@ export interface GalaxyState {
   seed: number;
   systems: Record<Id, StarSystem>;
   empires: Record<Id, Empire>;
+  fleets: Record<Id, Fleet>;
   events: Record<Id, SimEvent>;
   eventLog: Id[];
 }
