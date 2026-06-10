@@ -35,11 +35,26 @@ interface Props {
 }
 
 function fleetSize(fleet: Fleet): number {
+  if (fleet.kind === "merchant" || fleet.kind === "pilgrim" || fleet.kind === "refugee") return 2.5;
   const base = fleet.kind === "war" ? Math.max(3, Math.min(8, fleet.strength / 8)) : 3.5;
   if (fleet.shipClass === "armada") return base * 1.35;
   if (fleet.shipClass === "raider") return base * 0.8;
   return base;
 }
+
+const MARKER_GLYPH: Record<string, string> = {
+  "ruin": "☠", "holy-site": "✦", "battlefield": "⚔", "shipyard": "⚙",
+  "rebel-hotbed": "⚡", "artifact-aura": "◆", "dead-capital": "☽",
+  "monster-wound": "✗", "trade-hub": "⊕", "plague-world": "☣",
+  "transcendent-ruin": "✸",
+};
+
+const MARKER_COLOR: Record<string, string> = {
+  "ruin": "rgba(160,120,80,0.85)", "holy-site": "rgba(255,220,100,0.9)", "battlefield": "rgba(220,80,80,0.85)",
+  "shipyard": "rgba(100,180,255,0.85)", "rebel-hotbed": "rgba(255,160,30,0.9)", "artifact-aura": "rgba(255,224,130,0.9)",
+  "dead-capital": "rgba(180,160,220,0.85)", "monster-wound": "rgba(180,80,200,0.85)", "trade-hub": "rgba(100,220,150,0.85)",
+  "plague-world": "rgba(120,200,80,0.8)", "transcendent-ruin": "rgba(160,220,255,0.9)",
+};
 
 const MONSTER_COLOR: Record<Monster["kind"], string> = {
   leviathan: "#b14eea",
@@ -244,6 +259,18 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
           ctx.font = "9px monospace"; ctx.fillStyle = "rgba(255,224,130,0.8)";
           ctx.fillText("◆", sx + r + 2, sy - r - 2);
         }
+        // render world markers at medium zoom
+        if (cam.zoom > 0.7 && sys.markers && sys.markers.length > 0) {
+          ctx.font = `${Math.max(7, 9 * cam.zoom)}px monospace`;
+          ctx.textBaseline = "middle";
+          const visibleMarkers = sys.markers.slice(0, 3);
+          for (let mi = 0; mi < visibleMarkers.length; mi++) {
+            const marker = visibleMarkers[mi];
+            ctx.fillStyle = MARKER_COLOR[marker.kind] ?? "rgba(200,200,200,0.8)";
+            ctx.fillText(MARKER_GLYPH[marker.kind] ?? "•", sx - r - 10 - mi * 10, sy);
+          }
+          ctx.textBaseline = "alphabetic";
+        }
       }
 
       if (viewOptions.fleets) {
@@ -270,7 +297,12 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
           const size = fleetSize(fleet) * cam.zoom;
           ctx.save(); ctx.translate(sx, sy); ctx.rotate(Math.atan2(ty - sy, tx - sx));
           ctx.beginPath(); ctx.moveTo(size + 2, 0); ctx.lineTo(-size, -size * 0.65); ctx.lineTo(-size * 0.45, 0); ctx.lineTo(-size, size * 0.65); ctx.closePath();
-          ctx.fillStyle = fleet.kind === "war" ? "rgba(255,220,220,0.92)" : "rgba(220,245,255,0.9)";
+          const fleetFill = fleet.kind === "war" ? "rgba(255,220,220,0.92)"
+            : fleet.kind === "merchant" ? "rgba(255,209,102,0.88)"
+            : fleet.kind === "pilgrim" ? "rgba(200,240,200,0.88)"
+            : fleet.kind === "refugee" ? "rgba(200,200,255,0.82)"
+            : "rgba(220,245,255,0.9)";
+          ctx.fillStyle = fleetFill;
           ctx.strokeStyle = fleet.id === selectedFleetId ? SELECTION_COLOR : owner.color;
           ctx.lineWidth = fleet.id === selectedFleetId ? 2.5 : selected ? 1.5 : 1;
           ctx.fill(); ctx.stroke(); ctx.restore();

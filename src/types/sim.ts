@@ -35,7 +35,9 @@ export type EventType =
   | "galactic-crisis"
   | "coup"
   | "character-rose"
-  | "character-fell";
+  | "character-fell"
+  | "alliance-formed"
+  | "alliance-dissolved";
 
 export interface SimEvent {
   id: Id;
@@ -46,6 +48,28 @@ export interface SimEvent {
   importance: number;
   relatedEmpireIds: Id[];
   relatedSystemIds: Id[];
+}
+
+/** Persistent scars and landmarks that mark a star's history. */
+export type MarkerKind =
+  | "ruin"
+  | "holy-site"
+  | "battlefield"
+  | "shipyard"
+  | "rebel-hotbed"
+  | "artifact-aura"
+  | "dead-capital"
+  | "monster-wound"
+  | "trade-hub"
+  | "plague-world"
+  | "transcendent-ruin";
+
+export interface SystemMarker {
+  kind: MarkerKind;
+  /** Tick when this marker was placed. */
+  since: number;
+  /** Optional label for display. */
+  label?: string;
 }
 
 export interface StarSystem {
@@ -67,9 +91,13 @@ export interface StarSystem {
   connectedSystemIds: Id[];
   /** Remaining ticks of a god boost; grants stability regen and a defense bonus. 0 = no boost. */
   godBoostTicks?: number;
+  /** Persistent historical markers. At most one of each kind. */
+  markers?: SystemMarker[];
+  /** Local wealth pool — separate from empire wealth; represents commerce/infrastructure at this star. */
+  localWealth?: number;
 }
 
-export type FleetKind = "colonizer" | "war" | "patrol";
+export type FleetKind = "colonizer" | "war" | "patrol" | "merchant" | "pilgrim" | "refugee";
 
 /** Ship class shapes speed/strength tradeoffs and the glyph on the map. */
 export type ShipClass = "settler" | "raider" | "strike" | "armada";
@@ -213,7 +241,30 @@ export interface Empire {
   historicalEventIds: Id[];
   /** Remaining ticks of a god boost; multiplies military strength and blocks collapse. 0 = no boost. */
   godBoostTicks?: number;
+  /** IDs of alliances this empire belongs to. */
+  allianceIds?: Id[];
 }
+
+/** A formal alliance between two or more empires. */
+export interface Alliance {
+  id: Id;
+  name: string;
+  memberEmpireIds: Id[];
+  formedTick: number;
+  /** Dominant member (initiator). */
+  leaderId: Id;
+}
+
+export type GalaxyShape =
+  | "spiral"
+  | "disc"
+  | "hollow-disc"
+  | "clustered"
+  | "chaos"
+  | "grid"
+  | "string";
+
+export type StarlaneMode = "standard" | "webbed" | "dense" | "sparse";
 
 export interface GalaxyState {
   tick: number;
@@ -226,6 +277,7 @@ export interface GalaxyState {
   monsters: Record<Id, Monster>;
   events: Record<Id, SimEvent>;
   eventLog: Id[];
+  alliances: Record<Id, Alliance>;
 }
 
 export interface SimSettings {
@@ -233,6 +285,8 @@ export interface SimSettings {
   numStars: number;
   numEmpires: number;
   ticksPerSecond: number;
+  galaxyShape?: GalaxyShape;
+  starlaneMode?: StarlaneMode;
 }
 
 /** Saved-game envelope; rngState lets a loaded galaxy continue deterministically. */

@@ -1,4 +1,4 @@
-import type { GalaxyState, Empire, StarSystem, Id, Fleet, FleetKind, EmpireMood, ShipClass } from "../types/sim";
+import type { GalaxyState, Empire, StarSystem, Id, Fleet, FleetKind, EmpireMood, ShipClass, SystemMarker, MarkerKind } from "../types/sim";
 import type { PRNG } from "../types/sim";
 import { createEvent } from "./Events";
 import { updateRelationships, getNeighboringEmpires, tryDeclareWar, tryMakePeace } from "./Diplomacy";
@@ -10,7 +10,6 @@ import { stepTrade, severEmpireRoutes } from "./Trade";
 import { stepMonsters, stepCrises, discoverArtifact } from "./Crises";
 import { makeCourt, stepCharacters, topByRole, findCharacter } from "./Characters";
 
-// Speed/strength tradeoffs per ship class; war fleets pick a class to fit the mission.
 const SHIP_CLASS_MODS: Record<ShipClass, { speed: number; strength: number }> = {
   settler: { speed: 1, strength: 1 },
   raider: { speed: 1.45, strength: 0.6 },
@@ -20,6 +19,9 @@ const SHIP_CLASS_MODS: Record<ShipClass, { speed: number; strength: number }> = 
 
 function fleetName(kind: FleetKind, empire: Empire, target: StarSystem, rng: PRNG): string {
   const banner = empire.name.split(" ")[0] ?? "Imperial";
+  if (kind === "merchant") return `${banner} ${rng.pick(["Merchant","Trading","Commerce"])} Convoy to ${target.name}`;
+  if (kind === "pilgrim") return `${banner} ${rng.pick(["Pilgrim","Holy","Sacred"])} Voyage to ${target.name}`;
+  if (kind === "refugee") return `${banner} ${rng.pick(["Refugee","Evacuation","Exodus"])} Fleet from ${target.name}`;
   const prefix = kind === "war" ? rng.pick(["Spear", "Hammer", "Vanguard", "Dagger", "Iron"])
     : rng.pick(["Hope", "Horizon", "Seed", "Dawn", "Pilgrim"]);
   const suffix = kind === "war" ? rng.pick(["Strike Fleet", "Battle Group", "Expedition", "Armada"])
@@ -27,8 +29,6 @@ function fleetName(kind: FleetKind, empire: Empire, target: StarSystem, rng: PRN
   return `${banner} ${prefix} ${suffix} to ${target.name}`;
 }
 
-// Expansion follows starlanes: only unowned systems directly linked to the
-// empire's territory are candidates, so empires grow as contiguous regions.
 function findExpansionTarget(state: GalaxyState, empire: Empire): { origin: StarSystem; target: StarSystem } | null {
   let best: { origin: StarSystem; target: StarSystem } | null = null;
   let bestScore = -Infinity;
@@ -57,8 +57,6 @@ function nearestOwnedTo(state: GalaxyState, empire: Empire, target: StarSystem):
   return best;
 }
 
-// War fleets push along the lane front: enemy systems directly linked to the
-// attacker's territory are preferred; otherwise fall back to nearby targets.
 function findBorderConflictTarget(state: GalaxyState, attacker: Empire, enemyId: Id): StarSystem | null {
   let best: StarSystem | null = null;
   let bestScore = -Infinity;
@@ -101,7 +99,6 @@ function launchFleet(state: GalaxyState, empire: Empire, origin: StarSystem, tar
   const id = `fleet-${state.tick}-${Object.keys(state.fleets).length}-${rng.nextInt(0, 9999)}`;
   const path = findPath(state, origin.id, target.id);
   const mods = SHIP_CLASS_MODS[shipClass];
-  // A capable admiral both names the fleet and stiffens it.
   const admiralBoost = admiral ? 1 + admiral.skill * 0.4 : 1;
   const baseName = fleetName(kind, empire, target, rng);
   const fleet: Fleet = {
@@ -128,13 +125,175 @@ function launchFleet(state: GalaxyState, empire: Empire, origin: StarSystem, tar
   state.fleets[id] = fleet;
 }
 
+// ── System markers ────────────────────────────────────────────────────────────
+
+function addMarker(sys: StarSystem, kind: MarkerKind, tick: number, label?: string): void {
+  if (!sys.markers) sys.markers = [];
+  const existing = sys.markers.findIndex(m => m.kind === kind);
+  const marker: SystemMarker = { kind, since: tick, label };
+  if (existing >= 0) sys.markers[existing] = marker;
+  else sys.markers.push(marker);
+}
+
+// ── Local wealth ──────────────────────────────────────────────────────────────
+
+function stepLocalWealth(state: GalaxyState): void {
+  for (const sys of Object.values(state.systems)) {
+    if (sys.localWealth === undefined) sys.localWealth = 0;
+    if (sys.ownerEmpireId) {
+      // owned worlds accumulate local commerce from resources and trade routes
+      const tradeBonus = Object.values(state.tradeRoutes).some(r => r.systemAId === sys.id || r.systemBId === sys.id) ? 0.12 : 0;
+      sys.localWealth = Math.min(200, sys.localWealth + sys.resources * 0.08 + tradeBonus);
+      // trade-hubs get boosted local wealth marker
+      if (sys.localWealth > 80 && !sys.markers?.some(m => m.kind === "trade-hub")) {
+        addMarker(sys, "trade-hub", state.tick, "Prosperous trading hub");
+      }
+    } else {
+      sys.localWealth = Math.max(0, sys.localWealth - 0.02);
+    }
+  }
+}
+
+// ── Artifact active effects ───────────────────────────────────────────────────
+
+function stepArtifactEffects(state: GalaxyState): void {
+  for (const sys of Object.values(state.systems)) {
+    if (!sys.artifactName || !sys.ownerEmpireId) continue;
+    const empire = state.empires[sys.ownerEmpireId];
+    if (!empire) continue;
+    // Artifacts slowly boost the owning empire's tech and military
+    empire.techLevel = Math.min(3, empire.techLevel + 0.00015);
+    empire.militaryStrength = Math.min(empire.militaryStrength * 1.0002, empire.militaryStrength + 0.5);
+    // Artifact-aura marker on the hosting system
+    if (!sys.markers?.some(m => m.kind === "artifact-aura")) {
+      addMarker(sys, "artifact-aura", state.tick, `Aura of ${sys.artifactName}`);
+    }
+  }
+}
+
+// ── Ambient ships: merchants, pilgrims, refugees ──────────────────────────────
+
+function stepAmbientShips(state: GalaxyState, rng: PRNG): void {
+  // Merchants spawn along existing trade routes
+  for (const route of Object.values(state.tradeRoutes)) {
+    if (rng.next() > 0.004) continue;
+    const empA = state.empires[route.empireAId];
+    const sysA = state.systems[route.systemAId];
+    const sysB = state.systems[route.systemBId];
+    if (!empA || !sysA || !sysB) continue;
+    if (hasFleetTo(state, empA.id, sysB.id, "merchant")) continue;
+    const id = `fleet-amb-${state.tick}-${rng.nextInt(0, 99999)}`;
+    const path = findPath(state, sysA.id, sysB.id);
+    state.fleets[id] = {
+      id, name: fleetName("merchant", empA, sysB, rng), kind: "merchant", shipClass: "settler",
+      ownerEmpireId: empA.id, originSystemId: sysA.id, targetSystemId: sysB.id,
+      path, legIndex: 0, legProgress: 0, totalDist: Math.max(1, pathLength(state, path)),
+      x: sysA.x, y: sysA.y, progress: 0,
+      speed: rng.range(1.8, 3.0), strength: 2, createdTick: state.tick,
+    };
+  }
+
+  // Pilgrims spawn from holy systems toward religion-aligned worlds
+  for (const religion of Object.values(state.religions)) {
+    if (rng.next() > 0.003) continue;
+    const holy = state.systems[religion.holySystemId];
+    if (!holy || !holy.ownerEmpireId) continue;
+    const empire = state.empires[holy.ownerEmpireId];
+    if (!empire) continue;
+    // Find a distant same-religion world to visit
+    const candidates = Object.values(state.systems).filter(s =>
+      s.religionId === religion.id && s.id !== holy.id && s.ownerEmpireId !== null
+    );
+    if (candidates.length === 0) continue;
+    const dest = rng.pick(candidates);
+    if (hasFleetTo(state, empire.id, dest.id, "pilgrim")) continue;
+    const id = `fleet-plg-${state.tick}-${rng.nextInt(0, 99999)}`;
+    const path = findPath(state, holy.id, dest.id);
+    state.fleets[id] = {
+      id, name: fleetName("pilgrim", empire, dest, rng), kind: "pilgrim", shipClass: "settler",
+      ownerEmpireId: empire.id, originSystemId: holy.id, targetSystemId: dest.id,
+      path, legIndex: 0, legProgress: 0, totalDist: Math.max(1, pathLength(state, path)),
+      x: holy.x, y: holy.y, progress: 0,
+      speed: rng.range(1.5, 2.5), strength: 1, createdTick: state.tick,
+    };
+  }
+}
+
+// ── Alliance mechanics ────────────────────────────────────────────────────────
+
+const ALLIANCE_NOUNS = ["Pact","Accord","League","Coalition","Compact","Union","Concordat","Alliance"];
+
+function stepAlliances(state: GalaxyState, rng: PRNG): void {
+  // Try forming new alliances between friendly neighbors
+  if (rng.next() > 0.006) return;
+  const empireList = Object.values(state.empires);
+  if (empireList.length < 2) return;
+
+  for (const empA of empireList) {
+    if (rng.next() > 0.04) continue;
+    const alreadyAllied = empA.allianceIds?.length ?? 0;
+    if (alreadyAllied >= 2) continue;
+    const neighbors = getNeighboringEmpires(state, empA.id);
+    for (const neighborId of neighbors) {
+      const empB = state.empires[neighborId];
+      if (!empB) continue;
+      if ((empB.allianceIds?.length ?? 0) >= 2) continue;
+      const rel = empA.relationshipByEmpireId[neighborId];
+      if (!rel || rel.atWar || rel.opinion < 60 || rel.tension > 40) continue;
+      // Check they're not already allied together
+      const sharedAlliance = empA.allianceIds?.some(aid => empB.allianceIds?.includes(aid));
+      if (sharedAlliance) continue;
+
+      const id = `alliance-${state.tick}-${rng.nextInt(0, 9999)}`;
+      const name = `${empA.name.split(" ")[0]}-${empB.name.split(" ")[0]} ${rng.pick(ALLIANCE_NOUNS)}`;
+      const alliance = { id, name, memberEmpireIds: [empA.id, empB.id], formedTick: state.tick, leaderId: empA.id };
+      state.alliances[id] = alliance;
+      empA.allianceIds = [...(empA.allianceIds ?? []), id];
+      empB.allianceIds = [...(empB.allianceIds ?? []), id];
+      const capA = state.systems[empA.capitalSystemId];
+      createEvent(state, state.tick, "alliance-formed", `${name} formed`,
+        `${empA.name} and ${empB.name} forged the ${name}.`,
+        3, [empA.id, empB.id], capA ? [capA.id] : []);
+      break;
+    }
+  }
+
+  // Dissolve alliances when members go to war with each other or collapse
+  for (const alliance of Object.values(state.alliances)) {
+    const living = alliance.memberEmpireIds.filter(id => state.empires[id]);
+    if (living.length < 2) {
+      _dissolveAlliance(state, alliance.id);
+      continue;
+    }
+    // Check if any member pair is at war
+    for (let i = 0; i < living.length; i++) {
+      for (let j = i + 1; j < living.length; j++) {
+        const empA = state.empires[living[i]];
+        const rel = empA?.relationshipByEmpireId[living[j]];
+        if (rel?.atWar) { _dissolveAlliance(state, alliance.id); break; }
+      }
+    }
+  }
+}
+
+function _dissolveAlliance(state: GalaxyState, allianceId: Id): void {
+  const alliance = state.alliances[allianceId];
+  if (!alliance) return;
+  for (const memberId of alliance.memberEmpireIds) {
+    const emp = state.empires[memberId];
+    if (emp) emp.allianceIds = emp.allianceIds?.filter(id => id !== allianceId) ?? [];
+  }
+  delete state.alliances[allianceId];
+}
+
+// ── Core subsystems ───────────────────────────────────────────────────────────
+
 function stepGrowth(state: GalaxyState, rng: PRNG): void {
   for (const sys of Object.values(state.systems)) {
     if (sys.ownerEmpireId) {
       sys.population = Math.min(sys.population + 0.002 * sys.habitability, 2.0);
       const owner = state.empires[sys.ownerEmpireId];
       if (owner && sys.cultureId !== owner.cultureId) {
-        // foreign-culture worlds chafe under their rulers but slowly assimilate
         sys.stability = Math.max(0.05, sys.stability - 0.0006);
         if (rng.next() < 0.0025 * owner.cohesion) sys.cultureId = owner.cultureId;
       } else {
@@ -197,7 +356,6 @@ const EXPANSION_MOOD_MULT: Record<EmpireMood, number> = {
 function stepExpansion(state: GalaxyState, rng: PRNG): void {
   for (const emp of Object.values(state.empires)) {
     if (emp.wealth < 18 || emp.ownedSystemIds.length === 0) continue;
-    // wars pull resources away from colonization
     const warPenalty = Math.max(0.1, 1 - emp.activeWarEmpireIds.length * 0.35);
     const expandChance = emp.expansionism * 0.22 * emp.cohesion * Math.min(emp.wealth / 250, 1) * EXPANSION_MOOD_MULT[emp.mood] * IDEOLOGY_MODS[emp.ideology].expansion * warPenalty;
     if (rng.next() > expandChance) continue;
@@ -231,7 +389,6 @@ function launchWarFleet(state: GalaxyState, attacker: Empire, defenderId: Id, rn
   const origin = nearestOwnedTo(state, attacker, target);
   if (!origin) return;
   const strength = Math.max(12, attacker.militaryStrength * rng.range(0.08, 0.18));
-  // rich crusaders field armadas, poor or restless empires send raiders
   const shipClass: ShipClass =
     attacker.wealth > 600 && (attacker.mood === "crusading" || rng.next() < 0.3) ? "armada"
       : rng.next() < 0.3 ? "raider" : "strike";
@@ -244,7 +401,6 @@ function stepFleets(state: GalaxyState, rng: PRNG): void {
     const origin = state.systems[fleet.originSystemId]; const target = state.systems[fleet.targetSystemId]; const owner = state.empires[fleet.ownerEmpireId];
     if (!origin || !target || !owner) { delete state.fleets[fleet.id]; continue; }
 
-    // advance along starlane legs, hopping star to star
     const arrived = advanceAlongPath(state, fleet);
 
     let travelled = 0;
@@ -267,6 +423,33 @@ function stepFleets(state: GalaxyState, rng: PRNG): void {
 function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void {
   const owner = state.empires[fleet.ownerEmpireId]; const target = state.systems[fleet.targetSystemId];
   if (!owner || !target) return;
+
+  if (fleet.kind === "merchant") {
+    // merchants boost local wealth and empire wealth on arrival
+    target.localWealth = Math.min(200, (target.localWealth ?? 0) + rng.range(3, 8));
+    owner.wealth += rng.range(4, 12);
+    return;
+  }
+
+  if (fleet.kind === "pilgrim") {
+    // pilgrims spread their religion and boost stability
+    if (owner.stateReligionId && !target.religionId) target.religionId = owner.stateReligionId;
+    target.stability = Math.min(1, target.stability + 0.03);
+    if (target.religionId && !target.markers?.some(m => m.kind === "holy-site")) {
+      addMarker(target, "holy-site", state.tick, `Sacred to the faithful`);
+    }
+    return;
+  }
+
+  if (fleet.kind === "refugee") {
+    // refugees settle at the destination, boosting population but stressing stability
+    if (target.ownerEmpireId) {
+      target.population = Math.min(2.5, target.population + 0.08);
+      target.stability = Math.max(0.05, target.stability - 0.05);
+    }
+    return;
+  }
+
   if (fleet.kind === "colonizer") {
     if (target.ownerEmpireId !== null) {
       createEvent(state, state.tick, "system-colonized",
@@ -276,11 +459,12 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
       return;
     }
     target.ownerEmpireId = owner.id; target.cultureId = owner.cultureId; owner.ownedSystemIds.push(target.id); target.stability = Math.max(target.stability, 0.55);
-    if (!target.religionId && owner.stateReligionId) target.religionId = owner.stateReligionId; // settlers carry their faith
+    if (!target.religionId && owner.stateReligionId) target.religionId = owner.stateReligionId;
     createEvent(state, state.tick, "system-colonized", `${owner.name} colonized ${target.name}`, `${fleet.name} arrived and founded a colony for ${owner.name}.`, 1, [owner.id], [target.id]);
     discoverArtifact(state, target);
     return;
   }
+
   if (fleet.kind === "war") {
     const defenderId = target.ownerEmpireId;
     if (!defenderId || defenderId === owner.id) return;
@@ -289,9 +473,12 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
     const localDefense = (defender.militaryStrength * 0.08 + target.population * 18 + target.stability * 18) * rng.range(0.7, 1.35) * divineShield;
     const attack = fleet.strength * rng.range(0.75, 1.35);
     target.stability = Math.max(0.05, target.stability - 0.12); target.population = Math.max(0.03, target.population * rng.range(0.88, 0.98));
+
+    // The battle leaves a scar regardless of outcome
+    addMarker(target, "battlefield", state.tick, `Battle of ${target.name}`);
+
     if (attack > localDefense) {
       defender.ownedSystemIds = defender.ownedSystemIds.filter(id => id !== target.id); if (!owner.ownedSystemIds.includes(target.id)) owner.ownedSystemIds.push(target.id);
-      // conquered worlds keep their culture; assimilation is gradual and feeds unrest
       target.ownerEmpireId = owner.id; target.stability = Math.max(0.1, target.stability - 0.18);
       owner.cohesion = Math.min(1, owner.cohesion + 0.01); defender.cohesion = Math.max(0.1, defender.cohesion - 0.05);
       if (defender.capitalSystemId === target.id && defender.ownedSystemIds.length > 0) defender.capitalSystemId = defender.ownedSystemIds[0];
@@ -300,29 +487,29 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
       const credit = fleet.admiralName ? ` ${fleet.admiralName} is hailed for the victory.` : "";
       createEvent(state, state.tick, "border-conflict", `${owner.name} captured ${target.name}`, `${fleet.name} seized ${target.name} from ${defender.name}.${credit}`, 3, [owner.id, defenderId], [target.id]);
       discoverArtifact(state, target);
-      // An empire that just lost its last world collapses now, so its stale
-      // capital pointer (still on the conquered system) never outlives the tick.
-      if (defender.ownedSystemIds.length === 0) collapseEmpire(state, defender);
-    } else { owner.cohesion = Math.max(0.1, owner.cohesion - 0.02); createEvent(state, state.tick, "border-conflict", `${owner.name} failed at ${target.name}`, `${fleet.name} was repelled by ${defender.name}.`, 2, [owner.id, defenderId], [target.id]); }
+      if (defender.ownedSystemIds.length === 0) collapseEmpire(state, defender, rng);
+    } else {
+      owner.cohesion = Math.max(0.1, owner.cohesion - 0.02);
+      createEvent(state, state.tick, "border-conflict", `${owner.name} failed at ${target.name}`, `${fleet.name} was repelled by ${defender.name}.`, 2, [owner.id, defenderId], [target.id]);
+    }
   }
 }
 
 function stepCollapse(state: GalaxyState, rng: PRNG): void {
   for (const emp of Object.values(state.empires)) {
-    if (emp.ownedSystemIds.length === 0) { collapseEmpire(state, emp); continue; }
+    if (emp.ownedSystemIds.length === 0) { collapseEmpire(state, emp, rng); continue; }
     if (emp.godBoostTicks && emp.godBoostTicks > 0) continue;
     const overextension = Math.max(0, emp.ownedSystemIds.length - 15) * 0.005;
     const warStrain = emp.activeWarEmpireIds.length * 0.02;
     const moodStrain = emp.mood === "rioting" ? 3 : emp.mood === "degenerating" ? 1.7 : 1;
     const collapseRisk = ((1 - emp.cohesion) * 0.05 + overextension + warStrain) * moodStrain;
     if (rng.next() > collapseRisk * 0.07) continue;
-    if (emp.ownedSystemIds.length > 4 && rng.next() < 0.5) spawnRebellion(state, emp, rng); else if (emp.cohesion < 0.2 && emp.ownedSystemIds.length > 2) collapseEmpire(state, emp);
+    if (emp.ownedSystemIds.length > 4 && rng.next() < 0.5) spawnRebellion(state, emp, rng); else if (emp.cohesion < 0.2 && emp.ownedSystemIds.length > 2) collapseEmpire(state, emp, rng);
   }
 }
 
 function spawnRebellion(state: GalaxyState, empire: Empire, rng: PRNG): void {
   const numDefect = rng.nextInt(1, Math.max(1, Math.floor(empire.ownedSystemIds.length / 3))); const defectingSet = new Set<Id>();
-  // restless conquered worlds defect first
   const foreign = empire.ownedSystemIds.filter(id => { const s = state.systems[id]; return s && s.cultureId !== empire.cultureId && id !== empire.capitalSystemId; });
   for (const sysId of foreign.slice(0, numDefect)) defectingSet.add(sysId);
   for (let i = defectingSet.size; i < numDefect; i++) { const idx = rng.nextInt(0, empire.ownedSystemIds.length - 1); const sysId = empire.ownedSystemIds[idx]; if (sysId !== empire.capitalSystemId) defectingSet.add(sysId); }
@@ -330,22 +517,104 @@ function spawnRebellion(state: GalaxyState, empire: Empire, rng: PRNG): void {
   const newId = `${empire.id}-rebel-${state.tick}`;
   const rebelNames = ["Liberation Front","Free States","Rebel Council","Independence Movement","Separatist League","Resistance","New Order","Sovereign Collective"];
   const rebelReligion = state.systems[defecting[0]]?.religionId ?? null;
-  const newEmpire: Empire = { id: newId, name: `${rng.pick(["Broken","Free","New","Rogue","Rising","Lost"])} ${rng.pick(rebelNames)}`, color: `hsl(${rng.nextInt(0, 360)},${rng.nextInt(50, 90)}%,${rng.nextInt(35, 65)}%)`, mood: "expanding", moodSince: state.tick, ideology: rng.pick(IDEOLOGIES), ruler: makeRuler(rng, state.tick), court: makeCourt(rng, state.tick, rebelReligion !== null), capitalSystemId: defecting[0], ownedSystemIds: [], population: 0, wealth: 50, militaryStrength: 30, cohesion: rng.range(0.4, 0.8), aggression: rng.range(0.3, 0.8), expansionism: rng.range(0.3, 0.7), techLevel: empire.techLevel * 0.8, cultureId: `culture-rebel-${newId}`, stateReligionId: rebelReligion, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [] };
+  const newEmpire: Empire = { id: newId, name: `${rng.pick(["Broken","Free","New","Rogue","Rising","Lost"])} ${rng.pick(rebelNames)}`, color: `hsl(${rng.nextInt(0, 360)},${rng.nextInt(50, 90)}%,${rng.nextInt(35, 65)}%)`, mood: "expanding", moodSince: state.tick, ideology: rng.pick(IDEOLOGIES), ruler: makeRuler(rng, state.tick), court: makeCourt(rng, state.tick, rebelReligion !== null), capitalSystemId: defecting[0], ownedSystemIds: [], population: 0, wealth: 50, militaryStrength: 30, cohesion: rng.range(0.4, 0.8), aggression: rng.range(0.3, 0.8), expansionism: rng.range(0.3, 0.7), techLevel: empire.techLevel * 0.8, cultureId: `culture-rebel-${newId}`, stateReligionId: rebelReligion, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [], allianceIds: [] };
   for (const sysId of defecting) { const sys = state.systems[sysId]; if (!sys) continue; empire.ownedSystemIds = empire.ownedSystemIds.filter(id => id !== sysId); sys.ownerEmpireId = newId; sys.cultureId = newEmpire.cultureId; newEmpire.ownedSystemIds.push(sysId); }
   state.empires[newId] = newEmpire; empire.cohesion = Math.max(0.1, empire.cohesion - 0.2);
+
+  // Spawn refugee ships from the most destabilized defecting systems
+  if (defecting.length > 0 && rng.next() < 0.6) {
+    const rebelSys = state.systems[defecting[0]];
+    const destCandidates = Object.values(state.systems).filter(s => s.ownerEmpireId && s.ownerEmpireId !== newId && s.id !== defecting[0]);
+    if (rebelSys && destCandidates.length > 0) {
+      const dest = rng.pick(destCandidates);
+      const rfId = `fleet-rfg-${state.tick}-${rng.nextInt(0, 9999)}`;
+      const path = findPath(state, rebelSys.id, dest.id);
+      state.fleets[rfId] = {
+        id: rfId, name: `Refugees from ${rebelSys.name}`, kind: "refugee", shipClass: "settler",
+        ownerEmpireId: newId, originSystemId: rebelSys.id, targetSystemId: dest.id,
+        path, legIndex: 0, legProgress: 0, totalDist: Math.max(1, pathLength(state, path)),
+        x: rebelSys.x, y: rebelSys.y, progress: 0,
+        speed: rng.range(2.0, 3.2), strength: 1, createdTick: state.tick,
+      };
+    }
+  }
+
+  // Mark rebel hotbed on the capital of the defecting faction
+  const rebelCapSys = state.systems[defecting[0]];
+  if (rebelCapSys) addMarker(rebelCapSys, "rebel-hotbed", state.tick, `Birthplace of ${newEmpire.name}`);
+
   createEvent(state, state.tick, "rebellion", `Rebellion in ${empire.name}`, `${newEmpire.name} broke away from ${empire.name}.`, 4, [empire.id, newId], defecting);
 }
 
 function removeEmpireFromGalaxy(state: GalaxyState, empire: Empire): void {
   severEmpireRoutes(state, empire.id, "died with its partner");
+  // Remove from alliances
+  for (const allianceId of (empire.allianceIds ?? [])) {
+    const alliance = state.alliances[allianceId];
+    if (alliance) {
+      alliance.memberEmpireIds = alliance.memberEmpireIds.filter(id => id !== empire.id);
+      if (alliance.memberEmpireIds.length < 2) delete state.alliances[allianceId];
+    }
+  }
   delete state.empires[empire.id];
   for (const other of Object.values(state.empires)) { delete other.relationshipByEmpireId[empire.id]; other.activeWarEmpireIds = other.activeWarEmpireIds.filter(id => id !== empire.id); }
   for (const fleet of Object.values(state.fleets)) if (fleet.ownerEmpireId === empire.id) delete state.fleets[fleet.id];
 }
 
-function collapseEmpire(state: GalaxyState, empire: Empire): void {
-  for (const sysId of empire.ownedSystemIds) { const sys = state.systems[sysId]; if (!sys) continue; sys.ownerEmpireId = null; sys.stability = Math.max(0.1, sys.stability - 0.3); }
-  createEvent(state, state.tick, "empire-collapsed", `${empire.name} collapsed`, `${empire.name} has disintegrated.`, 5, [empire.id], empire.ownedSystemIds);
+function collapseEmpire(state: GalaxyState, empire: Empire, rng: PRNG): void {
+  const collapsingSystems = [...empire.ownedSystemIds];
+  for (const sysId of collapsingSystems) {
+    const sys = state.systems[sysId];
+    if (!sys) continue;
+    sys.ownerEmpireId = null;
+    sys.stability = Math.max(0.1, sys.stability - 0.3);
+    // Mark ruins and dead capital
+    addMarker(sys, "ruin", state.tick, `Ruins of ${empire.name}`);
+    if (sysId === empire.capitalSystemId) addMarker(sys, "dead-capital", state.tick, `Former capital of ${empire.name}`);
+  }
+
+  // Messier collapse: sometimes a successor state rises from the ashes
+  if (collapsingSystems.length >= 3 && rng.next() < 0.4) {
+    const successorSysId = collapsingSystems[rng.nextInt(0, Math.min(2, collapsingSystems.length - 1))];
+    const successorSys = state.systems[successorSysId];
+    if (successorSys && successorSys.population > 0.2) {
+      const sucId = `emp-suc-${empire.id}-${state.tick}`;
+      const sucCultureId = empire.cultureId; // inherits culture
+      const sucReligion = successorSys.religionId ?? empire.stateReligionId;
+      const sucEmpire: Empire = {
+        id: sucId,
+        name: `${successorSys.name} ${rng.pick(["Remnant","Successor","Continuity","Restoration","Rump State"])}`,
+        color: empire.color,
+        mood: "fortifying", moodSince: state.tick,
+        ideology: empire.ideology,
+        ruler: makeRuler(rng, state.tick),
+        court: makeCourt(rng, state.tick, sucReligion !== null),
+        capitalSystemId: successorSysId,
+        ownedSystemIds: [successorSysId],
+        population: Math.max(successorSys.population * 800, 200),
+        wealth: Math.max(50, empire.wealth * 0.1),
+        militaryStrength: Math.max(20, empire.militaryStrength * 0.15),
+        cohesion: rng.range(0.3, 0.6),
+        aggression: empire.aggression * 0.7,
+        expansionism: rng.range(0.2, 0.5),
+        techLevel: empire.techLevel * 0.8,
+        cultureId: sucCultureId,
+        stateReligionId: sucReligion,
+        relationshipByEmpireId: {},
+        activeWarEmpireIds: [],
+        historicalEventIds: [],
+        allianceIds: [],
+      };
+      successorSys.ownerEmpireId = sucId;
+      state.empires[sucId] = sucEmpire;
+      createEvent(state, state.tick, "empire-founded",
+        `${sucEmpire.name} rose from ${empire.name}'s ashes`,
+        `As ${empire.name} crumbled, ${sucEmpire.name} claimed continuity at ${successorSys.name}.`,
+        4, [sucId], [successorSysId]);
+    }
+  }
+
+  createEvent(state, state.tick, "empire-collapsed", `${empire.name} collapsed`, `${empire.name} has disintegrated.`, 5, [empire.id], collapsingSystems);
   removeEmpireFromGalaxy(state, empire);
 }
 
@@ -356,6 +625,7 @@ function transcendEmpire(state: GalaxyState, empire: Empire): void {
     sys.ownerEmpireId = null;
     sys.stability = Math.max(sys.stability, 0.7);
     sys.techLevel = Math.max(sys.techLevel, empire.techLevel * 0.9);
+    addMarker(sys, "transcendent-ruin", state.tick, `Legacy of ${empire.name}`);
   }
   createEvent(state, state.tick, "transcended", `${empire.name} transcended`, `${empire.name} ascended beyond the material galaxy, leaving its enlightened worlds behind.`, 5, [empire.id], empire.ownedSystemIds.slice(0, 12));
   removeEmpireFromGalaxy(state, empire);
@@ -406,7 +676,7 @@ function stepMoods(state: GalaxyState, rng: PRNG): void {
         break;
     }
     if (rng.next() > MOOD_CHECK_CHANCE) continue;
-    if (emp.mood === "transcending") continue; // transcendence runs to completion or collapse
+    if (emp.mood === "transcending") continue;
     const next = pickMood(state, emp, rng);
     if (next === emp.mood) continue;
     emp.mood = next;
@@ -436,7 +706,6 @@ function stepRulers(state: GalaxyState, rng: PRNG): void {
     } else {
       emp.ruler = makeRuler(rng, state.tick);
     }
-    // a new ruler bends the empire's temperament
     emp.aggression = Math.min(1, Math.max(0.05, emp.aggression + rng.range(-0.2, 0.2)));
     emp.expansionism = Math.min(1, Math.max(0.05, emp.expansionism + rng.range(-0.2, 0.2)));
     const cap = state.systems[emp.capitalSystemId];
@@ -445,12 +714,9 @@ function stepRulers(state: GalaxyState, rng: PRNG): void {
   }
 }
 
-// Internal politics: discontented factions can topple the throne, flipping the
-// empire's ideology and shaking its institutions.
 function stepPolitics(state: GalaxyState, rng: PRNG): void {
   for (const emp of Object.values(state.empires)) {
     const unrest = (1 - emp.cohesion) * (emp.mood === "rioting" ? 3 : emp.mood === "degenerating" ? 1.6 : 1);
-    // a pacifist court bleeding through many wars invites the generals in
     const warPressure = emp.ideology === "pacifist" && emp.activeWarEmpireIds.length >= 2 ? 0.002 : 0;
     if (rng.next() > unrest * 0.0009 + warPressure) continue;
     const oldRuler = rulerDisplayName(emp);
@@ -555,7 +821,6 @@ function createEmergentEmpire(state: GalaxyState, candidate: EmergenceCandidate,
   const sys = candidate.system;
   const id = `emp-rise-${candidate.kind}-${state.tick}-${Object.keys(state.empires).length}`;
   const cultureId = candidate.kind === "successor" || candidate.kind === "pretender" ? sys.cultureId : `culture-${id}`;
-  // successors and pretenders inherit the ruin's tech rather than starting from scratch
   const techBase = candidate.kind === "native" ? 0.25
     : candidate.kind === "frontier" ? 0.35
     : Math.max(0.55, sys.techLevel * 0.75);
@@ -585,17 +850,14 @@ function createEmergentEmpire(state: GalaxyState, candidate: EmergenceCandidate,
     relationshipByEmpireId: {},
     activeWarEmpireIds: [],
     historicalEventIds: [],
+    allianceIds: [],
   };
 }
 
-// New empires rise in different historical forms, so the galaxy never goes
-// quiet: empty frontiers, ruins, native worlds, and claimant courts all compete
-// to refill the sandbox when too few powers remain.
 function stepEmergence(state: GalaxyState, rng: PRNG): void {
   const empireCount = Object.keys(state.empires).length;
   const targetEmpires = Math.max(6, Math.round(Object.keys(state.systems).length / 40));
   const deficit = Math.max(0, targetEmpires - empireCount);
-  // a small baseline keeps new powers possible even when the galaxy is crowded
   const chance = Math.max(0.0003, deficit * 0.0012);
   if (rng.next() > chance) return;
 
@@ -616,5 +878,7 @@ function stepEmergence(state: GalaxyState, rng: PRNG): void {
 export function executeTick(state: GalaxyState, rng: PRNG): void {
   stepGrowth(state, rng); stepProgress(state, rng); stepReligion(state, rng); stepCharacters(state, rng); stepMoods(state, rng); stepRulers(state, rng); stepPolitics(state, rng);
   stepFleets(state, rng); stepExpansion(state, rng); stepConflict(state, rng); stepTrade(state, rng); stepMonsters(state, rng); stepCrises(state, rng);
-  stepCollapse(state, rng); stepEmergence(state, rng); state.tick++;
+  stepCollapse(state, rng); stepEmergence(state, rng);
+  stepLocalWealth(state); stepArtifactEffects(state); stepAmbientShips(state, rng); stepAlliances(state, rng);
+  state.tick++;
 }

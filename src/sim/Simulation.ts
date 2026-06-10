@@ -6,7 +6,7 @@ import { createEvent, getEventCounter, setEventCounter } from "./Events";
 import { IDEOLOGIES } from "./Moods";
 import { makeCourt } from "./Characters";
 
-const SAVE_VERSION = 3;
+const SAVE_VERSION = 4;
 
 // Older saves and hand-edited files may lack newer fields; patch them in so
 // rehydrated galaxies keep ticking.
@@ -14,16 +14,20 @@ function upgradeState(state: GalaxyState): GalaxyState {
   state.religions ??= {};
   state.tradeRoutes ??= {};
   state.monsters ??= {};
+  state.alliances ??= {};
   for (const sys of Object.values(state.systems)) {
     sys.religionId ??= null;
     sys.artifactName ??= null;
     sys.godBoostTicks ??= 0;
+    sys.markers ??= [];
+    sys.localWealth ??= 0;
   }
   for (const emp of Object.values(state.empires)) {
     emp.ideology ??= IDEOLOGIES[0];
     emp.stateReligionId ??= null;
     emp.court ??= [];
     emp.godBoostTicks ??= 0;
+    emp.allianceIds ??= [];
   }
   for (const fleet of Object.values(state.fleets)) {
     fleet.shipClass ??= fleet.kind === "war" ? "strike" : "settler";
@@ -52,7 +56,7 @@ export class Simulation {
   constructor(settings: SimSettings) {
     this.settings = settings;
     this.rng = new SeededRandom(settings.seed);
-    this.state = generateGalaxy(settings.seed, settings.numStars, settings.numEmpires, this.rng);
+    this.state = generateGalaxy(settings.seed, settings.numStars, settings.numEmpires, this.rng, settings.galaxyShape, settings.starlaneMode);
     this._fireFoundedEvents();
     this._snapshot = this._buildSnapshot();
     this._snapshotDirty = false;
@@ -120,7 +124,7 @@ export class Simulation {
     this.pause();
     if (newSettings) this.settings = { ...this.settings, ...newSettings };
     this.rng = new SeededRandom(this.settings.seed);
-    this.state = generateGalaxy(this.settings.seed, this.settings.numStars, this.settings.numEmpires, this.rng);
+    this.state = generateGalaxy(this.settings.seed, this.settings.numStars, this.settings.numEmpires, this.rng, this.settings.galaxyShape, this.settings.starlaneMode);
     this._fireFoundedEvents();
     this._notify();
   }
