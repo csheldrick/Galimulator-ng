@@ -40,34 +40,11 @@ export class Simulation {
     }
   }
 
-  private _buildSnapshot(): Readonly<GalaxyState> {
-    return structuredClone(this.state) as Readonly<GalaxyState>;
-  }
-
-  getSnapshot(): Readonly<GalaxyState> {
-    if (this._snapshotDirty) {
-      this._snapshot = this._buildSnapshot();
-      this._snapshotDirty = false;
-    }
-    return this._snapshot;
-  }
-
-  subscribe(fn: SimListener): () => void {
-    this.listeners.add(fn);
-    fn(this.getSnapshot());
-    return () => { this.listeners.delete(fn); };
-  }
-
-  private _notify(): void {
-    this._snapshotDirty = true;
-    if (this.listeners.size === 0) return;
-    const snap = this.getSnapshot();
-    for (const fn of this.listeners) fn(snap);
-  }
-
-  private _touch(): void {
-    this._notify();
-  }
+  private _buildSnapshot(): Readonly<GalaxyState> { return structuredClone(this.state) as Readonly<GalaxyState>; }
+  getSnapshot(): Readonly<GalaxyState> { if (this._snapshotDirty) { this._snapshot = this._buildSnapshot(); this._snapshotDirty = false; } return this._snapshot; }
+  subscribe(fn: SimListener): () => void { this.listeners.add(fn); fn(this.getSnapshot()); return () => { this.listeners.delete(fn); }; }
+  private _notify(): void { this._snapshotDirty = true; if (this.listeners.size === 0) return; const snap = this.getSnapshot(); for (const fn of this.listeners) fn(snap); }
+  private _touch(): void { this._notify(); }
 
   private _relationship(source: Empire, targetId: Id): EmpireRelationship {
     const existing = source.relationshipByEmpireId[targetId];
@@ -82,62 +59,48 @@ export class Simulation {
     this.running = true;
     this.lastTime = performance.now();
     this.accumulator = 0;
-
     const loop = (now: number) => {
       if (!this.running) return;
-
       const elapsed = now - this.lastTime;
       this.lastTime = now;
       const ticksPerSecond = Math.max(1, this.settings.ticksPerSecond);
       const msPerTick = FIXED_TICK_MS / (ticksPerSecond / BASE_TICKS_PER_SECOND);
-
       this.accumulator += elapsed;
       let ticked = false;
       let safeGuard = 0;
-
       while (this.accumulator >= msPerTick && safeGuard < 20) {
         executeTick(this.state, this.rng);
         this.accumulator -= msPerTick;
         ticked = true;
         safeGuard++;
       }
-
       if (this.accumulator >= msPerTick) this.accumulator = 0;
       if (ticked) this._notify();
       this.rafId = requestAnimationFrame(loop);
     };
-
     this.rafId = requestAnimationFrame(loop);
   }
 
-  pause(): void {
-    this.running = false;
-    if (this.rafId !== null) {
-      cancelAnimationFrame(this.rafId);
-      this.rafId = null;
-    }
-  }
-
-  step(): void {
-    executeTick(this.state, this.rng);
-    this._notify();
-  }
-
+  pause(): void { this.running = false; if (this.rafId !== null) { cancelAnimationFrame(this.rafId); this.rafId = null; } }
+  step(): void { executeTick(this.state, this.rng); this._notify(); }
   reset(newSettings?: Partial<SimSettings>): void {
     this.pause();
     if (newSettings) this.settings = { ...this.settings, ...newSettings };
     this.rng = new SeededRandom(this.settings.seed);
-    this.state = generateGalaxy(
-      this.settings.seed, this.settings.numStars, this.settings.numEmpires, this.rng
-    );
+    this.state = generateGalaxy(this.settings.seed, this.settings.numStars, this.settings.numEmpires, this.rng);
     this._fireFoundedEvents();
     this._notify();
   }
+  runTicks(count: number): void { const n = Math.max(1, Math.min(500, Math.floor(count))); for (let i = 0; i < n; i++) executeTick(this.state, this.rng); this._notify(); }
 
-  runTicks(count: number): void {
-    const n = Math.max(1, Math.min(500, Math.floor(count)));
-    for (let i = 0; i < n; i++) executeTick(this.state, this.rng);
-    this._notify();
+  cancelFleet(fleetId: Id): void {
+    const fleet = this.state.fleets[fleetId];
+    if (!fleet) return;
+    const owner = this.state.empires[fleet.ownerEmpireId];
+    const target = this.state.systems[fleet.targetSystemId];
+    delete this.state.fleets[fleetId];
+    createEvent(this.state, this.state.tick, "peace-signed", `${fleet.name} recalled`, `${fleet.name} was removed from its mission${target ? ` to ${target.name}` : ""}.`, 1, owner ? [owner.id] : [], target ? [target.id] : []);
+    this._touch();
   }
 
   boostSystem(systemId: Id): void {
@@ -182,28 +145,14 @@ export class Simulation {
       const old = this.state.empires[oldOwnerId];
       if (old) old.ownedSystemIds = old.ownedSystemIds.filter(id => id !== systemId);
     }
-
     const id = `god-emp-${this.state.tick}-${Object.keys(this.state.empires).length}`;
     const cultureId = `culture-${id}`;
     const empire: Empire = {
-      id,
-      name: `${sys.name} Ascendancy`,
-      color: `hsl(${this.rng.nextInt(0, 360)},75%,58%)`,
-      capitalSystemId: sys.id,
-      ownedSystemIds: [sys.id],
-      population: Math.max(sys.population * 1000, 500),
-      wealth: 300,
-      militaryStrength: 120,
-      cohesion: 0.8,
-      aggression: this.rng.range(0.2, 0.8),
-      expansionism: this.rng.range(0.4, 0.9),
-      techLevel: Math.max(sys.techLevel, 0.5),
-      cultureId,
-      relationshipByEmpireId: {},
-      activeWarEmpireIds: [],
-      historicalEventIds: [],
+      id, name: `${sys.name} Ascendancy`, color: `hsl(${this.rng.nextInt(0, 360)},75%,58%)`, capitalSystemId: sys.id,
+      ownedSystemIds: [sys.id], population: Math.max(sys.population * 1000, 500), wealth: 300, militaryStrength: 120,
+      cohesion: 0.8, aggression: this.rng.range(0.2, 0.8), expansionism: this.rng.range(0.4, 0.9), techLevel: Math.max(sys.techLevel, 0.5),
+      cultureId, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [],
     };
-
     sys.ownerEmpireId = id;
     sys.cultureId = cultureId;
     sys.population = Math.max(sys.population, 0.7);
@@ -213,44 +162,14 @@ export class Simulation {
     return id;
   }
 
-  boostEmpire(empireId: Id): void {
-    const emp = this.state.empires[empireId];
-    if (!emp) return;
-    emp.wealth += 500;
-    emp.cohesion = Math.min(1, emp.cohesion + 0.2);
-    emp.techLevel = Math.min(3, emp.techLevel + 0.2);
-    emp.militaryStrength += 150;
-    createEvent(this.state, this.state.tick, "golden-age", `${emp.name} strengthened`, `${emp.name} received a surge of wealth and cohesion.`, 3, [emp.id], []);
-    this._touch();
-  }
-
-  weakenEmpire(empireId: Id): void {
-    const emp = this.state.empires[empireId];
-    if (!emp) return;
-    emp.wealth = Math.max(0, emp.wealth * 0.4);
-    emp.cohesion = Math.max(0.05, emp.cohesion - 0.35);
-    emp.militaryStrength = Math.max(1, emp.militaryStrength * 0.45);
-    for (const sysId of emp.ownedSystemIds) {
-      const sys = this.state.systems[sysId];
-      if (sys) sys.stability = Math.max(0.05, sys.stability - 0.15);
-    }
-    createEvent(this.state, this.state.tick, "empire-collapsed", `${emp.name} destabilized`, `${emp.name} was weakened by outside forces.`, 3, [emp.id], emp.ownedSystemIds.slice(0, 8));
-    this._touch();
-  }
+  boostEmpire(empireId: Id): void { const emp = this.state.empires[empireId]; if (!emp) return; emp.wealth += 500; emp.cohesion = Math.min(1, emp.cohesion + 0.2); emp.techLevel = Math.min(3, emp.techLevel + 0.2); emp.militaryStrength += 150; createEvent(this.state, this.state.tick, "golden-age", `${emp.name} strengthened`, `${emp.name} received a surge of wealth and cohesion.`, 3, [emp.id], []); this._touch(); }
+  weakenEmpire(empireId: Id): void { const emp = this.state.empires[empireId]; if (!emp) return; emp.wealth = Math.max(0, emp.wealth * 0.4); emp.cohesion = Math.max(0.05, emp.cohesion - 0.35); emp.militaryStrength = Math.max(1, emp.militaryStrength * 0.45); for (const sysId of emp.ownedSystemIds) { const sys = this.state.systems[sysId]; if (sys) sys.stability = Math.max(0.05, sys.stability - 0.15); } createEvent(this.state, this.state.tick, "empire-collapsed", `${emp.name} destabilized`, `${emp.name} was weakened by outside forces.`, 3, [emp.id], emp.ownedSystemIds.slice(0, 8)); this._touch(); }
 
   forceWar(attackerId: Id, defenderId: Id): void {
     if (attackerId === defenderId) return;
-    const attacker = this.state.empires[attackerId];
-    const defender = this.state.empires[defenderId];
-    if (!attacker || !defender) return;
-    const rel = this._relationship(attacker, defenderId);
-    const relBack = this._relationship(defender, attackerId);
-    rel.atWar = true;
-    relBack.atWar = true;
-    rel.tension = 100;
-    relBack.tension = 100;
-    rel.opinion = Math.min(rel.opinion, 5);
-    relBack.opinion = Math.min(relBack.opinion, 5);
+    const attacker = this.state.empires[attackerId]; const defender = this.state.empires[defenderId]; if (!attacker || !defender) return;
+    const rel = this._relationship(attacker, defenderId); const relBack = this._relationship(defender, attackerId);
+    rel.atWar = true; relBack.atWar = true; rel.tension = 100; relBack.tension = 100; rel.opinion = Math.min(rel.opinion, 5); relBack.opinion = Math.min(relBack.opinion, 5);
     if (!attacker.activeWarEmpireIds.includes(defenderId)) attacker.activeWarEmpireIds.push(defenderId);
     if (!defender.activeWarEmpireIds.includes(attackerId)) defender.activeWarEmpireIds.push(attackerId);
     createEvent(this.state, this.state.tick, "war-declared", `War: ${attacker.name} vs ${defender.name}`, `${attacker.name} and ${defender.name} were forced into war.`, 4, [attackerId, defenderId], []);
@@ -259,58 +178,21 @@ export class Simulation {
 
   forcePeace(empireId: Id, otherId: Id): void {
     if (empireId === otherId) return;
-    const empire = this.state.empires[empireId];
-    const other = this.state.empires[otherId];
-    if (!empire || !other) return;
-    const rel = this._relationship(empire, otherId);
-    const relBack = this._relationship(other, empireId);
-    rel.atWar = false;
-    relBack.atWar = false;
-    rel.tension = Math.min(rel.tension, 20);
-    relBack.tension = Math.min(relBack.tension, 20);
-    rel.opinion = Math.max(rel.opinion, 45);
-    relBack.opinion = Math.max(relBack.opinion, 45);
-    empire.activeWarEmpireIds = empire.activeWarEmpireIds.filter(id => id !== otherId);
-    other.activeWarEmpireIds = other.activeWarEmpireIds.filter(id => id !== empireId);
+    const empire = this.state.empires[empireId]; const other = this.state.empires[otherId]; if (!empire || !other) return;
+    const rel = this._relationship(empire, otherId); const relBack = this._relationship(other, empireId);
+    rel.atWar = false; relBack.atWar = false; rel.tension = Math.min(rel.tension, 20); relBack.tension = Math.min(relBack.tension, 20); rel.opinion = Math.max(rel.opinion, 45); relBack.opinion = Math.max(relBack.opinion, 45);
+    empire.activeWarEmpireIds = empire.activeWarEmpireIds.filter(id => id !== otherId); other.activeWarEmpireIds = other.activeWarEmpireIds.filter(id => id !== empireId);
     createEvent(this.state, this.state.tick, "peace-signed", `Peace: ${empire.name} & ${other.name}`, `${empire.name} and ${other.name} were forced into peace.`, 3, [empireId, otherId], []);
     this._touch();
   }
 
-  inflameEmpire(empireId: Id): void {
-    const emp = this.state.empires[empireId];
-    if (!emp) return;
-    emp.aggression = Math.min(1, emp.aggression + 0.25);
-    for (const other of Object.values(this.state.empires)) {
-      if (other.id === emp.id) continue;
-      const rel = this._relationship(emp, other.id);
-      rel.tension = Math.min(100, rel.tension + 30);
-      rel.opinion = Math.max(0, rel.opinion - 20);
-    }
-    createEvent(this.state, this.state.tick, "border-conflict", `${emp.name} radicalized`, `${emp.name} became more aggressive toward its rivals.`, 3, [emp.id], []);
-    this._touch();
-  }
-
-  pacifyEmpire(empireId: Id): void {
-    const emp = this.state.empires[empireId];
-    if (!emp) return;
-    emp.aggression = Math.max(0, emp.aggression - 0.25);
-    emp.cohesion = Math.min(1, emp.cohesion + 0.1);
-    for (const rel of Object.values(emp.relationshipByEmpireId)) {
-      rel.tension = Math.max(0, rel.tension - 40);
-      rel.opinion = Math.min(100, rel.opinion + 20);
-    }
-    createEvent(this.state, this.state.tick, "peace-signed", `${emp.name} pacified`, `${emp.name} turned inward and reduced foreign tensions.`, 2, [emp.id], []);
-    this._touch();
-  }
+  inflameEmpire(empireId: Id): void { const emp = this.state.empires[empireId]; if (!emp) return; emp.aggression = Math.min(1, emp.aggression + 0.25); for (const other of Object.values(this.state.empires)) { if (other.id === emp.id) continue; const rel = this._relationship(emp, other.id); rel.tension = Math.min(100, rel.tension + 30); rel.opinion = Math.max(0, rel.opinion - 20); } createEvent(this.state, this.state.tick, "border-conflict", `${emp.name} radicalized`, `${emp.name} became more aggressive toward its rivals.`, 3, [emp.id], []); this._touch(); }
+  pacifyEmpire(empireId: Id): void { const emp = this.state.empires[empireId]; if (!emp) return; emp.aggression = Math.max(0, emp.aggression - 0.25); emp.cohesion = Math.min(1, emp.cohesion + 0.1); for (const rel of Object.values(emp.relationshipByEmpireId)) { rel.tension = Math.max(0, rel.tension - 40); rel.opinion = Math.min(100, rel.opinion + 20); } createEvent(this.state, this.state.tick, "peace-signed", `${emp.name} pacified`, `${emp.name} turned inward and reduced foreign tensions.`, 2, [emp.id], []); this._touch(); }
 
   isRunning(): boolean { return this.running; }
-
   getSettings(): SimSettings { return { ...this.settings }; }
-
-  setSpeed(ticksPerSecond: number): void {
-    this.settings.ticksPerSecond = ticksPerSecond;
-  }
-
+  setSpeed(ticksPerSecond: number): void { this.settings.ticksPerSecond = ticksPerSecond; }
   getSystem(id: Id) { return this.state.systems[id] ?? null; }
   getEmpire(id: Id) { return this.state.empires[id] ?? null; }
+  getFleet(id: Id) { return this.state.fleets[id] ?? null; }
 }
