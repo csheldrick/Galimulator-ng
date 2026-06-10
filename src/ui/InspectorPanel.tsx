@@ -6,12 +6,28 @@ interface Props {
   selectedEmpireId: Id | null;
   onSelectEmpire: (id: Id) => void;
   onClearSelection: () => void;
+  onBoostSystem: (id: Id) => void;
+  onDevastateSystem: (id: Id) => void;
+  onNeutralizeSystem: (id: Id) => void;
+  onFoundEmpire: (id: Id) => void;
+  onBoostEmpire: (id: Id) => void;
+  onWeakenEmpire: (id: Id) => void;
 }
 
 function fmt(n: number, dec = 1) { return n.toFixed(dec); }
 
 export function InspectorPanel({
-  snapshot, selectedSystemId, selectedEmpireId, onSelectEmpire, onClearSelection,
+  snapshot,
+  selectedSystemId,
+  selectedEmpireId,
+  onSelectEmpire,
+  onClearSelection,
+  onBoostSystem,
+  onDevastateSystem,
+  onNeutralizeSystem,
+  onFoundEmpire,
+  onBoostEmpire,
+  onWeakenEmpire,
 }: Props) {
   const sys = selectedSystemId ? snapshot.systems[selectedSystemId] : null;
   const emp = selectedEmpireId ? snapshot.empires[selectedEmpireId] : null;
@@ -25,9 +41,11 @@ export function InspectorPanel({
       <div className="inspector-panel">
         <h3>Galaxy</h3>
         <div className="info-row"><span>Tick</span><span>{snapshot.tick}</span></div>
+        <div className="info-row"><span>Seed</span><span>{snapshot.seed}</span></div>
+        <div className="info-row"><span>Systems</span><span>{Object.keys(snapshot.systems).length}</span></div>
         <div className="info-row"><span>Empires</span><span>{empList.length}</span></div>
         <div className="info-row">
-          <span>Populated</span>
+          <span>Owned</span>
           <span>{Object.values(snapshot.systems).filter(s => s.ownerEmpireId).length}</span>
         </div>
         <div className="info-row"><span>Wars</span><span>{activeWars.size}</span></div>
@@ -37,7 +55,7 @@ export function InspectorPanel({
         </div>
         <h4>Empires</h4>
         <div className="empire-list">
-          {empList.map(e => (
+          {[...empList].sort((a, b) => b.ownedSystemIds.length - a.ownedSystemIds.length).map(e => (
             <div key={e.id} className="empire-item" onClick={() => onSelectEmpire(e.id)}>
               <span className="emp-dot" style={{ background: e.color }} />
               <span className="emp-name">{e.name}</span>
@@ -69,6 +87,15 @@ export function InspectorPanel({
           <div className="info-row"><span>Habitability</span><span>{fmt(sys.habitability)}</span></div>
           <div className="info-row"><span>Stability</span><span>{fmt(sys.stability)}</span></div>
           <div className="info-row"><span>Tech</span><span>{fmt(sys.techLevel)}</span></div>
+
+          <h4>God Controls</h4>
+          <div className="god-grid">
+            <button onClick={() => onBoostSystem(sys.id)}>Boost world</button>
+            <button onClick={() => onDevastateSystem(sys.id)}>Devastate</button>
+            <button onClick={() => onNeutralizeSystem(sys.id)} disabled={!sys.ownerEmpireId}>Free system</button>
+            <button onClick={() => onFoundEmpire(sys.id)}>Found empire</button>
+          </div>
+
           {sys.recentEventIds.length > 0 && (
             <>
               <h4>Recent Events</h4>
@@ -96,6 +123,13 @@ export function InspectorPanel({
           <div className="info-row"><span>Aggression</span><span>{fmt(emp.aggression)}</span></div>
           <div className="info-row"><span>Expansion</span><span>{fmt(emp.expansionism)}</span></div>
           <div className="info-row"><span>Tech</span><span>{fmt(emp.techLevel)}</span></div>
+
+          <h4>God Controls</h4>
+          <div className="god-grid">
+            <button onClick={() => onBoostEmpire(emp.id)}>Strengthen</button>
+            <button onClick={() => onWeakenEmpire(emp.id)}>Destabilize</button>
+          </div>
+
           {emp.activeWarEmpireIds.length > 0 && (
             <>
               <h4>At War With</h4>
