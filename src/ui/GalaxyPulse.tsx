@@ -23,6 +23,8 @@ const LABELS: Record<string, string> = {
   "artifact-discovered": "Artifacts",
   "galactic-crisis": "Crises",
   "coup": "Coups",
+  "character-rose": "New Figures",
+  "character-fell": "Figures Lost",
 };
 
 interface Props { snapshot: Readonly<GalaxyState>; }

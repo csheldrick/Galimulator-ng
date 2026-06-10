@@ -53,7 +53,8 @@ export function stepReligion(state: GalaxyState, rng: PRNG): void {
   for (const sys of Object.values(state.systems)) {
     if (sys.population < 0.05) continue;
     const owner = sys.ownerEmpireId ? state.empires[sys.ownerEmpireId] : null;
-    const spiritual = owner?.ideology === "spiritualist" ? 2.2 : 1;
+    const prophet = owner?.court?.find(c => c.role === "prophet");
+    const spiritual = (owner?.ideology === "spiritualist" ? 2.2 : 1) * (prophet ? 1 + prophet.skill * 0.6 : 1);
     for (const nid of sys.connectedSystemIds) {
       const from = state.systems[nid];
       if (!from?.religionId || from.religionId === sys.religionId) continue;

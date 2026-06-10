@@ -1,15 +1,18 @@
 import type { GalaxyState, Id } from "../types/sim";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
+import { ROLE_LABEL } from "../sim/Characters";
 
 interface Props {
   snapshot: Readonly<GalaxyState>;
   selectedSystemId: Id | null;
   selectedEmpireId: Id | null;
   selectedFleetId: Id | null;
+  followEmpireId: Id | null;
   onSelectEmpire: (id: Id) => void;
   onSelectFleet: (id: Id | null) => void;
   onClearSelection: () => void;
   onCancelFleet: (id: Id) => void;
+  onToggleFollow: (id: Id) => void;
   onBoostSystem: (id: Id) => void;
   onDevastateSystem: (id: Id) => void;
   onNeutralizeSystem: (id: Id) => void;
@@ -26,7 +29,7 @@ function fmt(n: number, dec = 1) { return n.toFixed(dec); }
 function eta(progress: number, totalDist: number, speed: number) { return Math.max(0, Math.ceil(((1 - progress) * totalDist) / Math.max(0.001, speed))); }
 
 export function InspectorPanel({
-  snapshot, selectedSystemId, selectedEmpireId, selectedFleetId, onSelectEmpire, onSelectFleet, onClearSelection, onCancelFleet,
+  snapshot, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, onSelectEmpire, onSelectFleet, onClearSelection, onCancelFleet, onToggleFollow,
   onBoostSystem, onDevastateSystem, onNeutralizeSystem, onFoundEmpire, onBoostEmpire, onWeakenEmpire, onInflameEmpire, onPacifyEmpire, onForceWar, onForcePeace,
 }: Props) {
   const fleet = selectedFleetId ? snapshot.fleets[selectedFleetId] : null;
@@ -115,12 +118,27 @@ export function InspectorPanel({
       {emp && !sys && (
         <>
           <div className="inspector-header"><h3 style={{ color: emp.color }}>{emp.name}</h3><button className="close-btn" onClick={onClearSelection}>✕</button></div>
+          <button className={followEmpireId === emp.id ? "follow-btn active" : "follow-btn"} onClick={() => onToggleFollow(emp.id)}>{followEmpireId === emp.id ? "⌖ Following — click to stop" : "⌖ Follow this empire"}</button>
           <div className="info-row"><span>Mood</span><span className="mood-badge" style={{ color: MOOD_COLOR[emp.mood] }}>{MOOD_LABEL[emp.mood]} <small>since {emp.moodSince}</small></span></div>
           <div className="info-row"><span>Ideology</span><span style={{ color: IDEOLOGY_COLOR[emp.ideology] }}>{IDEOLOGY_LABEL[emp.ideology]}</span></div>
           <div className="info-row"><span>Faith</span><span>{emp.stateReligionId ? (snapshot.religions[emp.stateReligionId]?.name ?? "?") : "Secular"}</span></div>
           <div className="info-row"><span>Trade</span><span>{Object.values(snapshot.tradeRoutes).filter(r => r.empireAId === emp.id || r.empireBId === emp.id).length} routes</span></div>
           <div className="info-row"><span>Ruler</span><span>{rulerDisplayName(emp)}</span></div>
           <div className="info-row"><span>Dynasty</span><span>{emp.ruler.dynasty} (since {emp.ruler.accessionTick})</span></div>
+          {emp.court && emp.court.length > 0 && (
+            <>
+              <h4>Court</h4>
+              <div className="court-list">
+                {emp.court.map(c => (
+                  <div key={c.id} className={`court-row role-${c.role}`} title={`skill ${c.skill.toFixed(2)} · renown ${c.renown.toFixed(2)} · loyalty ${c.loyalty.toFixed(2)}`}>
+                    <span className="court-role">{ROLE_LABEL[c.role]}</span>
+                    <span className="court-name">{c.title} {c.name}</span>
+                    {c.renown >= 0.6 && <span className="court-star" title="renowned">★</span>}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
           <div className="info-row"><span>Capital</span><span>{snapshot.systems[emp.capitalSystemId]?.name ?? "?"}</span></div>
           <div className="info-row"><span>Systems</span><span>{emp.ownedSystemIds.length}</span></div>
           <div className="info-row"><span>Fleets</span><span>{Object.values(snapshot.fleets).filter(f => f.ownerEmpireId === emp.id).length}</span></div>

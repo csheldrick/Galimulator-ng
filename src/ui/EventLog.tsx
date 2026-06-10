@@ -31,6 +31,8 @@ const TYPE_COLORS: Record<string, string> = {
   "artifact-discovered": "#ffe066",
   "galactic-crisis": "#ff9f1c",
   "coup": "#f15bb5",
+  "character-rose": "#ffe066",
+  "character-fell": "#9aa5b8",
 };
 
 export function EventLog({
@@ -65,10 +67,11 @@ export function EventLog({
       <div className="event-list">
         {events.map(ev => {
           const selected = ev.id === selectedEventId;
+          const tier = ev.importance >= 5 ? " defining" : ev.importance >= 4 ? " major" : "";
           return (
             <button
               key={ev.id}
-              className={selected ? "event-entry selected" : "event-entry"}
+              className={`event-entry${tier}${selected ? " selected" : ""}`}
               onClick={() => onSelectEvent(ev)}
               title={ev.description}
             >

@@ -8,6 +8,7 @@ import { dist, findPath, pathLength, advanceAlongPath } from "./Pathing";
 import { stepReligion } from "./Religion";
 import { stepTrade, severEmpireRoutes } from "./Trade";
 import { stepMonsters, stepCrises, discoverArtifact } from "./Crises";
+import { makeCourt, stepCharacters, topByRole, findCharacter } from "./Characters";
 
 // Speed/strength tradeoffs per ship class; war fleets pick a class to fit the mission.
 const SHIP_CLASS_MODS: Record<ShipClass, { speed: number; strength: number }> = {
@@ -95,14 +96,17 @@ function hasFleetTo(state: GalaxyState, ownerEmpireId: Id, targetSystemId: Id, k
   return Object.values(state.fleets).some(f => f.ownerEmpireId === ownerEmpireId && f.targetSystemId === targetSystemId && (!kind || f.kind === kind));
 }
 
-function launchFleet(state: GalaxyState, empire: Empire, origin: StarSystem, target: StarSystem, kind: FleetKind, strength: number, rng: PRNG, shipClass: ShipClass = "settler"): void {
+function launchFleet(state: GalaxyState, empire: Empire, origin: StarSystem, target: StarSystem, kind: FleetKind, strength: number, rng: PRNG, shipClass: ShipClass = "settler", admiral?: import("../types/sim").Character | null): void {
   if (hasFleetTo(state, empire.id, target.id, kind)) return;
   const id = `fleet-${state.tick}-${Object.keys(state.fleets).length}-${rng.nextInt(0, 9999)}`;
   const path = findPath(state, origin.id, target.id);
   const mods = SHIP_CLASS_MODS[shipClass];
+  // A capable admiral both names the fleet and stiffens it.
+  const admiralBoost = admiral ? 1 + admiral.skill * 0.4 : 1;
+  const baseName = fleetName(kind, empire, target, rng);
   const fleet: Fleet = {
     id,
-    name: fleetName(kind, empire, target, rng),
+    name: admiral ? `${baseName}, under ${admiral.title} ${admiral.name}` : baseName,
     kind,
     shipClass,
     ownerEmpireId: empire.id,
@@ -116,8 +120,10 @@ function launchFleet(state: GalaxyState, empire: Empire, origin: StarSystem, tar
     y: origin.y,
     progress: 0,
     speed: (rng.range(1.4, 2.8) + empire.techLevel * 0.5) * mods.speed,
-    strength: strength * mods.strength,
+    strength: strength * mods.strength * admiralBoost,
     createdTick: state.tick,
+    admiralId: admiral?.id,
+    admiralName: admiral ? `${admiral.title} ${admiral.name}` : undefined,
   };
   state.fleets[id] = fleet;
 }
@@ -220,7 +226,7 @@ function launchWarFleet(state: GalaxyState, attacker: Empire, defenderId: Id, rn
     attacker.wealth > 600 && (attacker.mood === "crusading" || rng.next() < 0.3) ? "armada"
       : rng.next() < 0.3 ? "raider" : "strike";
   if (shipClass === "armada") attacker.wealth -= 40;
-  launchFleet(state, attacker, origin, target, "war", strength, rng, shipClass);
+  launchFleet(state, attacker, origin, target, "war", strength, rng, shipClass, topByRole(attacker, "admiral"));
 }
 
 function stepFleets(state: GalaxyState, rng: PRNG): void {
@@ -272,7 +278,10 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
       target.ownerEmpireId = owner.id; target.stability = Math.max(0.1, target.stability - 0.18);
       owner.cohesion = Math.min(1, owner.cohesion + 0.01); defender.cohesion = Math.max(0.1, defender.cohesion - 0.05);
       if (defender.capitalSystemId === target.id && defender.ownedSystemIds.length > 0) defender.capitalSystemId = defender.ownedSystemIds[0];
-      createEvent(state, state.tick, "border-conflict", `${owner.name} captured ${target.name}`, `${fleet.name} seized ${target.name} from ${defender.name}.`, 3, [owner.id, defenderId], [target.id]);
+      const admiral = findCharacter(owner, fleet.admiralId);
+      if (admiral) { admiral.renown = Math.min(1, admiral.renown + 0.08); admiral.loyalty = Math.min(1, admiral.loyalty + 0.02); }
+      const credit = fleet.admiralName ? ` ${fleet.admiralName} is hailed for the victory.` : "";
+      createEvent(state, state.tick, "border-conflict", `${owner.name} captured ${target.name}`, `${fleet.name} seized ${target.name} from ${defender.name}.${credit}`, 3, [owner.id, defenderId], [target.id]);
       discoverArtifact(state, target);
     } else { owner.cohesion = Math.max(0.1, owner.cohesion - 0.02); createEvent(state, state.tick, "border-conflict", `${owner.name} failed at ${target.name}`, `${fleet.name} was repelled by ${defender.name}.`, 2, [owner.id, defenderId], [target.id]); }
   }
@@ -299,7 +308,8 @@ function spawnRebellion(state: GalaxyState, empire: Empire, rng: PRNG): void {
   const defecting = [...defectingSet]; if (defecting.length === 0) return;
   const newId = `${empire.id}-rebel-${state.tick}`;
   const rebelNames = ["Liberation Front","Free States","Rebel Council","Independence Movement","Separatist League","Resistance","New Order","Sovereign Collective"];
-  const newEmpire: Empire = { id: newId, name: `${rng.pick(["Broken","Free","New","Rogue","Rising","Lost"])} ${rng.pick(rebelNames)}`, color: `hsl(${rng.nextInt(0, 360)},${rng.nextInt(50, 90)}%,${rng.nextInt(35, 65)}%)`, mood: "expanding", moodSince: state.tick, ideology: rng.pick(IDEOLOGIES), ruler: makeRuler(rng, state.tick), capitalSystemId: defecting[0], ownedSystemIds: [], population: 0, wealth: 50, militaryStrength: 30, cohesion: rng.range(0.4, 0.8), aggression: rng.range(0.3, 0.8), expansionism: rng.range(0.3, 0.7), techLevel: empire.techLevel * 0.8, cultureId: `culture-rebel-${newId}`, stateReligionId: state.systems[defecting[0]]?.religionId ?? null, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [] };
+  const rebelReligion = state.systems[defecting[0]]?.religionId ?? null;
+  const newEmpire: Empire = { id: newId, name: `${rng.pick(["Broken","Free","New","Rogue","Rising","Lost"])} ${rng.pick(rebelNames)}`, color: `hsl(${rng.nextInt(0, 360)},${rng.nextInt(50, 90)}%,${rng.nextInt(35, 65)}%)`, mood: "expanding", moodSince: state.tick, ideology: rng.pick(IDEOLOGIES), ruler: makeRuler(rng, state.tick), court: makeCourt(rng, state.tick, rebelReligion !== null), capitalSystemId: defecting[0], ownedSystemIds: [], population: 0, wealth: 50, militaryStrength: 30, cohesion: rng.range(0.4, 0.8), aggression: rng.range(0.3, 0.8), expansionism: rng.range(0.3, 0.7), techLevel: empire.techLevel * 0.8, cultureId: `culture-rebel-${newId}`, stateReligionId: rebelReligion, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [] };
   for (const sysId of defecting) { const sys = state.systems[sysId]; if (!sys) continue; empire.ownedSystemIds = empire.ownedSystemIds.filter(id => id !== sysId); sys.ownerEmpireId = newId; sys.cultureId = newEmpire.cultureId; newEmpire.ownedSystemIds.push(sysId); }
   state.empires[newId] = newEmpire; empire.cohesion = Math.max(0.1, empire.cohesion - 0.2);
   createEvent(state, state.tick, "rebellion", `Rebellion in ${empire.name}`, `${newEmpire.name} broke away from ${empire.name}.`, 4, [empire.id, newId], defecting);
@@ -536,6 +546,7 @@ function createEmergentEmpire(state: GalaxyState, candidate: EmergenceCandidate,
     moodSince: state.tick,
     ideology: candidate.kind === "pretender" ? "militarist" : rng.pick(IDEOLOGIES),
     ruler: makeRuler(rng, state.tick),
+    court: makeCourt(rng, state.tick, sys.religionId !== null),
     capitalSystemId: sys.id,
     ownedSystemIds: [sys.id],
     population: Math.max(sys.population * 1000, 400),
@@ -578,7 +589,7 @@ function stepEmergence(state: GalaxyState, rng: PRNG): void {
 }
 
 export function executeTick(state: GalaxyState, rng: PRNG): void {
-  stepGrowth(state, rng); stepProgress(state, rng); stepReligion(state, rng); stepMoods(state, rng); stepRulers(state, rng); stepPolitics(state, rng);
+  stepGrowth(state, rng); stepProgress(state, rng); stepReligion(state, rng); stepCharacters(state, rng); stepMoods(state, rng); stepRulers(state, rng); stepPolitics(state, rng);
   stepFleets(state, rng); stepExpansion(state, rng); stepConflict(state, rng); stepTrade(state, rng); stepMonsters(state, rng); stepCrises(state, rng);
   stepCollapse(state, rng); stepEmergence(state, rng); state.tick++;
 }

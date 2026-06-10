@@ -110,3 +110,41 @@ button:disabled { opacity: 0.4; cursor: default; }
 .event-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .event-desc { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
 .event-empty { color: var(--text-muted); font-size: 11px; text-align: center; padding-top: 16px; }
+
+/* Follow-empire camera toggle */
+.follow-btn { width: 100%; margin-top: 6px; font-size: 11px; padding: 5px 6px; border-color: rgba(76,201,240,0.35); color: var(--accent); }
+.follow-btn.active { background: rgba(76,201,240,0.18); border-color: var(--accent); color: #eaf7ff; }
+
+/* Court / named characters */
+.court-list { display: flex; flex-direction: column; gap: 2px; }
+.court-row { display: grid; grid-template-columns: 58px 1fr auto; align-items: center; gap: 6px; font-size: 10px; padding: 2px 4px; border-radius: 3px; background: rgba(255,255,255,0.025); border-left: 2px solid var(--text-muted); }
+.court-row.role-admiral { border-left-color: #ff9f1c; }
+.court-row.role-minister { border-left-color: #4cc9f0; }
+.court-row.role-prophet { border-left-color: #c77dff; }
+.court-row.role-pretender { border-left-color: var(--danger); }
+.court-role { color: var(--text-muted); text-transform: uppercase; font-size: 8px; letter-spacing: 0.5px; }
+.court-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.court-star { color: #ffe066; font-size: 9px; }
+
+/* Top stories feed */
+.top-stories { border-bottom: 1px solid var(--panel-border); padding: 8px; flex-shrink: 0; max-height: 28%; overflow-y: auto; }
+.top-stories-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.top-stories-header h3 { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.top-stories-header span { color: var(--text-muted); font-size: 9px; font-style: italic; }
+.top-stories-list { display: flex; flex-direction: column; gap: 5px; }
+.story-card { border: 1px solid var(--panel-border); border-radius: 5px; overflow: hidden; background: rgba(255,255,255,0.02); }
+.story-card.defining { border-color: rgba(255,209,102,0.5); box-shadow: 0 0 0 1px rgba(255,209,102,0.15), 0 0 12px rgba(255,209,102,0.08); }
+.story-card.selected { border-color: var(--accent); }
+.story-main { width: 100%; text-align: left; background: transparent; border: none; padding: 6px 7px; display: flex; flex-direction: column; gap: 2px; }
+.story-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.story-flag { color: #ffd166; font-size: 8px; font-weight: 700; letter-spacing: 0.6px; }
+.story-tick { color: var(--text-muted); font-size: 8px; margin-left: auto; }
+.story-title { font-size: 11px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.story-card.defining .story-title { color: #ffe9b8; }
+.story-why { font-size: 9px; color: var(--text-muted); line-height: 1.35; }
+.story-follow { width: 100%; border: none; border-top: 1px solid var(--panel-border); border-radius: 0; background: rgba(76,201,240,0.06); color: var(--accent); font-size: 9px; padding: 3px 6px; text-align: left; }
+
+/* Galaxy-defining events stand apart in the log */
+.event-entry.major { background: rgba(255,159,28,0.05); border-left: 2px solid rgba(255,159,28,0.4); }
+.event-entry.defining { background: rgba(255,209,102,0.07); border-left: 2px solid #ffd166; }
+.event-entry.defining .event-title { color: #ffe9b8; font-weight: 600; }

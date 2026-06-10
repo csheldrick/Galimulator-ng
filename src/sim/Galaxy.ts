@@ -2,6 +2,7 @@ import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler, Religion } from 
 import { resetEventCounter } from "./Events";
 import { makeReligion } from "./Religion";
 import { IDEOLOGIES } from "./Moods";
+import { makeCourt, resetCharacterCounter } from "./Characters";
 
 const SYLLABLES = [
   "al","ar","an","ax","az","bar","bel","cer","cor","den","dor","el","en",
@@ -142,6 +143,7 @@ export function generateGalaxy(
   rng: PRNG
 ): GalaxyState {
   resetEventCounter();
+  resetCharacterCounter();
   const WIDTH = 1200;
   const HEIGHT = 900;
   const systems: Record<Id, StarSystem> = {};
@@ -230,6 +232,7 @@ export function generateGalaxy(
       moodSince: 0,
       ideology: rng.pick(IDEOLOGIES),
       ruler: makeRuler(rng, 0),
+      court: makeCourt(rng, 0, capital.religionId !== null),
       capitalSystemId: capital.id,
       ownedSystemIds: [capital.id],
       population: capital.population * 1000,
