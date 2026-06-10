@@ -434,52 +434,142 @@ function stepRulers(state: GalaxyState, rng: PRNG): void {
   }
 }
 
-// New empires rise from the ruins of fallen ones, so the galaxy never goes
-// quiet: the fewer powers remain, the faster fresh ones emerge.
-function stepEmergence(state: GalaxyState, rng: PRNG): void {
-  const empireCount = Object.keys(state.empires).length;
-  const targetEmpires = Math.max(6, Math.round(Object.keys(state.systems).length / 40));
-  const chance = Math.max(0, targetEmpires - empireCount) * 0.0012;
-  if (rng.next() > chance) return;
+type EmergenceKind = "frontier" | "successor" | "native" | "pretender";
 
-  let best: StarSystem | null = null;
-  let bestScore = -Infinity;
+type EmergenceCandidate = {
+  system: StarSystem;
+  kind: EmergenceKind;
+  score: number;
+};
+
+function hasOwnedNeighbor(state: GalaxyState, sys: StarSystem): boolean {
+  return sys.connectedSystemIds.some(id => state.systems[id]?.ownerEmpireId);
+}
+
+function pickEmergenceCandidate(state: GalaxyState, rng: PRNG): EmergenceCandidate | null {
+  const candidates: EmergenceCandidate[] = [];
+
   for (const sys of Object.values(state.systems)) {
     if (sys.ownerEmpireId !== null) continue;
-    const score = sys.population * 2 + sys.habitability + sys.techLevel;
-    if (score > bestScore) { bestScore = score; best = sys; }
-  }
-  if (!best) return;
 
-  const id = `emp-rise-${state.tick}-${Object.keys(state.empires).length}`;
-  const cultureId = `culture-${id}`;
-  const empire: Empire = {
+    const hasResidue = sys.cultureId !== "none";
+    const isolated = !hasOwnedNeighbor(state, sys);
+    const lifeScore = sys.population * 2 + sys.habitability + sys.resources;
+    const ruinScore = lifeScore + sys.techLevel * 1.6 + (1 - sys.stability) * 0.9;
+    const frontierScore = lifeScore + (isolated ? 1.2 : 0) - sys.techLevel * 0.15;
+
+    if (frontierScore > 1.7) {
+      candidates.push({ system: sys, kind: "frontier", score: frontierScore });
+    }
+
+    if (hasResidue && ruinScore > 1.8) {
+      candidates.push({ system: sys, kind: "successor", score: ruinScore + 0.9 });
+    }
+
+    if (hasResidue && sys.techLevel > 1.2 && sys.stability > 0.45) {
+      candidates.push({ system: sys, kind: "pretender", score: ruinScore + sys.techLevel });
+    }
+
+    if (!hasResidue && sys.population > 0.35 && sys.habitability > 0.55 && rng.next() < 0.35) {
+      candidates.push({ system: sys, kind: "native", score: lifeScore + sys.habitability });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => b.score - a.score);
+  const pool = candidates.slice(0, Math.min(8, candidates.length));
+  const total = pool.reduce((sum, c) => sum + Math.max(0.1, c.score), 0);
+  let roll = rng.next() * total;
+  for (const candidate of pool) {
+    roll -= Math.max(0.1, candidate.score);
+    if (roll <= 0) return candidate;
+  }
+  return pool[0];
+}
+
+function emergenceName(kind: EmergenceKind, sys: StarSystem, rng: PRNG): string {
+  switch (kind) {
+    case "successor":
+      return `${sys.name} ${rng.pick(["Successor State", "Remnant", "Continuity", "Hegemony"])}`;
+    case "native":
+      return `${sys.name} ${rng.pick(["Assembly", "League", "Commonwealth", "Concord"])}`;
+    case "pretender":
+      return `${sys.name} ${rng.pick(["Restoration", "Pretender Court", "Claimant Dynasty", "Resurgence"])}`;
+    case "frontier":
+    default:
+      return makeEmpireName(rng, sys.name);
+  }
+}
+
+function emergenceDescription(kind: EmergenceKind, empire: Empire, sys: StarSystem): string {
+  const ruler = rulerDisplayName(empire);
+  switch (kind) {
+    case "successor":
+      return `${empire.name} rose from old imperial ruins on ${sys.name}, claiming continuity with the powers that fell before it under ${ruler}.`;
+    case "native":
+      return `The people of ${sys.name} reached for the stars and founded ${empire.name} under ${ruler}.`;
+    case "pretender":
+      return `A claimant court on ${sys.name} proclaimed ${empire.name}, promising to restore a lost galactic order under ${ruler}.`;
+    case "frontier":
+    default:
+      return `A new frontier power, ${empire.name}, rose at ${sys.name} under ${ruler}.`;
+  }
+}
+
+function createEmergentEmpire(state: GalaxyState, candidate: EmergenceCandidate, rng: PRNG): Empire {
+  const sys = candidate.system;
+  const id = `emp-rise-${candidate.kind}-${state.tick}-${Object.keys(state.empires).length}`;
+  const cultureId = candidate.kind === "successor" || candidate.kind === "pretender" ? sys.cultureId : `culture-${id}`;
+  const techBase = candidate.kind === "native" ? 0.25 : candidate.kind === "frontier" ? 0.35 : 0.55;
+  const cohesionBonus = candidate.kind === "pretender" ? 0.08 : candidate.kind === "successor" ? -0.05 : 0;
+  const aggressionBonus = candidate.kind === "pretender" ? 0.25 : candidate.kind === "successor" ? 0.1 : 0;
+
+  return {
     id,
-    name: makeEmpireName(rng, best.name),
+    name: emergenceName(candidate.kind, sys, rng),
     color: `hsl(${rng.nextInt(0, 360)},${rng.nextInt(55, 85)}%,${rng.nextInt(40, 62)}%)`,
-    mood: "expanding",
+    mood: candidate.kind === "pretender" ? "crusading" : "expanding",
     moodSince: state.tick,
     ruler: makeRuler(rng, state.tick),
-    capitalSystemId: best.id,
-    ownedSystemIds: [best.id],
-    population: Math.max(best.population * 1000, 400),
-    wealth: rng.range(120, 320),
-    militaryStrength: rng.range(40, 120),
-    cohesion: rng.range(0.6, 0.95),
-    aggression: rng.range(0.1, 1.0),
+    capitalSystemId: sys.id,
+    ownedSystemIds: [sys.id],
+    population: Math.max(sys.population * 1000, 400),
+    wealth: rng.range(120, 320) + (candidate.kind === "successor" ? 80 : 0),
+    militaryStrength: rng.range(40, 120) + (candidate.kind === "pretender" ? 70 : 0),
+    cohesion: Math.min(0.98, Math.max(0.35, rng.range(0.6, 0.95) + cohesionBonus)),
+    aggression: Math.min(1, rng.range(0.1, 0.85) + aggressionBonus),
     expansionism: rng.range(0.3, 1.0),
-    techLevel: Math.max(best.techLevel, 0.3),
+    techLevel: Math.max(sys.techLevel, techBase),
     cultureId,
     relationshipByEmpireId: {},
     activeWarEmpireIds: [],
     historicalEventIds: [],
   };
-  best.ownerEmpireId = id;
-  best.cultureId = cultureId;
-  best.population = Math.max(best.population, 0.5);
-  best.stability = Math.max(best.stability, 0.6);
-  state.empires[id] = empire;
-  createEvent(state, state.tick, "empire-founded", `${empire.name} has risen`, `A new power, ${empire.name}, rose at ${best.name} under ${rulerDisplayName(empire)}.`, 4, [id], [best.id]);
+}
+
+// New empires rise in different historical forms, so the galaxy never goes
+// quiet: empty frontiers, ruins, native worlds, and claimant courts all compete
+// to refill the sandbox when too few powers remain.
+function stepEmergence(state: GalaxyState, rng: PRNG): void {
+  const empireCount = Object.keys(state.empires).length;
+  const targetEmpires = Math.max(6, Math.round(Object.keys(state.systems).length / 40));
+  const deficit = Math.max(0, targetEmpires - empireCount);
+  const chance = deficit * 0.0012;
+  if (rng.next() > chance) return;
+
+  const candidate = pickEmergenceCandidate(state, rng);
+  if (!candidate) return;
+
+  const empire = createEmergentEmpire(state, candidate, rng);
+  const sys = candidate.system;
+  sys.ownerEmpireId = empire.id;
+  sys.cultureId = empire.cultureId;
+  sys.population = Math.max(sys.population, candidate.kind === "native" ? 0.45 : 0.5);
+  sys.stability = Math.max(sys.stability, candidate.kind === "pretender" ? 0.5 : 0.6);
+  state.empires[empire.id] = empire;
+
+  createEvent(state, state.tick, "empire-founded", `${empire.name} has risen`, emergenceDescription(candidate.kind, empire, sys), 4, [empire.id], [sys.id]);
 }
 
 export function executeTick(state: GalaxyState, rng: PRNG): void {
