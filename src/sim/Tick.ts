@@ -18,10 +18,11 @@ function findNearestUnowned(
 
   for (const sys of Object.values(state.systems)) {
     if (sys.ownerEmpireId !== null) continue;
-    // find closest owned system
     let minD = Infinity;
     for (const ownedId of empire.ownedSystemIds) {
-      const d = dist(sys, state.systems[ownedId]);
+      const owned = state.systems[ownedId];
+      if (!owned) continue;
+      const d = dist(sys, owned);
       if (d < minD) minD = d;
     }
     if (minD > maxDist) continue;
@@ -44,9 +45,12 @@ function findBorderConflictTarget(
 
   for (const targetId of enemy.ownedSystemIds) {
     const target = state.systems[targetId];
+    if (!target) continue;
     let minD = Infinity;
     for (const ownedId of attacker.ownedSystemIds) {
-      const d = dist(target, state.systems[ownedId]);
+      const owned = state.systems[ownedId];
+      if (!owned) continue;
+      const d = dist(target, owned);
       if (d < minD) minD = d;
     }
     if (minD > 150) continue;
@@ -56,7 +60,6 @@ function findBorderConflictTarget(
   return best;
 }
 
-// 1. Growth
 function stepGrowth(state: GalaxyState): void {
   for (const sys of Object.values(state.systems)) {
     if (sys.ownerEmpireId) {
@@ -70,7 +73,6 @@ function stepGrowth(state: GalaxyState): void {
       return s + (sys ? sys.resources * 2 : 0);
     }, 0);
     emp.wealth = Math.max(0, emp.wealth);
-    // recalc military
     emp.militaryStrength = emp.ownedSystemIds.length * 10 +
       emp.techLevel * 50 + emp.wealth * 0.05;
     emp.population = emp.ownedSystemIds.reduce(
@@ -79,7 +81,51 @@ function stepGrowth(state: GalaxyState): void {
   }
 }
 
-// 2. Expansion
+function stepProgress(state: GalaxyState, rng: PRNG): void {
+  for (const emp of Object.values(state.empires)) {
+    if (emp.ownedSystemIds.length === 0) continue;
+
+    const avgStability = emp.ownedSystemIds.reduce((sum, id) => sum + (state.systems[id]?.stability ?? 0), 0) / emp.ownedSystemIds.length;
+    const avgResources = emp.ownedSystemIds.reduce((sum, id) => sum + (state.systems[id]?.resources ?? 0), 0) / emp.ownedSystemIds.length;
+    const peaceBonus = emp.activeWarEmpireIds.length === 0 ? 1 : 0.35;
+    const progressChance = 0.004 * emp.cohesion * avgStability * peaceBonus + 0.001 * avgResources;
+
+    if (rng.next() < progressChance) {
+      const gain = rng.range(0.03, 0.09);
+      emp.techLevel = Math.min(3, emp.techLevel + gain);
+      for (const id of emp.ownedSystemIds) {
+        const sys = state.systems[id];
+        if (sys) sys.techLevel = Math.max(sys.techLevel, emp.techLevel * rng.range(0.7, 1.0));
+      }
+      const cap = state.systems[emp.capitalSystemId];
+      createEvent(state, state.tick, "technology-breakthrough",
+        `${emp.name} advanced`,
+        `${emp.name} made a technological breakthrough.`,
+        3, [emp.id], cap ? [cap.id] : []
+      );
+    }
+
+    const goldenChance = 0.002 * emp.cohesion * avgStability * peaceBonus * Math.min(emp.wealth / 500, 1.5);
+    if (rng.next() < goldenChance) {
+      emp.wealth += 120;
+      emp.cohesion = Math.min(1, emp.cohesion + 0.04);
+      for (const id of emp.ownedSystemIds.slice(0, 20)) {
+        const sys = state.systems[id];
+        if (sys) {
+          sys.stability = Math.min(1, sys.stability + 0.04);
+          sys.population = Math.min(2.5, sys.population + 0.03 * sys.habitability);
+        }
+      }
+      const cap = state.systems[emp.capitalSystemId];
+      createEvent(state, state.tick, "golden-age",
+        `${emp.name} entered a golden age`,
+        `${emp.name} prospered during a period of stability and wealth.`,
+        3, [emp.id], cap ? [cap.id] : []
+      );
+    }
+  }
+}
+
 function stepExpansion(state: GalaxyState, rng: PRNG): void {
   const MAX_EXPAND_DIST = 160;
 
@@ -106,7 +152,6 @@ function stepExpansion(state: GalaxyState, rng: PRNG): void {
   }
 }
 
-// 3. Conflict
 function stepConflict(state: GalaxyState, rng: PRNG): void {
   updateRelationships(state);
 
@@ -116,7 +161,6 @@ function stepConflict(state: GalaxyState, rng: PRNG): void {
     for (const neighborId of neighbors) {
       const rel = emp.relationshipByEmpireId[neighborId];
       if (!rel) continue;
-      // increase tension
       rel.tension = Math.min(100, rel.tension + emp.aggression * 2);
 
       if (!rel.atWar && rel.tension > 50) {
@@ -131,7 +175,6 @@ function stepConflict(state: GalaxyState, rng: PRNG): void {
         }
       }
     }
-    // decay tension for non-neighbors
     for (const rid of Object.keys(emp.relationshipByEmpireId)) {
       if (!neighbors.includes(rid)) {
         const r = emp.relationshipByEmpireId[rid];
@@ -153,12 +196,10 @@ function resolveWarConflict(
   const target = findBorderConflictTarget(state, attacker, defenderId);
   if (!target) return;
 
-  // compare military with randomness
   const atkPower = attacker.militaryStrength * (0.7 + rng.next() * 0.6);
   const defPower = defender.militaryStrength * (0.7 + rng.next() * 0.6);
 
   if (atkPower > defPower) {
-    // attacker wins system
     defender.ownedSystemIds = defender.ownedSystemIds.filter(id => id !== target.id);
     target.ownerEmpireId = attacker.id;
     attacker.ownedSystemIds.push(target.id);
@@ -166,7 +207,6 @@ function resolveWarConflict(
     target.population = Math.max(0.05, target.population * 0.8);
     attacker.cohesion = Math.min(1, attacker.cohesion + 0.01);
     defender.cohesion = Math.max(0.1, defender.cohesion - 0.05);
-    // relocate capital if it was captured
     if (defender.capitalSystemId === target.id && defender.ownedSystemIds.length > 0) {
       defender.capitalSystemId = defender.ownedSystemIds[0];
     }
@@ -181,11 +221,9 @@ function resolveWarConflict(
   }
 }
 
-// 4. Collapse
 function stepCollapse(state: GalaxyState, rng: PRNG): void {
   for (const emp of Object.values(state.empires)) {
     if (emp.ownedSystemIds.length === 0) {
-      // lost everything in war: the empire is gone
       collapseEmpire(state, emp);
       continue;
     }
@@ -196,7 +234,6 @@ function stepCollapse(state: GalaxyState, rng: PRNG): void {
 
     if (rng.next() > collapseRisk * 0.1) continue;
 
-    // check for rebellion
     if (emp.ownedSystemIds.length > 4 && rng.next() < 0.5) {
       spawnRebellion(state, emp, rng);
     } else if (emp.cohesion < 0.2 && emp.ownedSystemIds.length > 2) {
@@ -217,14 +254,13 @@ function spawnRebellion(state: GalaxyState, empire: Empire, rng: PRNG): void {
   const defecting = [...defectingSet];
   if (defecting.length === 0) return;
 
-  // unique per (parent, tick): an empire rebels at most once per tick
   const newId = `${empire.id}-rebel-${state.tick}`;
-  const REBEL_NAMES = [
+  const rebelNames = [
     "Liberation Front","Free States","Rebel Council","Independence Movement",
     "Separatist League","Resistance","New Order","Sovereign Collective"
   ];
   const nameAdj = rng.pick(["Broken","Free","New","Rogue","Rising","Lost"]);
-  const nameNoun = rng.pick(REBEL_NAMES);
+  const nameNoun = rng.pick(rebelNames);
 
   const newEmpire: Empire = {
     id: newId,
@@ -247,6 +283,7 @@ function spawnRebellion(state: GalaxyState, empire: Empire, rng: PRNG): void {
 
   for (const sysId of defecting) {
     const sys = state.systems[sysId];
+    if (!sys) continue;
     empire.ownedSystemIds = empire.ownedSystemIds.filter(id => id !== sysId);
     sys.ownerEmpireId = newId;
     sys.cultureId = newEmpire.cultureId;
@@ -265,6 +302,7 @@ function spawnRebellion(state: GalaxyState, empire: Empire, rng: PRNG): void {
 function collapseEmpire(state: GalaxyState, empire: Empire): void {
   for (const sysId of empire.ownedSystemIds) {
     const sys = state.systems[sysId];
+    if (!sys) continue;
     sys.ownerEmpireId = null;
     sys.stability = Math.max(0.1, sys.stability - 0.3);
   }
@@ -274,7 +312,6 @@ function collapseEmpire(state: GalaxyState, empire: Empire): void {
     5, [empire.id], empire.ownedSystemIds
   );
   delete state.empires[empire.id];
-  // remove dangling references from surviving empires
   for (const other of Object.values(state.empires)) {
     delete other.relationshipByEmpireId[empire.id];
     other.activeWarEmpireIds = other.activeWarEmpireIds.filter(id => id !== empire.id);
@@ -283,6 +320,7 @@ function collapseEmpire(state: GalaxyState, empire: Empire): void {
 
 export function executeTick(state: GalaxyState, rng: PRNG): void {
   stepGrowth(state);
+  stepProgress(state, rng);
   stepExpansion(state, rng);
   stepConflict(state, rng);
   stepCollapse(state, rng);
