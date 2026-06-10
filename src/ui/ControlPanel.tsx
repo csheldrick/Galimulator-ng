@@ -122,6 +122,7 @@ export function ControlPanel({
       <div className="section-title">View</div>
       <div className="toggle-grid">
         <label><input type="checkbox" checked={viewOptions.territory} onChange={e => setView("territory", e.target.checked)} /> Territory</label>
+        <label><input type="checkbox" checked={viewOptions.borders} onChange={e => setView("borders", e.target.checked)} /> Borders</label>
         <label><input type="checkbox" checked={viewOptions.labels} onChange={e => setView("labels", e.target.checked)} /> Labels</label>
         <label><input type="checkbox" checked={viewOptions.wars} onChange={e => setView("wars", e.target.checked)} /> Wars</label>
         <label><input type="checkbox" checked={viewOptions.events} onChange={e => setView("events", e.target.checked)} /> Events</label>
