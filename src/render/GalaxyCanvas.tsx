@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import type { Id, SimEvent } from "../types/sim";
+import type { Id, SimEvent, Fleet } from "../types/sim";
 import type { Camera } from "./camera";
 import { worldToScreen, screenToWorld, clampZoom } from "./camera";
 import { colorWithAlpha, UNOWNED_COLOR, SELECTION_COLOR, BACKGROUND_COLOR } from "./colors";
@@ -10,6 +10,7 @@ export interface ViewOptions {
   labels: boolean;
   wars: boolean;
   events: boolean;
+  fleets: boolean;
 }
 
 interface Props {
@@ -38,6 +39,10 @@ function eventColor(event: SimEvent): string {
   }
 }
 
+function fleetSize(fleet: Fleet): number {
+  return fleet.kind === "war" ? Math.max(3, Math.min(8, fleet.strength / 8)) : 3.5;
+}
+
 export function GalaxyCanvas({
   simulation,
   selectedSystemId,
@@ -50,14 +55,10 @@ export function GalaxyCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const camRef = useRef<Camera>({ x: 600, y: 450, zoom: 0.8 });
   const rafRef = useRef<number>(0);
-  const dragRef = useRef<{ dragging: boolean; moved: boolean; lastX: number; lastY: number }>({
-    dragging: false, moved: false, lastX: 0, lastY: 0,
-  });
+  const dragRef = useRef<{ dragging: boolean; moved: boolean; lastX: number; lastY: number }>({ dragging: false, moved: false, lastX: 0, lastY: 0 });
   const hoverRef = useRef<Id | null>(null);
 
-  useEffect(() => {
-    camRef.current = { x: 600, y: 450, zoom: 0.8 };
-  }, [resetCameraToken]);
+  useEffect(() => { camRef.current = { x: 600, y: 450, zoom: 0.8 }; }, [resetCameraToken]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -120,14 +121,12 @@ export function GalaxyCanvas({
       for (const sys of Object.values(snap.systems)) {
         const [sx, sy] = worldToScreen(sys.x, sys.y, cam, w, h);
         if (sx < -30 || sx > w + 30 || sy < -30 || sy > h + 30) continue;
-
         const r = Math.max(2, (2.5 + sys.population * 3) * cam.zoom);
         const isSelected = sys.id === selectedSystemId;
         const isHovered = sys.id === hoverRef.current;
         const isEmpireSel = Boolean(selectedEmpireId && sys.ownerEmpireId === selectedEmpireId);
         const emp = sys.ownerEmpireId ? snap.empires[sys.ownerEmpireId] : null;
         const color = emp ? emp.color : UNOWNED_COLOR;
-
         if (isSelected || isHovered || isEmpireSel) {
           ctx.beginPath();
           ctx.arc(sx, sy, r + 4, 0, Math.PI * 2);
@@ -135,12 +134,10 @@ export function GalaxyCanvas({
           ctx.lineWidth = isSelected ? 2 : 1.5;
           ctx.stroke();
         }
-
         ctx.beginPath();
         ctx.arc(sx, sy, r, 0, Math.PI * 2);
         ctx.fillStyle = color;
         ctx.fill();
-
         if (emp && emp.capitalSystemId === sys.id) {
           ctx.beginPath();
           ctx.arc(sx, sy, r + 4, 0, Math.PI * 2);
@@ -150,12 +147,46 @@ export function GalaxyCanvas({
         }
       }
 
+      if (viewOptions.fleets) {
+        for (const fleet of Object.values(snap.fleets)) {
+          const owner = snap.empires[fleet.ownerEmpireId];
+          const target = snap.systems[fleet.targetSystemId];
+          const origin = snap.systems[fleet.originSystemId];
+          if (!owner || !target || !origin) continue;
+          const [sx, sy] = worldToScreen(fleet.x, fleet.y, cam, w, h);
+          const [tx, ty] = worldToScreen(target.x, target.y, cam, w, h);
+          const [ox, oy] = worldToScreen(origin.x, origin.y, cam, w, h);
+          const selected = fleet.ownerEmpireId === selectedEmpireId;
+          ctx.beginPath();
+          ctx.moveTo(ox, oy);
+          ctx.lineTo(tx, ty);
+          ctx.strokeStyle = colorWithAlpha(owner.color, selected ? 0.32 : 0.16);
+          ctx.lineWidth = selected ? 1.2 : 0.8;
+          ctx.setLineDash([2, 7]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          const size = fleetSize(fleet) * cam.zoom;
+          ctx.save();
+          ctx.translate(sx, sy);
+          ctx.rotate(Math.atan2(ty - sy, tx - sx));
+          ctx.beginPath();
+          ctx.moveTo(size + 2, 0);
+          ctx.lineTo(-size, -size * 0.65);
+          ctx.lineTo(-size * 0.45, 0);
+          ctx.lineTo(-size, size * 0.65);
+          ctx.closePath();
+          ctx.fillStyle = fleet.kind === "war" ? "rgba(255,220,220,0.92)" : "rgba(220,245,255,0.9)";
+          ctx.strokeStyle = owner.color;
+          ctx.lineWidth = selected ? 2 : 1;
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
       if (viewOptions.events) {
-        const recent = snap.eventLog
-          .slice(-35)
-          .map(id => snap.events[id])
-          .filter(Boolean)
-          .filter(ev => snap.tick - ev.tick < 40 && ev.relatedSystemIds.length > 0);
+        const recent = snap.eventLog.slice(-35).map(id => snap.events[id]).filter(Boolean).filter(ev => snap.tick - ev.tick < 40 && ev.relatedSystemIds.length > 0);
         for (const ev of recent) {
           const age = Math.max(0, snap.tick - ev.tick);
           const alpha = Math.max(0, 1 - age / 40);
@@ -213,12 +244,10 @@ export function GalaxyCanvas({
           ctx.fillText(label, sx + 12, sy - 3);
         }
       }
-
       ctx.font = "11px monospace";
       ctx.fillStyle = "rgba(200,216,232,0.55)";
       ctx.fillText(`drag pan · wheel zoom · click inspect`, 10, h - 12);
     }
-
     rafRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(rafRef.current);
   }, [simulation, selectedSystemId, selectedEmpireId, viewOptions, resetCameraToken]);
@@ -262,7 +291,6 @@ export function GalaxyCanvas({
     const rect = canvas.getBoundingClientRect();
     const cx = e.clientX - rect.left;
     const cy = e.clientY - rect.top;
-
     if (dragRef.current.dragging) {
       const dx = e.clientX - dragRef.current.lastX;
       const dy = e.clientY - dragRef.current.lastY;
@@ -281,7 +309,6 @@ export function GalaxyCanvas({
     dragRef.current.dragging = false;
     dragRef.current.moved = false;
     if (moved) return;
-
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
