@@ -50,6 +50,11 @@ export default function App() {
     refreshSnapshot();
   }, [sim, refreshSnapshot]);
 
+  const handleRunTicks = useCallback((count: number) => {
+    sim.runTicks(count);
+    refreshSnapshot();
+  }, [sim, refreshSnapshot]);
+
   const handleReset = useCallback(() => {
     sim.reset(settings);
     setRunning(false);
@@ -84,13 +89,26 @@ export default function App() {
     setSelectedEmpireId(null);
   }, []);
 
+  const withRefresh = useCallback((fn: () => void) => {
+    fn();
+    refreshSnapshot();
+  }, [refreshSnapshot]);
+
+  const handleFoundEmpire = useCallback((systemId: Id) => {
+    const id = sim.foundEmpireAtSystem(systemId);
+    if (id) setSelectedEmpireId(id);
+    refreshSnapshot();
+  }, [sim, refreshSnapshot]);
+
   return (
     <div className="app-layout">
       <ControlPanel
+        snapshot={snapshot}
         running={running}
         onStart={handleStart}
         onPause={handlePause}
         onStep={handleStep}
+        onRunTicks={handleRunTicks}
         onReset={handleReset}
         onNewSeed={handleNewSeed}
         settings={settings}
@@ -112,6 +130,12 @@ export default function App() {
           selectedEmpireId={selectedEmpireId}
           onSelectEmpire={setSelectedEmpireId}
           onClearSelection={handleClearSelection}
+          onBoostSystem={id => withRefresh(() => sim.boostSystem(id))}
+          onDevastateSystem={id => withRefresh(() => sim.devastateSystem(id))}
+          onNeutralizeSystem={id => withRefresh(() => sim.neutralizeSystem(id))}
+          onFoundEmpire={handleFoundEmpire}
+          onBoostEmpire={id => withRefresh(() => sim.boostEmpire(id))}
+          onWeakenEmpire={id => withRefresh(() => sim.weakenEmpire(id))}
         />
         <EventLog
           snapshot={snapshot}
