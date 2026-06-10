@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import type { GalaxyState, Id, SimSettings, SimEvent, EmpirePriority } from "../types/sim";
+import type { ArtifactKind, GalaxyState, Id, SimSettings, SimEvent, EmpirePriority, SpyMission } from "../types/sim";
 import { EmpireControlPanel } from "../ui/EmpireControlPanel";
 import { Simulation } from "../sim/Simulation";
 import { GalaxyCanvas } from "../render/GalaxyCanvas";
@@ -19,7 +19,6 @@ const DEFAULT_VIEW: ViewOptions = { territory: true, lanes: true, labels: true, 
 const LS_VIEW_KEY = "galimng_viewOptions";
 const LS_SETTINGS_KEY = "galimng_settings";
 
-// Spread over defaults so stale/partial stored values fall back gracefully.
 function loadViewOptions(): ViewOptions {
   try {
     const raw = localStorage.getItem(LS_VIEW_KEY);
@@ -65,7 +64,8 @@ function buildReport(snapshot: Readonly<GalaxyState>): string {
     `Empires: ${empires.length}`, `Active wars: ${wars.size}`,
     `Fleets in transit: ${Object.keys(snapshot.fleets).length}`,
     `Trade routes: ${Object.keys(snapshot.tradeRoutes).length}`,
-    `Monsters at large: ${Object.keys(snapshot.monsters).length}`, ``,
+    `Monsters at large: ${Object.keys(snapshot.monsters).length}`,
+    `Artifacts: ${Object.keys(snapshot.artifacts ?? {}).length}`, ``,
     `## Leading empires`,
     ...empires.slice(0, 12).map((e, i) => `${i + 1}. ${e.name} — ${e.ownedSystemIds.length} systems, ${MOOD_LABEL[e.mood].toLowerCase()}, ${IDEOLOGY_LABEL[e.ideology].toLowerCase()}, ruled by ${rulerDisplayName(e)} of the ${e.ruler.dynasty} dynasty, pop ${Math.round(e.population)}, tech ${e.techLevel.toFixed(2)}, cohesion ${e.cohesion.toFixed(2)}`),
     ``, `## Faiths`,
@@ -163,11 +163,16 @@ export default function App() {
 
   const handleSetPriority = useCallback((p: EmpirePriority) => { withRefresh(() => sim.setEmpirePriority(p)); }, [sim, withRefresh]);
   const handleRallyFleet = useCallback((sid: Id) => { withRefresh(() => sim.commandRallyFleet(sid)); }, [sim, withRefresh]);
+  const handleMoveFlagship = useCallback((sid: Id) => { withRefresh(() => sim.commandMoveFlagship(sid)); }, [sim, withRefresh]);
   const handleFortify = useCallback((sid: Id) => { withRefresh(() => sim.commandFortifySystem(sid)); }, [sim, withRefresh]);
   const handleStabilize = useCallback((sid: Id) => { withRefresh(() => sim.commandStabilizeSystem(sid)); }, [sim, withRefresh]);
+  const handleBuildArtifact = useCallback((sid: Id, kind?: ArtifactKind) => { withRefresh(() => sim.commandBuildArtifact(sid, kind)); }, [sim, withRefresh]);
   const handleProposePeace = useCallback((eid: Id) => { withRefresh(() => sim.commandProposePeace(eid)); }, [sim, withRefresh]);
   const handleProvokeWar = useCallback((eid: Id) => { withRefresh(() => sim.commandProvokeWar(eid)); }, [sim, withRefresh]);
+  const handleSpyMission = useCallback((eid: Id, mission: SpyMission) => { withRefresh(() => sim.commandSpyMission(eid, mission)); }, [sim, withRefresh]);
   const handleSponsorColonization = useCallback((sid: Id) => { withRefresh(() => sim.commandSponsorColonization(sid)); }, [sim, withRefresh]);
+  const handleAdoptReligion = useCallback((rid: Id) => { withRefresh(() => sim.commandAdoptReligion(rid)); }, [sim, withRefresh]);
+  const handleReformGovernment = useCallback(() => { withRefresh(() => sim.commandReformGovernment()); }, [sim, withRefresh]);
 
   const handleExportJson = useCallback(() => { const snap = sim.getSnapshot(); downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.json`, sim.exportSave(), "application/json"); }, [sim]);
   const handleExportReport = useCallback(() => { const snap = sim.getSnapshot(); downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.md`, buildReport(snap), "text/markdown"); }, [sim]);
@@ -199,11 +204,16 @@ export default function App() {
           onStopControl={handleStopControl}
           onSetPriority={handleSetPriority}
           onRallyFleet={handleRallyFleet}
+          onMoveFlagship={handleMoveFlagship}
           onFortify={handleFortify}
           onStabilize={handleStabilize}
+          onBuildArtifact={handleBuildArtifact}
           onProposePeace={handleProposePeace}
           onProvokeWar={handleProvokeWar}
+          onSpyMission={handleSpyMission}
           onSponsorColonization={handleSponsorColonization}
+          onAdoptReligion={handleAdoptReligion}
+          onReformGovernment={handleReformGovernment}
         />
         <InspectorPanel snapshot={snapshot} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} followEmpireId={followEmpireId} onSelectEmpire={handleSelectEmpire} onSelectSystem={handleSelectSystem} onSelectFleet={handleSelectFleet} onClearSelection={handleClearSelection} onCancelFleet={handleCancelFleet} onToggleFollow={handleToggleFollow} onBoostSystem={id => withRefresh(() => sim.boostSystem(id))} onDevastateSystem={id => withRefresh(() => sim.devastateSystem(id))} onNeutralizeSystem={id => withRefresh(() => sim.neutralizeSystem(id))} onFoundEmpire={handleFoundEmpire} onBoostEmpire={id => withRefresh(() => sim.boostEmpire(id))} onWeakenEmpire={id => withRefresh(() => sim.weakenEmpire(id))} onInflameEmpire={id => withRefresh(() => sim.inflameEmpire(id))} onPacifyEmpire={id => withRefresh(() => sim.pacifyEmpire(id))} onForceWar={(a, b) => withRefresh(() => sim.forceWar(a, b))} onForcePeace={(a, b) => withRefresh(() => sim.forcePeace(a, b))} />
         <TopStories snapshot={snapshot} selectedEventId={selectedEventId} onSelectEvent={handleSelectEvent} onFollowEmpire={handleFollowEmpire} />
