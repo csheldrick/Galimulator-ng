@@ -43,6 +43,7 @@ export class Simulation {
   private accumulator = 0;
   private _snapshot: Readonly<GalaxyState>;
   private _snapshotDirty = true;
+  private _revision = 0;
 
   constructor(settings: SimSettings) {
     this.settings = settings;
@@ -64,9 +65,14 @@ export class Simulation {
   }
 
   private _buildSnapshot(): Readonly<GalaxyState> { return structuredClone(this.state) as Readonly<GalaxyState>; }
+  /** Cloned, immutable state for React UI panels. Expensive — call sparingly (polled at low frequency). */
   getSnapshot(): Readonly<GalaxyState> { if (this._snapshotDirty) { this._snapshot = this._buildSnapshot(); this._snapshotDirty = false; } return this._snapshot; }
+  /** Live, mutable simulation state for read-only same-thread consumers (the canvas renderer). No clone. */
+  getLiveState(): Readonly<GalaxyState> { return this.state; }
+  /** Bumps on every state change; lets renderers cheaply detect "did anything change" without object identity. */
+  getRevision(): number { return this._revision; }
   subscribe(fn: SimListener): () => void { this.listeners.add(fn); fn(this.getSnapshot()); return () => { this.listeners.delete(fn); }; }
-  private _notify(): void { this._snapshotDirty = true; if (this.listeners.size === 0) return; const snap = this.getSnapshot(); for (const fn of this.listeners) fn(snap); }
+  private _notify(): void { this._revision++; this._snapshotDirty = true; if (this.listeners.size === 0) return; const snap = this.getSnapshot(); for (const fn of this.listeners) fn(snap); }
   private _touch(): void { this._notify(); }
 
   private _relationship(source: Empire, targetId: Id): EmpireRelationship {
