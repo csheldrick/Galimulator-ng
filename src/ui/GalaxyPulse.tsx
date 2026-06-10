@@ -28,12 +28,11 @@ export function GalaxyPulse({ snapshot }: Props) {
 
   const activeWars = new Set<string>();
   for (const empire of Object.values(snapshot.empires)) {
-    for (const enemyId of empire.activeWarEmpireIds) {
-      activeWars.add([empire.id, enemyId].sort().join("~"));
-    }
+    for (const enemyId of empire.activeWarEmpireIds) activeWars.add([empire.id, enemyId].sort().join("~"));
   }
 
   const empires = Object.values(snapshot.empires);
+  const fleets = Object.values(snapshot.fleets);
   const avgCohesion = empires.length ? empires.reduce((sum, e) => sum + e.cohesion, 0) / empires.length : 0;
   const avgTech = empires.length ? empires.reduce((sum, e) => sum + e.techLevel, 0) / empires.length : 0;
   const topCounts = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -47,8 +46,14 @@ export function GalaxyPulse({ snapshot }: Props) {
       <div className="pulse-grid">
         <div><b>{recentEvents.length}</b><span>events</span></div>
         <div><b>{activeWars.size}</b><span>wars</span></div>
-        <div><b>{avgCohesion.toFixed(2)}</b><span>cohesion</span></div>
+        <div><b>{fleets.length}</b><span>fleets</span></div>
         <div><b>{avgTech.toFixed(2)}</b><span>tech</span></div>
+      </div>
+      <div className="pulse-grid compact">
+        <div><b>{fleets.filter(f => f.kind === "colonizer").length}</b><span>colonizers</span></div>
+        <div><b>{fleets.filter(f => f.kind === "war").length}</b><span>warships</span></div>
+        <div><b>{avgCohesion.toFixed(2)}</b><span>cohesion</span></div>
+        <div><b>{empires.length}</b><span>powers</span></div>
       </div>
       <div className="pulse-bars">
         {topCounts.map(([type, count]) => {
