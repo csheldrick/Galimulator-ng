@@ -65,6 +65,8 @@ export interface StarSystem {
   techLevel: number;
   recentEventIds: Id[];
   connectedSystemIds: Id[];
+  /** Remaining ticks of a god boost; grants stability regen and a defense bonus. 0 = no boost. */
+  godBoostTicks?: number;
 }
 
 export type FleetKind = "colonizer" | "war" | "patrol";
@@ -209,6 +211,8 @@ export interface Empire {
   relationshipByEmpireId: Record<Id, EmpireRelationship>;
   activeWarEmpireIds: Id[];
   historicalEventIds: Id[];
+  /** Remaining ticks of a god boost; multiplies military strength and blocks collapse. 0 = no boost. */
+  godBoostTicks?: number;
 }
 
 export interface GalaxyState {

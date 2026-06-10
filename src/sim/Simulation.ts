@@ -6,7 +6,7 @@ import { createEvent, getEventCounter, setEventCounter } from "./Events";
 import { IDEOLOGIES } from "./Moods";
 import { makeCourt } from "./Characters";
 
-const SAVE_VERSION = 2;
+const SAVE_VERSION = 3;
 
 // Older saves and hand-edited files may lack newer fields; patch them in so
 // rehydrated galaxies keep ticking.
@@ -17,11 +17,13 @@ function upgradeState(state: GalaxyState): GalaxyState {
   for (const sys of Object.values(state.systems)) {
     sys.religionId ??= null;
     sys.artifactName ??= null;
+    sys.godBoostTicks ??= 0;
   }
   for (const emp of Object.values(state.empires)) {
     emp.ideology ??= IDEOLOGIES[0];
     emp.stateReligionId ??= null;
     emp.court ??= [];
+    emp.godBoostTicks ??= 0;
   }
   for (const fleet of Object.values(state.fleets)) {
     fleet.shipClass ??= fleet.kind === "war" ? "strike" : "settler";
@@ -169,12 +171,13 @@ export class Simulation {
   boostSystem(systemId: Id): void {
     const sys = this.state.systems[systemId];
     if (!sys) return;
-    sys.population = Math.min(3, sys.population + 0.5);
-    sys.resources = Math.min(1.5, sys.resources + 0.25);
-    sys.habitability = Math.min(1, sys.habitability + 0.15);
-    sys.stability = Math.min(1, sys.stability + 0.25);
-    sys.techLevel = Math.min(3, sys.techLevel + 0.15);
-    createEvent(this.state, this.state.tick, "golden-age", `${sys.name} flourished`, `${sys.name} entered a brief golden age.`, 2, sys.ownerEmpireId ? [sys.ownerEmpireId] : [], [sys.id]);
+    sys.population = Math.min(3, sys.population + 0.7);
+    sys.resources = Math.min(1.5, sys.resources + 0.4);
+    sys.habitability = Math.min(1, sys.habitability + 0.25);
+    sys.stability = Math.min(1, sys.stability + 0.4);
+    sys.techLevel = Math.min(3, sys.techLevel + 0.25);
+    sys.godBoostTicks = 600;
+    createEvent(this.state, this.state.tick, "golden-age", `${sys.name} flourished`, `${sys.name} entered a divine golden age.`, 2, sys.ownerEmpireId ? [sys.ownerEmpireId] : [], [sys.id]);
     this._touch();
   }
 
@@ -215,20 +218,31 @@ export class Simulation {
       mood: "expanding", moodSince: this.state.tick, ideology: this.rng.pick(IDEOLOGIES), ruler: makeRuler(this.rng, this.state.tick),
       court: makeCourt(this.rng, this.state.tick, sys.religionId !== null),
       capitalSystemId: sys.id,
-      ownedSystemIds: [sys.id], population: Math.max(sys.population * 1000, 500), wealth: 300, militaryStrength: 120,
-      cohesion: 0.8, aggression: this.rng.range(0.2, 0.8), expansionism: this.rng.range(0.4, 0.9), techLevel: Math.max(sys.techLevel, 0.5),
+      ownedSystemIds: [sys.id], population: Math.max(sys.population * 1000, 500), wealth: 700, militaryStrength: 200,
+      cohesion: 0.9, aggression: this.rng.range(0.2, 0.8), expansionism: this.rng.range(0.4, 0.9), techLevel: Math.max(sys.techLevel, 0.8),
       cultureId, stateReligionId: sys.religionId, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [],
+      godBoostTicks: 400,
     };
     sys.ownerEmpireId = id;
     sys.cultureId = cultureId;
-    sys.population = Math.max(sys.population, 0.7);
+    sys.population = Math.max(sys.population, 0.8);
+    sys.godBoostTicks = 400;
     this.state.empires[id] = empire;
     createEvent(this.state, this.state.tick, "empire-founded", `${empire.name} founded`, `${empire.name} rose at ${sys.name}.`, 4, [id], [sys.id]);
     this._touch();
     return id;
   }
 
-  boostEmpire(empireId: Id): void { const emp = this.state.empires[empireId]; if (!emp) return; emp.wealth += 500; emp.cohesion = Math.min(1, emp.cohesion + 0.2); emp.techLevel = Math.min(3, emp.techLevel + 0.2); emp.militaryStrength += 150; createEvent(this.state, this.state.tick, "golden-age", `${emp.name} strengthened`, `${emp.name} received a surge of wealth and cohesion.`, 3, [emp.id], []); this._touch(); }
+  boostEmpire(empireId: Id): void {
+    const emp = this.state.empires[empireId];
+    if (!emp) return;
+    emp.wealth += 1200;
+    emp.cohesion = Math.min(1, emp.cohesion + 0.35);
+    emp.techLevel = Math.min(3, emp.techLevel + 0.3);
+    emp.godBoostTicks = 600;
+    createEvent(this.state, this.state.tick, "golden-age", `${emp.name} strengthened`, `${emp.name} received a divine surge of power.`, 3, [emp.id], []);
+    this._touch();
+  }
   weakenEmpire(empireId: Id): void { const emp = this.state.empires[empireId]; if (!emp) return; emp.wealth = Math.max(0, emp.wealth * 0.4); emp.cohesion = Math.max(0.05, emp.cohesion - 0.35); emp.militaryStrength = Math.max(1, emp.militaryStrength * 0.45); for (const sysId of emp.ownedSystemIds) { const sys = this.state.systems[sysId]; if (sys) sys.stability = Math.max(0.05, sys.stability - 0.15); } createEvent(this.state, this.state.tick, "empire-collapsed", `${emp.name} destabilized`, `${emp.name} was weakened by outside forces.`, 3, [emp.id], emp.ownedSystemIds.slice(0, 8)); this._touch(); }
 
   forceWar(attackerId: Id, defenderId: Id): void {
