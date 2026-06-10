@@ -80,13 +80,11 @@ export function generateGalaxy(
     systemList.push(system);
   }
 
-  // Sort by habitability descending to pick capital candidates
   const sorted = [...systemList].sort((a, b) => b.habitability - a.habitability);
 
   const empires: Record<Id, Empire> = {};
   const usedCapitals = new Set<Id>();
   const colors = [...EMPIRE_COLORS];
-  // shuffle colors
   for (let i = colors.length - 1; i > 0; i--) {
     const j = rng.nextInt(0, i);
     [colors[i], colors[j]] = [colors[j], colors[i]];
@@ -94,7 +92,6 @@ export function generateGalaxy(
 
   let colorIdx = 0;
   for (let i = 0; i < numEmpires; i++) {
-    // pick a capital not too close to existing capitals
     let capital: StarSystem | null = null;
     for (const candidate of sorted) {
       if (usedCapitals.has(candidate.id)) continue;
@@ -137,5 +134,5 @@ export function generateGalaxy(
     empires[empId] = empire;
   }
 
-  return { tick: 0, seed, systems, empires, events: {}, eventLog: [] };
+  return { tick: 0, seed, systems, empires, fleets: {}, events: {}, eventLog: [] };
 }
