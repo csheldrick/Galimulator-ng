@@ -5,7 +5,7 @@ import { worldToScreen, screenToWorld, clampZoom } from "./camera";
 import { colorWithAlpha, eventColor, UNOWNED_COLOR, SELECTION_COLOR, BACKGROUND_COLOR, STAR_COLOR } from "./colors";
 import { buildTerritoryBitmap } from "./territory";
 import type { TerritoryBitmap, MapMode } from "./territory";
-import { MOOD_LABEL, IDEOLOGY_LABEL, rulerDisplayName } from "../sim/Moods";
+import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, rulerDisplayName } from "../sim/Moods";
 import type { Simulation } from "../sim/Simulation";
 
 export interface ViewOptions {
@@ -177,6 +177,31 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
           const [sx, sy] = worldToScreen(bitmap.originX, bitmap.originY, cam, w, h);
           ctx.imageSmoothingEnabled = true;
           ctx.drawImage(bitmap.canvas, sx, sy, bitmap.worldW * cam.zoom, bitmap.worldH * cam.zoom);
+        }
+      }
+
+      // Mood halos — diffuse colored glow expressing each empire's current state
+      if (viewOptions.territory) {
+        for (const emp of Object.values(snap.empires)) {
+          if (emp.ownedSystemIds.length === 0) continue;
+          let cx = 0, cy = 0, n = 0;
+          for (const id of emp.ownedSystemIds) {
+            const s = snap.systems[id]; if (!s) continue;
+            cx += s.x; cy += s.y; n++;
+          }
+          if (n === 0) continue;
+          const [sx, sy] = worldToScreen(cx / n, cy / n, cam, w, h);
+          const base = MOOD_COLOR[emp.mood];
+          const haloR = Math.max(30, Math.sqrt(n) * 40 * cam.zoom);
+          const alpha = emp.mood === "rioting" ? 0.09 + Math.sin(now / 300) * 0.035
+            : emp.mood === "crusading" ? 0.07 + Math.sin(now / 220) * 0.025
+            : emp.mood === "transcending" ? 0.10 + Math.sin(now / 160) * 0.04
+            : 0.04;
+          const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, haloR);
+          grad.addColorStop(0, colorWithAlpha(base, alpha));
+          grad.addColorStop(1, colorWithAlpha(base, 0));
+          ctx.fillStyle = grad;
+          ctx.beginPath(); ctx.arc(sx, sy, haloR, 0, Math.PI * 2); ctx.fill();
         }
       }
 

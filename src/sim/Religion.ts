@@ -83,6 +83,24 @@ export function stepReligion(state: GalaxyState, rng: PRNG): void {
     }
   }
 
+  // majority/minority pressure: state-faith worlds are calmer; dissenting worlds are restless
+  for (const emp of Object.values(state.empires)) {
+    if (!emp.stateReligionId) continue;
+    for (const sysId of emp.ownedSystemIds) {
+      const sys = state.systems[sysId];
+      if (!sys) continue;
+      if (sys.religionId === emp.stateReligionId) {
+        sys.stability = Math.min(1, sys.stability + 0.0003);
+      } else if (sys.religionId && sys.religionId !== emp.stateReligionId) {
+        sys.stability = Math.max(0.05, sys.stability - 0.0004);
+        // crusading empires put extra pressure on minority faiths
+        if (emp.mood === "crusading" && rng.next() < 0.002 * sys.population) {
+          sys.religionId = emp.stateReligionId;
+        }
+      }
+    }
+  }
+
   // a great unrest can birth a reform faith
   if (rng.next() < 0.0009) {
     const candidates = Object.values(state.systems).filter(s => s.population > 0.5 && s.stability < 0.5);

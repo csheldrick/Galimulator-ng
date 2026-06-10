@@ -1,4 +1,4 @@
-import type { GalaxyState, Empire, Id } from "../types/sim";
+import type { GalaxyState, Empire, Id, RelationModifier } from "../types/sim";
 import { createEvent } from "./Events";
 
 export function updateRelationships(state: GalaxyState): void {
@@ -61,8 +61,13 @@ export function tryDeclareWar(
 
   rel.atWar = true;
   rel.opinion = Math.max(0, rel.opinion - 25);
+  const warMod: RelationModifier = { label: "War", opinionDelta: -0.15, tensionDelta: 0.1, expiresAtTick: state.tick + 600 };
+  rel.modifiers = [...(rel.modifiers ?? []).filter(m => m.label !== "War"), warMod];
   const relBack = defender.relationshipByEmpireId[attacker.id];
-  if (relBack) { relBack.atWar = true; relBack.opinion = Math.max(0, relBack.opinion - 25); }
+  if (relBack) {
+    relBack.atWar = true; relBack.opinion = Math.max(0, relBack.opinion - 25);
+    relBack.modifiers = [...(relBack.modifiers ?? []).filter(m => m.label !== "War"), { ...warMod }];
+  }
 
   if (!attacker.activeWarEmpireIds.includes(defenderId))
     attacker.activeWarEmpireIds.push(defenderId);
@@ -93,11 +98,15 @@ export function tryMakePeace(
   if (rng.next() > peaceChance) return;
 
   rel.atWar = false;
-  // drop tension well below the war-declaration threshold so peace actually holds
   rel.tension = Math.max(0, rel.tension - 60);
   rel.opinion = Math.min(100, rel.opinion + 15);
+  const peaceMod: RelationModifier = { label: "Peace treaty", opinionDelta: 0.08, tensionDelta: -0.06, expiresAtTick: state.tick + 800 };
+  rel.modifiers = [...(rel.modifiers ?? []).filter(m => m.label !== "Peace treaty"), peaceMod];
   const relBack = enemy.relationshipByEmpireId[empire.id];
-  if (relBack) { relBack.atWar = false; relBack.tension = Math.max(0, relBack.tension - 60); relBack.opinion = Math.min(100, relBack.opinion + 15); }
+  if (relBack) {
+    relBack.atWar = false; relBack.tension = Math.max(0, relBack.tension - 60); relBack.opinion = Math.min(100, relBack.opinion + 15);
+    relBack.modifiers = [...(relBack.modifiers ?? []).filter(m => m.label !== "Peace treaty"), { ...peaceMod }];
+  }
 
   empire.activeWarEmpireIds = empire.activeWarEmpireIds.filter(id => id !== enemyId);
   enemy.activeWarEmpireIds = enemy.activeWarEmpireIds.filter(id => id !== empire.id);
