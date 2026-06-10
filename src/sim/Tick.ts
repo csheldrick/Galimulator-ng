@@ -141,12 +141,20 @@ function stepGrowth(state: GalaxyState, rng: PRNG): void {
         sys.stability = Math.min(sys.stability + 0.001, 1.0);
       }
     }
+    if (sys.godBoostTicks && sys.godBoostTicks > 0) {
+      sys.stability = Math.min(1, sys.stability + 0.005);
+      sys.godBoostTicks--;
+    }
   }
   for (const emp of Object.values(state.empires)) {
     emp.wealth += emp.ownedSystemIds.reduce((s, id) => s + ((state.systems[id]?.resources ?? 0) * 2), 0);
     emp.wealth = Math.max(0, emp.wealth);
     const militaryMood = emp.mood === "fortifying" ? 1.25 : emp.mood === "crusading" ? 1.1 : emp.mood === "rioting" ? 0.75 : 1;
     emp.militaryStrength = (emp.ownedSystemIds.length * 10 + emp.techLevel * 50 + emp.wealth * 0.05) * militaryMood;
+    if (emp.godBoostTicks && emp.godBoostTicks > 0) {
+      emp.militaryStrength *= 3;
+      emp.godBoostTicks--;
+    }
     emp.population = emp.ownedSystemIds.reduce((s, id) => s + (state.systems[id]?.population ?? 0) * 1000, 0);
   }
 }
@@ -277,7 +285,8 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
     const defenderId = target.ownerEmpireId;
     if (!defenderId || defenderId === owner.id) return;
     const defender = state.empires[defenderId]; if (!defender) return;
-    const localDefense = (defender.militaryStrength * 0.08 + target.population * 18 + target.stability * 18) * rng.range(0.7, 1.35);
+    const divineShield = (target.godBoostTicks ?? 0) > 0 ? 2.5 : 1;
+    const localDefense = (defender.militaryStrength * 0.08 + target.population * 18 + target.stability * 18) * rng.range(0.7, 1.35) * divineShield;
     const attack = fleet.strength * rng.range(0.75, 1.35);
     target.stability = Math.max(0.05, target.stability - 0.12); target.population = Math.max(0.03, target.population * rng.range(0.88, 0.98));
     if (attack > localDefense) {
@@ -301,6 +310,7 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
 function stepCollapse(state: GalaxyState, rng: PRNG): void {
   for (const emp of Object.values(state.empires)) {
     if (emp.ownedSystemIds.length === 0) { collapseEmpire(state, emp); continue; }
+    if (emp.godBoostTicks && emp.godBoostTicks > 0) continue;
     const overextension = Math.max(0, emp.ownedSystemIds.length - 15) * 0.005;
     const warStrain = emp.activeWarEmpireIds.length * 0.02;
     const moodStrain = emp.mood === "rioting" ? 3 : emp.mood === "degenerating" ? 1.7 : 1;
