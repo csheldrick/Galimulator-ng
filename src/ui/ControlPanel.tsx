@@ -1,8 +1,9 @@
-import type { GalaxyState, SimSettings } from "../types/sim";
+import type { GalaxyState, Id, SimSettings } from "../types/sim";
 import type { ViewOptions } from "../render/GalaxyCanvas";
 
 interface Props {
   snapshot: Readonly<GalaxyState>;
+  selectedEmpireId: Id | null;
   running: boolean;
   onStart: () => void;
   onPause: () => void;
@@ -13,6 +14,7 @@ interface Props {
   onResetCamera: () => void;
   onExportJson: () => void;
   onExportReport: () => void;
+  onSelectEmpire: (id: Id) => void;
   settings: SimSettings;
   onSettingsChange: (s: Partial<SimSettings>) => void;
   viewOptions: ViewOptions;
@@ -23,6 +25,7 @@ function fmt(n: number, dec = 0) { return n.toFixed(dec); }
 
 export function ControlPanel({
   snapshot,
+  selectedEmpireId,
   running,
   onStart,
   onPause,
@@ -33,6 +36,7 @@ export function ControlPanel({
   onResetCamera,
   onExportJson,
   onExportReport,
+  onSelectEmpire,
   settings,
   onSettingsChange,
   viewOptions,
@@ -129,17 +133,20 @@ export function ControlPanel({
         />
       </div>
 
-      <div className="section-title">Top Empires</div>
-      <div className="mini-ranking">
+      <div className="section-title">Empires</div>
+      <div className="sidebar-empire-list">
         {[...empires]
           .sort((a, b) => b.ownedSystemIds.length - a.ownedSystemIds.length)
-          .slice(0, 8)
           .map(e => (
-            <div key={e.id} className="rank-row">
+            <button
+              key={e.id}
+              className={e.id === selectedEmpireId ? "sidebar-empire selected" : "sidebar-empire"}
+              onClick={() => onSelectEmpire(e.id)}
+            >
               <span className="emp-dot" style={{ background: e.color }} />
-              <span>{e.name}</span>
-              <b>{e.ownedSystemIds.length}</b>
-            </div>
+              <span className="emp-name">{e.name}</span>
+              <span className="emp-size">{e.ownedSystemIds.length}</span>
+            </button>
           ))}
       </div>
     </div>
