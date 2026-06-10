@@ -11,6 +11,8 @@ interface Props {
   onReset: () => void;
   onNewSeed: () => void;
   onResetCamera: () => void;
+  onExportJson: () => void;
+  onExportReport: () => void;
   settings: SimSettings;
   onSettingsChange: (s: Partial<SimSettings>) => void;
   viewOptions: ViewOptions;
@@ -29,6 +31,8 @@ export function ControlPanel({
   onReset,
   onNewSeed,
   onResetCamera,
+  onExportJson,
+  onExportReport,
   settings,
   onSettingsChange,
   viewOptions,
@@ -80,6 +84,12 @@ export function ControlPanel({
         <label><input type="checkbox" checked={viewOptions.labels} onChange={e => setView("labels", e.target.checked)} /> Labels</label>
         <label><input type="checkbox" checked={viewOptions.wars} onChange={e => setView("wars", e.target.checked)} /> Wars</label>
         <label><input type="checkbox" checked={viewOptions.events} onChange={e => setView("events", e.target.checked)} /> Events</label>
+      </div>
+
+      <div className="section-title">Export</div>
+      <div className="btn-row">
+        <button onClick={onExportJson}>JSON</button>
+        <button onClick={onExportReport}>Report</button>
       </div>
 
       <div className="section-title">Settings</div>
