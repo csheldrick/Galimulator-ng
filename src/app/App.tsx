@@ -94,9 +94,17 @@ export default function App() {
     refreshSnapshot();
   }, [refreshSnapshot]);
 
+  const handleSelectEmpire = useCallback((id: Id | null) => {
+    setSelectedSystemId(null);
+    setSelectedEmpireId(id);
+  }, []);
+
   const handleFoundEmpire = useCallback((systemId: Id) => {
     const id = sim.foundEmpireAtSystem(systemId);
-    if (id) setSelectedEmpireId(id);
+    if (id) {
+      setSelectedSystemId(null);
+      setSelectedEmpireId(id);
+    }
     refreshSnapshot();
   }, [sim, refreshSnapshot]);
 
@@ -128,7 +136,7 @@ export default function App() {
           snapshot={snapshot}
           selectedSystemId={selectedSystemId}
           selectedEmpireId={selectedEmpireId}
-          onSelectEmpire={setSelectedEmpireId}
+          onSelectEmpire={handleSelectEmpire}
           onClearSelection={handleClearSelection}
           onBoostSystem={id => withRefresh(() => sim.boostSystem(id))}
           onDevastateSystem={id => withRefresh(() => sim.devastateSystem(id))}
@@ -136,6 +144,10 @@ export default function App() {
           onFoundEmpire={handleFoundEmpire}
           onBoostEmpire={id => withRefresh(() => sim.boostEmpire(id))}
           onWeakenEmpire={id => withRefresh(() => sim.weakenEmpire(id))}
+          onInflameEmpire={id => withRefresh(() => sim.inflameEmpire(id))}
+          onPacifyEmpire={id => withRefresh(() => sim.pacifyEmpire(id))}
+          onForceWar={(a, b) => withRefresh(() => sim.forceWar(a, b))}
+          onForcePeace={(a, b) => withRefresh(() => sim.forcePeace(a, b))}
         />
         <EventLog
           snapshot={snapshot}
