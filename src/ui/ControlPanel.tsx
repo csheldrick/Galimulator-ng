@@ -9,6 +9,7 @@ type EmpireSort = "systems" | "population" | "military" | "tech" | "wars" | "nam
 interface Props {
   snapshot: Readonly<GalaxyState>;
   selectedEmpireId: Id | null;
+  followEmpireId: Id | null;
   running: boolean;
   onStart: () => void;
   onPause: () => void;
@@ -19,8 +20,10 @@ interface Props {
   onResetCamera: () => void;
   onExportJson: () => void;
   onExportReport: () => void;
+  onHeadlessReport: () => void;
   onImportSave: (text: string) => void;
   onSelectEmpire: (id: Id) => void;
+  onToggleFollow: (id: Id) => void;
   settings: SimSettings;
   onSettingsChange: (s: Partial<SimSettings>) => void;
   viewOptions: ViewOptions;
@@ -32,6 +35,7 @@ function fmt(n: number, dec = 0) { return n.toFixed(dec); }
 export function ControlPanel({
   snapshot,
   selectedEmpireId,
+  followEmpireId,
   running,
   onStart,
   onPause,
@@ -42,8 +46,10 @@ export function ControlPanel({
   onResetCamera,
   onExportJson,
   onExportReport,
+  onHeadlessReport,
   onImportSave,
   onSelectEmpire,
+  onToggleFollow,
   settings,
   onSettingsChange,
   viewOptions,
@@ -110,6 +116,9 @@ export function ControlPanel({
             <span>{fmt(selectedEmpire.militaryStrength)} mil</span>
             <span>{selectedFleetCount} fleets</span>
           </div>
+          <button className={followEmpireId === selectedEmpire.id ? "follow-btn active" : "follow-btn"} onClick={() => onToggleFollow(selectedEmpire.id)}>
+            {followEmpireId === selectedEmpire.id ? "⌖ Following — click to stop" : "⌖ Follow this empire"}
+          </button>
         </div>
       )}
 
@@ -151,6 +160,9 @@ export function ControlPanel({
         <button onClick={onExportJson}>Save</button>
         <button onClick={() => fileInputRef.current?.click()}>Load</button>
         <button onClick={onExportReport}>Report</button>
+      </div>
+      <div className="btn-row">
+        <button onClick={onHeadlessReport} title="Run a fresh 1k/3k/10k-tick headless simulation and download the survival/churn/war report">Headless 10k Report</button>
       </div>
       <input
         ref={fileInputRef}

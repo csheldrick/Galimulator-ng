@@ -25,11 +25,13 @@ interface Props {
   selectedSystemId: Id | null;
   selectedEmpireId: Id | null;
   selectedFleetId: Id | null;
+  followEmpireId: Id | null;
   viewOptions: ViewOptions;
   resetCameraToken: number;
   onSelectSystem: (id: Id | null) => void;
   onSelectEmpire: (id: Id | null) => void;
   onSelectFleet: (id: Id | null) => void;
+  onManualPan: () => void;
 }
 
 function eventColor(event: SimEvent): string {
@@ -49,6 +51,8 @@ function eventColor(event: SimEvent): string {
     case "transcended": return "rgba(120,220,255,0.75)";
     case "religion-founded":
     case "religion-adopted": return "rgba(200,140,255,0.75)";
+    case "character-rose": return "rgba(255,224,130,0.75)";
+    case "character-fell": return "rgba(180,190,210,0.6)";
     default: return "rgba(255,255,255,0.45)";
   }
 }
@@ -103,7 +107,7 @@ function drawMonster(ctx: CanvasRenderingContext2D, monster: Monster, sx: number
   }
 }
 
-export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, selectedFleetId, viewOptions, resetCameraToken, onSelectSystem, onSelectEmpire, onSelectFleet }: Props) {
+export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, viewOptions, resetCameraToken, onSelectSystem, onSelectEmpire, onSelectFleet, onManualPan }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const camRef = useRef<Camera>({ x: 600, y: 450, zoom: 0.8 });
   const rafRef = useRef<number>(0);
@@ -138,6 +142,26 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
         const [nx, ny] = worldToScreen(anim.wx, anim.wy, cam, w, h);
         cam.x += (nx - anim.cx) / cam.zoom;
         cam.y += (ny - anim.cy) / cam.zoom;
+      }
+
+      // Follow camera: glide to keep the watched empire's territory framed.
+      const followEmpire = followEmpireId ? snap.empires[followEmpireId] : null;
+      if (followEmpire && followEmpire.ownedSystemIds.length > 0 && !anim) {
+        let cx = 0, cy = 0, n = 0, minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const id of followEmpire.ownedSystemIds) {
+          const s = snap.systems[id]; if (!s) continue;
+          cx += s.x; cy += s.y; n++;
+          minX = Math.min(minX, s.x); minY = Math.min(minY, s.y);
+          maxX = Math.max(maxX, s.x); maxY = Math.max(maxY, s.y);
+        }
+        if (n > 0) {
+          cam.x += (cx / n - cam.x) * 0.07;
+          cam.y += (cy / n - cam.y) * 0.07;
+          const spanX = Math.max(60, maxX - minX), spanY = Math.max(60, maxY - minY);
+          const fit = Math.min(w / (spanX * 1.5), h / (spanY * 1.5));
+          const targetZoom = clampZoom(Math.max(0.6, Math.min(2.2, fit)));
+          cam.zoom += (targetZoom - cam.zoom) * 0.05;
+        }
       }
 
       ctx.fillStyle = BACKGROUND_COLOR;
@@ -295,14 +319,51 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
       }
 
       if (viewOptions.events) {
-        const recent = snap.eventLog.slice(-35).map(id => snap.events[id]).filter(Boolean).filter(ev => snap.tick - ev.tick < 40 && ev.relatedSystemIds.length > 0);
+        // Galaxy-defining events (importance >= 4) linger longer and read loudly.
+        const recent = snap.eventLog.slice(-50).map(id => snap.events[id]).filter(Boolean)
+          .filter(ev => ev.relatedSystemIds.length > 0 && snap.tick - ev.tick < (ev.importance >= 4 ? 90 : 40));
         for (const ev of recent) {
-          const age = Math.max(0, snap.tick - ev.tick), alpha = Math.max(0, 1 - age / 40);
+          const defining = ev.importance >= 4;
+          const life = defining ? 90 : 40;
+          const age = Math.max(0, snap.tick - ev.tick), alpha = Math.max(0, 1 - age / life);
+          const baseColor = eventColor(ev);
           for (const systemId of ev.relatedSystemIds.slice(0, 5)) {
             const sys = snap.systems[systemId]; if (!sys) continue;
             const [sx, sy] = worldToScreen(sys.x, sys.y, cam, w, h);
-            ctx.beginPath(); ctx.arc(sx, sy, (10 + ev.importance * 4 + age * 0.35) * cam.zoom, 0, Math.PI * 2);
-            ctx.strokeStyle = eventColor(ev).replace(/0\.\d+\)/, `${0.65 * alpha})`); ctx.lineWidth = Math.max(1, ev.importance * 0.35); ctx.stroke();
+            if (defining) {
+              // expanding multi-ring shockwave, brighter and bolder
+              for (let k = 0; k < 3; k++) {
+                const ringAge = age - k * 6;
+                if (ringAge < 0) continue;
+                const ringAlpha = Math.max(0, (1 - ringAge / life)) * 0.8;
+                ctx.beginPath();
+                ctx.arc(sx, sy, (12 + ev.importance * 6 + ringAge * 0.9) * cam.zoom, 0, Math.PI * 2);
+                ctx.strokeStyle = baseColor.replace(/0\.\d+\)/, `${ringAlpha})`);
+                ctx.lineWidth = Math.max(1.5, ev.importance * 0.7);
+                ctx.stroke();
+              }
+            } else {
+              ctx.beginPath();
+              ctx.arc(sx, sy, (10 + ev.importance * 4 + age * 0.35) * cam.zoom, 0, Math.PI * 2);
+              ctx.strokeStyle = baseColor.replace(/0\.\d+\)/, `${0.65 * alpha})`);
+              ctx.lineWidth = Math.max(1, ev.importance * 0.35);
+              ctx.stroke();
+            }
+          }
+          // defining events float their headline on the map for a few seconds
+          if (defining && age < 55) {
+            const anchor = snap.systems[ev.relatedSystemIds[0]];
+            if (anchor) {
+              const [sx, sy] = worldToScreen(anchor.x, anchor.y, cam, w, h);
+              ctx.font = "700 12px 'Trebuchet MS', sans-serif";
+              ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+              const labelY = sy - (18 + ev.importance * 6) * cam.zoom - 6;
+              ctx.strokeStyle = `rgba(0,0,0,${0.85 * alpha})`; ctx.lineWidth = 3; ctx.lineJoin = "round";
+              ctx.strokeText(ev.title, sx, labelY);
+              ctx.fillStyle = baseColor.replace(/0\.\d+\)/, `${Math.min(1, alpha + 0.2)})`);
+              ctx.fillText(ev.title, sx, labelY);
+              ctx.textAlign = "left";
+            }
           }
         }
       }
@@ -403,7 +464,7 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
     }
     rafRef.current = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [simulation, selectedSystemId, selectedEmpireId, selectedFleetId, viewOptions, resetCameraToken]);
+  }, [simulation, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, viewOptions, resetCameraToken]);
 
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
@@ -483,6 +544,7 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
       if (pinchRef.current.dist > 0) {
         zoomAnimRef.current = null;
         zoomAt(midX, midY, camRef.current.zoom * (dist / pinchRef.current.dist));
+        onManualPan();
       }
       pinchRef.current.dist = dist;
       dragRef.current.moved = true;
@@ -491,13 +553,13 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
 
     if (dragRef.current.dragging && tracked) {
       const dx = e.clientX - dragRef.current.lastX, dy = e.clientY - dragRef.current.lastY;
-      if (Math.abs(dx) + Math.abs(dy) > 1) dragRef.current.moved = true;
+      if (Math.abs(dx) + Math.abs(dy) > 1) { dragRef.current.moved = true; onManualPan(); }
       camRef.current.x -= dx / camRef.current.zoom; camRef.current.y -= dy / camRef.current.zoom;
       dragRef.current.lastX = e.clientX; dragRef.current.lastY = e.clientY;
     } else if (e.pointerType === "mouse") {
       hoverRef.current = findSystemAt(cx, cy);
     }
-  }, [findSystemAt, zoomAt]);
+  }, [findSystemAt, zoomAt, onManualPan]);
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     const canvas = canvasRef.current; if (!canvas) return;
@@ -528,13 +590,13 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
   }, []);
 
   const onWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault(); const canvas = canvasRef.current; if (!canvas) return;
+    e.preventDefault(); onManualPan(); const canvas = canvasRef.current; if (!canvas) return;
     const rect = canvas.getBoundingClientRect(); const cx = e.clientX - rect.left; const cy = e.clientY - rect.top; const cam = camRef.current;
     const [wx, wy] = screenToWorld(cx, cy, cam, canvas.offsetWidth, canvas.offsetHeight);
     const factor = e.deltaY > 0 ? 0.85 : 1.18;
     const current = zoomAnimRef.current?.target ?? cam.zoom;
     zoomAnimRef.current = { target: clampZoom(current * factor), wx, wy, cx, cy };
-  }, []);
+  }, [onManualPan]);
 
   return <canvas
     ref={canvasRef}

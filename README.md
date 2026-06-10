@@ -231,6 +231,16 @@ All planned depth targets are implemented:
 
 No Galimulator content or assets are copied; everything is procedural and original.
 
+## Readable drama layer
+
+Added to make the galaxy's story easy to read at a glance:
+
+- **Follow this empire** camera mode — glides and frames a chosen empire's territory (any pan/zoom releases it)
+- **Top Stories** feed — ranks recent events by impact and recency and explains *why each one matters*, with one-click follow on the empire involved
+- **Named characters below rulers** — each empire keeps a court of admirals, ministers, and prophets. Admirals lead and stiffen war fleets and gain renown from victories, ministers grease wealth/cohesion, prophets accelerate their faith, and a renowned but disloyal officer can stage a named coup
+- **Headless milestone report** — runs a fresh deterministic galaxy to 1,000 / 3,000 / 10,000 ticks and reports survival, empire churn, wars, religion spread, monsters, and collapses (no rendering required)
+- **Galaxy-defining events** (importance ≥ 4) read distinctly — multi-ring shockwaves with floating headlines on the map, plus accented entries in the log and Top Stories
+
 ## Design rule
 
 Keep the game an observer sandbox first.

@@ -4,6 +4,7 @@ import { generateGalaxy, makeRuler } from "./Galaxy";
 import { executeTick } from "./Tick";
 import { createEvent, getEventCounter, setEventCounter } from "./Events";
 import { IDEOLOGIES } from "./Moods";
+import { makeCourt } from "./Characters";
 
 const SAVE_VERSION = 2;
 
@@ -20,6 +21,7 @@ function upgradeState(state: GalaxyState): GalaxyState {
   for (const emp of Object.values(state.empires)) {
     emp.ideology ??= IDEOLOGIES[0];
     emp.stateReligionId ??= null;
+    emp.court ??= [];
   }
   for (const fleet of Object.values(state.fleets)) {
     fleet.shipClass ??= fleet.kind === "war" ? "strike" : "settler";
@@ -211,6 +213,7 @@ export class Simulation {
     const empire: Empire = {
       id, name: `${sys.name} Ascendancy`, color: `hsl(${this.rng.nextInt(0, 360)},75%,58%)`,
       mood: "expanding", moodSince: this.state.tick, ideology: this.rng.pick(IDEOLOGIES), ruler: makeRuler(this.rng, this.state.tick),
+      court: makeCourt(this.rng, this.state.tick, sys.religionId !== null),
       capitalSystemId: sys.id,
       ownedSystemIds: [sys.id], population: Math.max(sys.population * 1000, 500), wealth: 300, militaryStrength: 120,
       cohesion: 0.8, aggression: this.rng.range(0.2, 0.8), expansionism: this.rng.range(0.4, 0.9), techLevel: Math.max(sys.techLevel, 0.5),

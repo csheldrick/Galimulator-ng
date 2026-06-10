@@ -7,7 +7,9 @@ import { ControlPanel } from "../ui/ControlPanel";
 import { InspectorPanel } from "../ui/InspectorPanel";
 import { GalaxyPulse } from "../ui/GalaxyPulse";
 import { EventLog } from "../ui/EventLog";
+import { TopStories } from "../ui/TopStories";
 import { MOOD_LABEL, IDEOLOGY_LABEL, rulerDisplayName } from "../sim/Moods";
+import { runHeadlessReport } from "../sim/Headless";
 import "./App.css";
 
 const DEFAULT_SETTINGS: SimSettings = { seed: 42, numStars: 400, numEmpires: 12, ticksPerSecond: 4 };
@@ -62,6 +64,7 @@ export default function App() {
   const [selectedEmpireId, setSelectedEmpireId] = useState<Id | null>(null);
   const [selectedFleetId, setSelectedFleetId] = useState<Id | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<Id | null>(null);
+  const [followEmpireId, setFollowEmpireId] = useState<Id | null>(null);
   const [minImportance, setMinImportance] = useState(1);
 
   const refreshSnapshot = useCallback(() => { setSnapshot(sim.getSnapshot()); }, [sim]);
@@ -73,14 +76,20 @@ export default function App() {
   const handleRunTicks = useCallback((count: number) => { sim.runTicks(count); refreshSnapshot(); }, [sim, refreshSnapshot]);
 
   const handleReset = useCallback(() => {
-    sim.reset(settings); setRunning(false); setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedFleetId(null); setSelectedEventId(null); setResetCameraToken(t => t + 1); refreshSnapshot();
+    sim.reset(settings); setRunning(false); setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedFleetId(null); setSelectedEventId(null); setFollowEmpireId(null); setResetCameraToken(t => t + 1); refreshSnapshot();
   }, [sim, settings, refreshSnapshot]);
 
   const handleNewSeed = useCallback(() => {
     const newSeed = Math.floor(Math.random() * 0xffffff);
     const newSettings = { ...settings, seed: newSeed };
-    setSettings(newSettings); sim.reset(newSettings); setRunning(false); setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedFleetId(null); setSelectedEventId(null); setResetCameraToken(t => t + 1); refreshSnapshot();
+    setSettings(newSettings); sim.reset(newSettings); setRunning(false); setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedFleetId(null); setSelectedEventId(null); setFollowEmpireId(null); setResetCameraToken(t => t + 1); refreshSnapshot();
   }, [sim, settings, refreshSnapshot]);
+
+  const handleFollowEmpire = useCallback((id: Id | null) => {
+    setFollowEmpireId(id);
+    if (id) { setSelectedEmpireId(id); setSelectedSystemId(null); setSelectedFleetId(null); }
+  }, []);
+  const handleToggleFollow = useCallback((id: Id) => { setFollowEmpireId(prev => (prev === id ? null : id)); }, []);
 
   const handleSettingsChange = useCallback((partial: Partial<SimSettings>) => {
     setSettings(prev => { const next = { ...prev, ...partial }; if (partial.ticksPerSecond !== undefined) sim.setSpeed(partial.ticksPerSecond); return next; });
@@ -113,12 +122,13 @@ export default function App() {
 
   const handleExportJson = useCallback(() => { const snap = sim.getSnapshot(); downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.json`, sim.exportSave(), "application/json"); }, [sim]);
   const handleExportReport = useCallback(() => { const snap = sim.getSnapshot(); downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.md`, buildReport(snap), "text/markdown"); }, [sim]);
+  const handleHeadlessReport = useCallback(() => { const text = runHeadlessReport(settings); downloadText(`galimulator-ng-${settings.seed}-headless.md`, text, "text/markdown"); }, [settings]);
 
   const handleImportSave = useCallback((text: string) => {
     const error = sim.importSave(text);
     if (error) { window.alert(error); return; }
     setRunning(false);
-    setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedFleetId(null); setSelectedEventId(null);
+    setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedFleetId(null); setSelectedEventId(null); setFollowEmpireId(null);
     setSettings(sim.getSettings());
     setResetCameraToken(t => t + 1);
     refreshSnapshot();
@@ -126,12 +136,13 @@ export default function App() {
 
   return (
     <div className="app-layout">
-      <ControlPanel snapshot={snapshot} selectedEmpireId={selectedEmpireId} running={running} onStart={handleStart} onPause={handlePause} onStep={handleStep} onRunTicks={handleRunTicks} onReset={handleReset} onNewSeed={handleNewSeed} onResetCamera={() => setResetCameraToken(t => t + 1)} onExportJson={handleExportJson} onExportReport={handleExportReport} onImportSave={handleImportSave} onSelectEmpire={handleSelectEmpire} settings={settings} onSettingsChange={handleSettingsChange} viewOptions={viewOptions} onViewOptionsChange={setViewOptions} />
+      <ControlPanel snapshot={snapshot} selectedEmpireId={selectedEmpireId} followEmpireId={followEmpireId} running={running} onStart={handleStart} onPause={handlePause} onStep={handleStep} onRunTicks={handleRunTicks} onReset={handleReset} onNewSeed={handleNewSeed} onResetCamera={() => setResetCameraToken(t => t + 1)} onExportJson={handleExportJson} onExportReport={handleExportReport} onHeadlessReport={handleHeadlessReport} onImportSave={handleImportSave} onSelectEmpire={handleSelectEmpire} onToggleFollow={handleToggleFollow} settings={settings} onSettingsChange={handleSettingsChange} viewOptions={viewOptions} onViewOptionsChange={setViewOptions} />
       <div className="canvas-area">
-        <GalaxyCanvas simulation={sim} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} viewOptions={viewOptions} resetCameraToken={resetCameraToken} onSelectSystem={handleSelectSystem} onSelectEmpire={setSelectedEmpireId} onSelectFleet={handleSelectFleet} />
+        <GalaxyCanvas simulation={sim} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} followEmpireId={followEmpireId} viewOptions={viewOptions} resetCameraToken={resetCameraToken} onSelectSystem={handleSelectSystem} onSelectEmpire={setSelectedEmpireId} onSelectFleet={handleSelectFleet} onManualPan={() => setFollowEmpireId(null)} />
       </div>
       <div className="right-panel">
-        <InspectorPanel snapshot={snapshot} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} onSelectEmpire={handleSelectEmpire} onSelectFleet={handleSelectFleet} onClearSelection={handleClearSelection} onCancelFleet={handleCancelFleet} onBoostSystem={id => withRefresh(() => sim.boostSystem(id))} onDevastateSystem={id => withRefresh(() => sim.devastateSystem(id))} onNeutralizeSystem={id => withRefresh(() => sim.neutralizeSystem(id))} onFoundEmpire={handleFoundEmpire} onBoostEmpire={id => withRefresh(() => sim.boostEmpire(id))} onWeakenEmpire={id => withRefresh(() => sim.weakenEmpire(id))} onInflameEmpire={id => withRefresh(() => sim.inflameEmpire(id))} onPacifyEmpire={id => withRefresh(() => sim.pacifyEmpire(id))} onForceWar={(a, b) => withRefresh(() => sim.forceWar(a, b))} onForcePeace={(a, b) => withRefresh(() => sim.forcePeace(a, b))} />
+        <InspectorPanel snapshot={snapshot} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} followEmpireId={followEmpireId} onSelectEmpire={handleSelectEmpire} onSelectFleet={handleSelectFleet} onClearSelection={handleClearSelection} onCancelFleet={handleCancelFleet} onToggleFollow={handleToggleFollow} onBoostSystem={id => withRefresh(() => sim.boostSystem(id))} onDevastateSystem={id => withRefresh(() => sim.devastateSystem(id))} onNeutralizeSystem={id => withRefresh(() => sim.neutralizeSystem(id))} onFoundEmpire={handleFoundEmpire} onBoostEmpire={id => withRefresh(() => sim.boostEmpire(id))} onWeakenEmpire={id => withRefresh(() => sim.weakenEmpire(id))} onInflameEmpire={id => withRefresh(() => sim.inflameEmpire(id))} onPacifyEmpire={id => withRefresh(() => sim.pacifyEmpire(id))} onForceWar={(a, b) => withRefresh(() => sim.forceWar(a, b))} onForcePeace={(a, b) => withRefresh(() => sim.forcePeace(a, b))} />
+        <TopStories snapshot={snapshot} selectedEventId={selectedEventId} onSelectEvent={handleSelectEvent} onFollowEmpire={handleFollowEmpire} />
         <GalaxyPulse snapshot={snapshot} />
         <EventLog snapshot={snapshot} minImportance={minImportance} onMinImportanceChange={setMinImportance} selectedEventId={selectedEventId} onSelectEvent={handleSelectEvent} />
       </div>

@@ -33,7 +33,9 @@ export type EventType =
   | "monster-slain"
   | "artifact-discovered"
   | "galactic-crisis"
-  | "coup";
+  | "coup"
+  | "character-rose"
+  | "character-fell";
 
 export interface SimEvent {
   id: Id;
@@ -94,6 +96,9 @@ export interface Fleet {
   speed: number;
   strength: number;
   createdTick: number;
+  /** Named admiral leading a war fleet, if one was assigned from the court. */
+  admiralId?: Id;
+  admiralName?: string;
 }
 
 export interface EmpireRelationship {
@@ -125,6 +130,23 @@ export interface Ruler {
   dynasty: string;
   ordinal: number;
   accessionTick: number;
+}
+
+/** Named figures who serve below the ruler and give an empire its supporting cast. */
+export type CharacterRole = "admiral" | "minister" | "prophet" | "pretender";
+
+export interface Character {
+  id: Id;
+  name: string;
+  role: CharacterRole;
+  title: string;
+  /** Competence, 0..1 — scales the perk the character provides. */
+  skill: number;
+  /** Fame, 0..1 — grows with deeds; renowned figures get their own events. */
+  renown: number;
+  /** Allegiance to the throne, 0..1 — low loyalty breeds pretenders. */
+  loyalty: number;
+  bornTick: number;
 }
 
 export interface Religion {
@@ -171,6 +193,8 @@ export interface Empire {
   moodSince: number;
   ideology: Ideology;
   ruler: Ruler;
+  /** Supporting cast: admirals, ministers, prophets, and would-be pretenders. */
+  court: Character[];
   capitalSystemId: Id;
   ownedSystemIds: Id[];
   population: number;
