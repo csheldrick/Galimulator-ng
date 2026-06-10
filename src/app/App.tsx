@@ -5,6 +5,7 @@ import { GalaxyCanvas } from "../render/GalaxyCanvas";
 import type { ViewOptions } from "../render/GalaxyCanvas";
 import { ControlPanel } from "../ui/ControlPanel";
 import { InspectorPanel } from "../ui/InspectorPanel";
+import { GalaxyPulse } from "../ui/GalaxyPulse";
 import { EventLog } from "../ui/EventLog";
 import "./App.css";
 
@@ -236,6 +237,7 @@ export default function App() {
           onForceWar={(a, b) => withRefresh(() => sim.forceWar(a, b))}
           onForcePeace={(a, b) => withRefresh(() => sim.forcePeace(a, b))}
         />
+        <GalaxyPulse snapshot={snapshot} />
         <EventLog
           snapshot={snapshot}
           minImportance={minImportance}
