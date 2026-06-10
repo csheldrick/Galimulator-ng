@@ -49,13 +49,6 @@ function systemRegion(snap: Readonly<GalaxyState>, sys: StarSystem, mode: MapMod
   return { key: emp.id, rgb: parseColorToRgb(emp.color), neutral: false };
 }
 
-// Cheap signature of the regions; the bitmap only rebuilds when it changes.
-export function ownershipKey(snap: Readonly<GalaxyState>, mode: MapMode): string {
-  let key = mode + "|";
-  for (const sys of Object.values(snap.systems)) key += systemRegion(snap, sys, mode).key + "|";
-  return key;
-}
-
 // Nearest-star (Voronoi-style) region fill: every grid cell takes the color
 // of its closest star's region, clipped to MAX_R, with brightened cells along
 // region borders so empires read as solid shapes with crisp edges.

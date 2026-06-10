@@ -189,7 +189,9 @@ const EXPANSION_MOOD_MULT: Record<EmpireMood, number> = {
 function stepExpansion(state: GalaxyState, rng: PRNG): void {
   for (const emp of Object.values(state.empires)) {
     if (emp.wealth < 18 || emp.ownedSystemIds.length === 0) continue;
-    const expandChance = emp.expansionism * 0.22 * emp.cohesion * Math.min(emp.wealth / 250, 1) * EXPANSION_MOOD_MULT[emp.mood] * IDEOLOGY_MODS[emp.ideology].expansion;
+    // wars pull resources away from colonization
+    const warPenalty = Math.max(0.1, 1 - emp.activeWarEmpireIds.length * 0.35);
+    const expandChance = emp.expansionism * 0.22 * emp.cohesion * Math.min(emp.wealth / 250, 1) * EXPANSION_MOOD_MULT[emp.mood] * IDEOLOGY_MODS[emp.ideology].expansion * warPenalty;
     if (rng.next() > expandChance) continue;
     const found = findExpansionTarget(state, emp);
     if (!found || hasFleetTo(state, emp.id, found.target.id)) continue;
@@ -208,7 +210,7 @@ function stepConflict(state: GalaxyState, rng: PRNG): void {
       const rel = emp.relationshipByEmpireId[neighborId];
       if (!rel) continue;
       rel.tension = Math.min(100, rel.tension + emp.aggression * 2 * tensionMood * IDEOLOGY_MODS[emp.ideology].aggression);
-      if (!rel.atWar && rel.tension > 50) tryDeclareWar(state, emp, neighborId, rng);
+      if (!rel.atWar && rel.tension > 65) tryDeclareWar(state, emp, neighborId, rng);
       if (rel.atWar) { tryMakePeace(state, emp, neighborId, rng); if (rng.next() < warFleetChance) launchWarFleet(state, emp, neighborId, rng); }
     }
     for (const rid of Object.keys(emp.relationshipByEmpireId)) if (!neighbors.includes(rid)) emp.relationshipByEmpireId[rid].tension = Math.max(0, emp.relationshipByEmpireId[rid].tension - 1);
@@ -258,7 +260,13 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
   const owner = state.empires[fleet.ownerEmpireId]; const target = state.systems[fleet.targetSystemId];
   if (!owner || !target) return;
   if (fleet.kind === "colonizer") {
-    if (target.ownerEmpireId !== null) return;
+    if (target.ownerEmpireId !== null) {
+      createEvent(state, state.tick, "system-colonized",
+        `${fleet.name} found ${target.name} claimed`,
+        `${fleet.name} arrived at ${target.name} but found it already under the control of ${state.empires[target.ownerEmpireId]?.name ?? "another power"}. The settlers dispersed.`,
+        1, [owner.id], [target.id]);
+      return;
+    }
     target.ownerEmpireId = owner.id; target.cultureId = owner.cultureId; owner.ownedSystemIds.push(target.id); target.stability = Math.max(target.stability, 0.55);
     if (!target.religionId && owner.stateReligionId) target.religionId = owner.stateReligionId; // settlers carry their faith
     createEvent(state, state.tick, "system-colonized", `${owner.name} colonized ${target.name}`, `${fleet.name} arrived and founded a colony for ${owner.name}.`, 1, [owner.id], [target.id]);
@@ -283,6 +291,9 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
       const credit = fleet.admiralName ? ` ${fleet.admiralName} is hailed for the victory.` : "";
       createEvent(state, state.tick, "border-conflict", `${owner.name} captured ${target.name}`, `${fleet.name} seized ${target.name} from ${defender.name}.${credit}`, 3, [owner.id, defenderId], [target.id]);
       discoverArtifact(state, target);
+      // An empire that just lost its last world collapses now, so its stale
+      // capital pointer (still on the conquered system) never outlives the tick.
+      if (defender.ownedSystemIds.length === 0) collapseEmpire(state, defender);
     } else { owner.cohesion = Math.max(0.1, owner.cohesion - 0.02); createEvent(state, state.tick, "border-conflict", `${owner.name} failed at ${target.name}`, `${fleet.name} was repelled by ${defender.name}.`, 2, [owner.id, defenderId], [target.id]); }
   }
 }
@@ -398,7 +409,7 @@ function stepMoods(state: GalaxyState, rng: PRNG): void {
 function stepRulers(state: GalaxyState, rng: PRNG): void {
   for (const emp of Object.values(state.empires)) {
     const reign = state.tick - emp.ruler.accessionTick;
-    const deathChance = 0.0006 + reign * 0.000003;
+    const deathChance = Math.min(0.008, 0.0006 + reign * 0.000003);
     if (rng.next() > deathChance) continue;
     const old = emp.ruler;
     const oldDisplay = rulerDisplayName(emp);
@@ -534,7 +545,10 @@ function createEmergentEmpire(state: GalaxyState, candidate: EmergenceCandidate,
   const sys = candidate.system;
   const id = `emp-rise-${candidate.kind}-${state.tick}-${Object.keys(state.empires).length}`;
   const cultureId = candidate.kind === "successor" || candidate.kind === "pretender" ? sys.cultureId : `culture-${id}`;
-  const techBase = candidate.kind === "native" ? 0.25 : candidate.kind === "frontier" ? 0.35 : 0.55;
+  // successors and pretenders inherit the ruin's tech rather than starting from scratch
+  const techBase = candidate.kind === "native" ? 0.25
+    : candidate.kind === "frontier" ? 0.35
+    : Math.max(0.55, sys.techLevel * 0.75);
   const cohesionBonus = candidate.kind === "pretender" ? 0.08 : candidate.kind === "successor" ? -0.05 : 0;
   const aggressionBonus = candidate.kind === "pretender" ? 0.25 : candidate.kind === "successor" ? 0.1 : 0;
 
@@ -571,7 +585,8 @@ function stepEmergence(state: GalaxyState, rng: PRNG): void {
   const empireCount = Object.keys(state.empires).length;
   const targetEmpires = Math.max(6, Math.round(Object.keys(state.systems).length / 40));
   const deficit = Math.max(0, targetEmpires - empireCount);
-  const chance = deficit * 0.0012;
+  // a small baseline keeps new powers possible even when the galaxy is crowded
+  const chance = Math.max(0.0003, deficit * 0.0012);
   if (rng.next() > chance) return;
 
   const candidate = pickEmergenceCandidate(state, rng);

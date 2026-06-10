@@ -1,3 +1,5 @@
+import type { EventType } from "../types/sim";
+
 export function hexToRgba(hex: string, alpha: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
@@ -41,3 +43,27 @@ export const UNOWNED_COLOR = "#7a8696";
 export const SELECTION_COLOR = "#ffffff";
 export const BACKGROUND_COLOR = "#000004";
 export const STAR_COLOR = "#f2f6ff";
+
+// Shared event tinting: map flashes and inspector/history rows use the same palette.
+export function eventColor(type: EventType): string {
+  switch (type) {
+    case "war-declared":
+    case "border-conflict":
+    case "empire-collapsed":
+    case "monster-attack":
+    case "monster-spawned": return "rgba(255,90,90,0.75)";
+    case "rebellion":
+    case "coup":
+    case "galactic-crisis": return "rgba(255,210,90,0.75)";
+    case "golden-age":
+    case "technology-breakthrough":
+    case "artifact-discovered":
+    case "monster-slain":
+    case "transcended": return "rgba(120,220,255,0.75)";
+    case "religion-founded":
+    case "religion-adopted": return "rgba(200,140,255,0.75)";
+    case "character-rose": return "rgba(255,224,130,0.75)";
+    case "character-fell": return "rgba(180,190,210,0.6)";
+    default: return "rgba(255,255,255,0.45)";
+  }
+}

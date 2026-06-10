@@ -1,9 +1,9 @@
 import { useEffect, useRef, useCallback } from "react";
-import type { Id, SimEvent, Fleet, Monster } from "../types/sim";
+import type { Id, Fleet, Monster } from "../types/sim";
 import type { Camera } from "./camera";
 import { worldToScreen, screenToWorld, clampZoom } from "./camera";
-import { colorWithAlpha, UNOWNED_COLOR, SELECTION_COLOR, BACKGROUND_COLOR, STAR_COLOR } from "./colors";
-import { buildTerritoryBitmap, ownershipKey } from "./territory";
+import { colorWithAlpha, eventColor, UNOWNED_COLOR, SELECTION_COLOR, BACKGROUND_COLOR, STAR_COLOR } from "./colors";
+import { buildTerritoryBitmap } from "./territory";
 import type { TerritoryBitmap, MapMode } from "./territory";
 import { MOOD_LABEL, IDEOLOGY_LABEL, rulerDisplayName } from "../sim/Moods";
 import type { Simulation } from "../sim/Simulation";
@@ -32,29 +32,6 @@ interface Props {
   onSelectEmpire: (id: Id | null) => void;
   onSelectFleet: (id: Id | null) => void;
   onManualPan: () => void;
-}
-
-function eventColor(event: SimEvent): string {
-  switch (event.type) {
-    case "war-declared":
-    case "border-conflict":
-    case "empire-collapsed":
-    case "monster-attack":
-    case "monster-spawned": return "rgba(255,90,90,0.75)";
-    case "rebellion":
-    case "coup":
-    case "galactic-crisis": return "rgba(255,210,90,0.75)";
-    case "golden-age":
-    case "technology-breakthrough":
-    case "artifact-discovered":
-    case "monster-slain":
-    case "transcended": return "rgba(120,220,255,0.75)";
-    case "religion-founded":
-    case "religion-adopted": return "rgba(200,140,255,0.75)";
-    case "character-rose": return "rgba(255,224,130,0.75)";
-    case "character-fell": return "rgba(180,190,210,0.6)";
-    default: return "rgba(255,255,255,0.45)";
-  }
 }
 
 function fleetSize(fleet: Fleet): number {
@@ -116,7 +93,7 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
   const pinchRef = useRef<{ dist: number } | null>(null);
   const hoverRef = useRef<Id | null>(null);
   const zoomAnimRef = useRef<{ target: number; wx: number; wy: number; cx: number; cy: number } | null>(null);
-  const territoryRef = useRef<{ key: string; bitmap: TerritoryBitmap | null; lastBuild: number; lastRevision: number; lastMode: MapMode }>({ key: "", bitmap: null, lastBuild: 0, lastRevision: -1, lastMode: "empire" });
+  const territoryRef = useRef<{ bitmap: TerritoryBitmap | null; lastBuild: number; lastRevision: number; lastMode: MapMode }>({ bitmap: null, lastBuild: 0, lastRevision: -1, lastMode: "empire" });
 
   useEffect(() => { camRef.current = { x: 600, y: 450, zoom: 0.8 }; zoomAnimRef.current = null; }, [resetCameraToken]);
 
@@ -175,9 +152,7 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
         if (revision !== cache.lastRevision || viewOptions.mapMode !== cache.lastMode) {
           cache.lastRevision = revision;
           cache.lastMode = viewOptions.mapMode;
-          const key = ownershipKey(snap, viewOptions.mapMode);
-          if (key !== cache.key && now - cache.lastBuild > 100) {
-            cache.key = key;
+          if (now - cache.lastBuild > 100) {
             cache.bitmap = buildTerritoryBitmap(snap, viewOptions.mapMode);
             cache.lastBuild = now;
           }
@@ -326,7 +301,7 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
           const defining = ev.importance >= 4;
           const life = defining ? 90 : 40;
           const age = Math.max(0, snap.tick - ev.tick), alpha = Math.max(0, 1 - age / life);
-          const baseColor = eventColor(ev);
+          const baseColor = eventColor(ev.type);
           for (const systemId of ev.relatedSystemIds.slice(0, 5)) {
             const sys = snap.systems[systemId]; if (!sys) continue;
             const [sx, sy] = worldToScreen(sys.x, sys.y, cam, w, h);
