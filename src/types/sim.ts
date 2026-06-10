@@ -50,6 +50,37 @@ export interface SimEvent {
   relatedSystemIds: Id[];
 }
 
+/** Surface-level characteristics of worlds at a star. */
+export type PlanetTag =
+  | "barren"
+  | "oceanic"
+  | "industrial"
+  | "sacred"
+  | "ruined"
+  | "fortress"
+  | "garden"
+  | "toxic"
+  | "frozen"
+  | "ancient";
+
+/** Specific historical events that permanently or semi-permanently modify a diplomatic relationship. */
+export interface RelationModifier {
+  label: string;
+  opinionDelta: number;
+  tensionDelta: number;
+  expiresAtTick?: number;
+}
+
+export type GovernmentType =
+  | "empire"
+  | "republic"
+  | "theocracy"
+  | "oligarchy"
+  | "military-junta"
+  | "tribal-council"
+  | "technocracy"
+  | "merchant-guild";
+
 /** Persistent scars and landmarks that mark a star's history. */
 export type MarkerKind =
   | "ruin"
@@ -95,6 +126,8 @@ export interface StarSystem {
   markers?: SystemMarker[];
   /** Local wealth pool — separate from empire wealth; represents commerce/infrastructure at this star. */
   localWealth?: number;
+  /** Surface-level planet flavor. Generated at galaxy creation, may be modified by events. */
+  planets?: PlanetTag[];
 }
 
 export type FleetKind = "colonizer" | "war" | "patrol" | "merchant" | "pilgrim" | "refugee";
@@ -136,6 +169,8 @@ export interface EmpireRelationship {
   tension: number;
   opinion: number;
   atWar: boolean;
+  /** Persistent events that have modified this relationship and may carry ongoing opinion/tension effects. */
+  modifiers?: RelationModifier[];
 }
 
 export type EmpireMood =
@@ -243,6 +278,10 @@ export interface Empire {
   godBoostTicks?: number;
   /** IDs of alliances this empire belongs to. */
   allianceIds?: Id[];
+  /** Player-set strategic bias. Only meaningful when this empire is player-controlled. */
+  playerPriority?: EmpirePriority;
+  /** Constitutional / cultural government flavor. Affects court titles and event text. */
+  governmentType?: GovernmentType;
 }
 
 /** A formal alliance between two or more empires. */
@@ -253,6 +292,26 @@ export interface Alliance {
   formedTick: number;
   /** Dominant member (initiator). */
   leaderId: Id;
+}
+
+export type EmpirePriority =
+  | "balanced"
+  | "expand"
+  | "fortify"
+  | "conquer"
+  | "trade"
+  | "research"
+  | "convert"
+  | "stabilize"
+  | "survive";
+
+export interface PlayerControlState {
+  controlledEmpireId: Id | null;
+  mode: "observer" | "empire";
+  authority: number;
+  legitimacy: number;
+  /** Tick timestamps when each command was last issued, for cooldown tracking. */
+  commandCooldowns: Record<string, number>;
 }
 
 export type GalaxyShape =
@@ -266,6 +325,17 @@ export type GalaxyShape =
 
 export type StarlaneMode = "standard" | "webbed" | "dense" | "sparse";
 
+export type EmpireLayout =
+  | "classic"
+  | "few-big-blobs"
+  | "many-one-star"
+  | "random-blobs"
+  | "scattered"
+  | "rim";
+
+/** Bespoke weird actors that are not standard monsters. */
+export type OddityKind = "star-eater" | "puppet-mind" | "sloth-cloud" | "replicator" | "void-gate";
+
 export interface GalaxyState {
   tick: number;
   seed: number;
@@ -278,6 +348,7 @@ export interface GalaxyState {
   events: Record<Id, SimEvent>;
   eventLog: Id[];
   alliances: Record<Id, Alliance>;
+  playerControl: PlayerControlState;
 }
 
 export interface SimSettings {
@@ -287,6 +358,7 @@ export interface SimSettings {
   ticksPerSecond: number;
   galaxyShape?: GalaxyShape;
   starlaneMode?: StarlaneMode;
+  empireLayout?: EmpireLayout;
 }
 
 /** Saved-game envelope; rngState lets a loaded galaxy continue deterministically. */

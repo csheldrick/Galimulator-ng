@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
-import type { GalaxyState, Id, SimSettings, SimEvent } from "../types/sim";
+import type { GalaxyState, Id, SimSettings, SimEvent, EmpirePriority } from "../types/sim";
+import { EmpireControlPanel } from "../ui/EmpireControlPanel";
 import { Simulation } from "../sim/Simulation";
 import { GalaxyCanvas } from "../render/GalaxyCanvas";
 import type { ViewOptions } from "../render/GalaxyCanvas";
@@ -147,6 +148,27 @@ export default function App() {
     setSelectedFleetId(null);
   }, [sim, withRefresh]);
 
+  const handleStartControl = useCallback((empireId: Id) => {
+    sim.startEmpireControl(empireId);
+    setSelectedEmpireId(empireId);
+    setFollowEmpireId(empireId);
+    refreshSnapshot();
+  }, [sim, refreshSnapshot]);
+
+  const handleStopControl = useCallback(() => {
+    sim.stopEmpireControl();
+    setFollowEmpireId(null);
+    refreshSnapshot();
+  }, [sim, refreshSnapshot]);
+
+  const handleSetPriority = useCallback((p: EmpirePriority) => { withRefresh(() => sim.setEmpirePriority(p)); }, [sim, withRefresh]);
+  const handleRallyFleet = useCallback((sid: Id) => { withRefresh(() => sim.commandRallyFleet(sid)); }, [sim, withRefresh]);
+  const handleFortify = useCallback((sid: Id) => { withRefresh(() => sim.commandFortifySystem(sid)); }, [sim, withRefresh]);
+  const handleStabilize = useCallback((sid: Id) => { withRefresh(() => sim.commandStabilizeSystem(sid)); }, [sim, withRefresh]);
+  const handleProposePeace = useCallback((eid: Id) => { withRefresh(() => sim.commandProposePeace(eid)); }, [sim, withRefresh]);
+  const handleProvokeWar = useCallback((eid: Id) => { withRefresh(() => sim.commandProvokeWar(eid)); }, [sim, withRefresh]);
+  const handleSponsorColonization = useCallback((sid: Id) => { withRefresh(() => sim.commandSponsorColonization(sid)); }, [sim, withRefresh]);
+
   const handleExportJson = useCallback(() => { const snap = sim.getSnapshot(); downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.json`, sim.exportSave(), "application/json"); }, [sim]);
   const handleExportReport = useCallback(() => { const snap = sim.getSnapshot(); downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.md`, buildReport(snap), "text/markdown"); }, [sim]);
   const handleHeadlessReport = useCallback(() => { const text = runHeadlessReport(settings); downloadText(`galimulator-ng-${settings.seed}-headless.md`, text, "text/markdown"); }, [settings]);
@@ -168,6 +190,21 @@ export default function App() {
         <GalaxyCanvas simulation={sim} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} followEmpireId={followEmpireId} viewOptions={viewOptions} resetCameraToken={resetCameraToken} onSelectSystem={handleSelectSystem} onSelectEmpire={setSelectedEmpireId} onSelectFleet={handleSelectFleet} onManualPan={() => setFollowEmpireId(null)} />
       </div>
       <div className="right-panel">
+        <EmpireControlPanel
+          snapshot={snapshot}
+          playerControl={snapshot.playerControl}
+          selectedSystemId={selectedSystemId}
+          selectedEmpireId={selectedEmpireId}
+          onStartControl={handleStartControl}
+          onStopControl={handleStopControl}
+          onSetPriority={handleSetPriority}
+          onRallyFleet={handleRallyFleet}
+          onFortify={handleFortify}
+          onStabilize={handleStabilize}
+          onProposePeace={handleProposePeace}
+          onProvokeWar={handleProvokeWar}
+          onSponsorColonization={handleSponsorColonization}
+        />
         <InspectorPanel snapshot={snapshot} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} followEmpireId={followEmpireId} onSelectEmpire={handleSelectEmpire} onSelectSystem={handleSelectSystem} onSelectFleet={handleSelectFleet} onClearSelection={handleClearSelection} onCancelFleet={handleCancelFleet} onToggleFollow={handleToggleFollow} onBoostSystem={id => withRefresh(() => sim.boostSystem(id))} onDevastateSystem={id => withRefresh(() => sim.devastateSystem(id))} onNeutralizeSystem={id => withRefresh(() => sim.neutralizeSystem(id))} onFoundEmpire={handleFoundEmpire} onBoostEmpire={id => withRefresh(() => sim.boostEmpire(id))} onWeakenEmpire={id => withRefresh(() => sim.weakenEmpire(id))} onInflameEmpire={id => withRefresh(() => sim.inflameEmpire(id))} onPacifyEmpire={id => withRefresh(() => sim.pacifyEmpire(id))} onForceWar={(a, b) => withRefresh(() => sim.forceWar(a, b))} onForcePeace={(a, b) => withRefresh(() => sim.forcePeace(a, b))} />
         <TopStories snapshot={snapshot} selectedEventId={selectedEventId} onSelectEvent={handleSelectEvent} onFollowEmpire={handleFollowEmpire} />
         <GalaxyPulse snapshot={snapshot} />

@@ -1,6 +1,7 @@
 import type { GalaxyState, Id } from "../types/sim";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL } from "../sim/Characters";
+import { GOVERNMENT_LABEL } from "../sim/Galaxy";
 import { eventColor } from "../render/colors";
 
 interface Props {
@@ -26,6 +27,13 @@ interface Props {
   onForceWar: (a: Id, b: Id) => void;
   onForcePeace: (a: Id, b: Id) => void;
 }
+
+const MARKER_GLYPH: Record<string, string> = {
+  "ruin": "☠", "holy-site": "✦", "battlefield": "⚔", "shipyard": "⚙",
+  "rebel-hotbed": "⚡", "artifact-aura": "◆", "dead-capital": "☽",
+  "monster-wound": "✗", "trade-hub": "⊕", "plague-world": "☣",
+  "transcendent-ruin": "✸",
+};
 
 function fmt(n: number, dec = 1) { return n.toFixed(dec); }
 function eta(progress: number, totalDist: number, speed: number) { return Math.max(0, Math.ceil(((1 - progress) * totalDist) / Math.max(0.001, speed))); }
@@ -111,6 +119,19 @@ export function InspectorPanel({
           <div className="info-row"><span>Faith</span><span>{sys.religionId ? (snapshot.religions[sys.religionId]?.name ?? "?") : "None"}</span></div>
           {emp && <div className="info-row"><span>Culture</span><span>{sys.cultureId === emp.cultureId ? "Assimilated" : "Foreign"}</span></div>}
           {sys.artifactName && <div className="info-row"><span>Artifact</span><span>◆ {sys.artifactName}</span></div>}
+          {sys.planets && sys.planets.length > 0 && (
+            <div className="info-row"><span>Worlds</span><span style={{ fontSize: 10, color: "rgba(200,220,255,0.7)" }}>{sys.planets.join(", ")}</span></div>
+          )}
+          {sys.markers && sys.markers.length > 0 && (
+            <>
+              <h4>Markers</h4>
+              {sys.markers.map(m => (
+                <div key={m.kind} className="event-mini" style={{ borderLeft: "3px solid rgba(180,180,255,0.5)", paddingLeft: 5, fontSize: 10, marginBottom: 2 }}>
+                  {MARKER_GLYPH[m.kind] ?? "•"} {m.label ?? m.kind.replace(/-/g, " ")} <span style={{ opacity: 0.45 }}>tick {m.since}</span>
+                </div>
+              ))}
+            </>
+          )}
           <h4>God Controls</h4>
           <div className="god-grid"><button onClick={() => onBoostSystem(sys.id)}>Boost world</button><button onClick={() => onDevastateSystem(sys.id)}>Devastate</button><button onClick={() => onNeutralizeSystem(sys.id)} disabled={!sys.ownerEmpireId}>Free system</button><button onClick={() => onFoundEmpire(sys.id)}>Found empire</button></div>
           {sys.recentEventIds.length > 0 && <><h4>Recent Events</h4>{[...sys.recentEventIds].reverse().slice(0, 5).map(eid => { const ev = snapshot.events[eid]; return ev ? <div key={eid} className="event-mini" style={{ borderLeft: `3px solid ${eventColor(ev.type)}`, paddingLeft: 5 }}>{ev.title}</div> : null; })}</>}
@@ -123,6 +144,7 @@ export function InspectorPanel({
           <button className={followEmpireId === emp.id ? "follow-btn active" : "follow-btn"} onClick={() => onToggleFollow(emp.id)}>{followEmpireId === emp.id ? "⌖ Following — click to stop" : "⌖ Follow this empire"}</button>
           <div className="info-row"><span>Mood</span><span className="mood-badge" style={{ color: MOOD_COLOR[emp.mood] }}>{MOOD_LABEL[emp.mood]} <small>since {emp.moodSince}</small></span></div>
           <div className="info-row"><span>Ideology</span><span style={{ color: IDEOLOGY_COLOR[emp.ideology] }}>{IDEOLOGY_LABEL[emp.ideology]}</span></div>
+          {emp.governmentType && <div className="info-row"><span>Government</span><span>{GOVERNMENT_LABEL[emp.governmentType]}</span></div>}
           <div className="info-row"><span>Faith</span><span>{emp.stateReligionId ? (snapshot.religions[emp.stateReligionId]?.name ?? "?") : "Secular"}</span></div>
           <div className="info-row"><span>Trade</span><span>{Object.values(snapshot.tradeRoutes).filter(r => r.empireAId === emp.id || r.empireBId === emp.id).length} routes</span></div>
           <div className="info-row"><span>Ruler</span><span>{rulerDisplayName(emp)}</span></div>
@@ -177,7 +199,15 @@ export function InspectorPanel({
           <div className="relations-list">
             {Object.values(snapshot.empires).filter(other => other.id !== emp.id).map(other => ({ other, rel: emp.relationshipByEmpireId[other.id] })).sort((a, b) => Number(b.rel?.atWar ?? false) - Number(a.rel?.atWar ?? false) || (b.rel?.tension ?? 0) - (a.rel?.tension ?? 0)).slice(0, 10).map(({ other, rel }) => {
               const atWar = rel?.atWar ?? emp.activeWarEmpireIds.includes(other.id); const tension = rel?.tension ?? 0; const opinion = rel?.opinion ?? 50;
-              return <div key={other.id} className={atWar ? "relation-row at-war" : "relation-row"}><div className="relation-head" onClick={() => onSelectEmpire(other.id)}><span className="emp-dot" style={{ background: other.color }} /><span>{other.name}</span></div><div className="relation-stats"><span>T {fmt(tension, 0)}</span><span>O {fmt(opinion, 0)}</span><span>{atWar ? "WAR" : "peace"}</span></div><div className="relation-actions"><button onClick={() => onForceWar(emp.id, other.id)} disabled={atWar}>War</button><button onClick={() => onForcePeace(emp.id, other.id)} disabled={!atWar}>Peace</button></div></div>;
+              const mods = rel?.modifiers?.filter(m => !m.expiresAtTick || m.expiresAtTick > snapshot.tick) ?? [];
+              return (
+                <div key={other.id} className={atWar ? "relation-row at-war" : "relation-row"}>
+                  <div className="relation-head" onClick={() => onSelectEmpire(other.id)}><span className="emp-dot" style={{ background: other.color }} /><span>{other.name}</span></div>
+                  <div className="relation-stats"><span>T {fmt(tension, 0)}</span><span>O {fmt(opinion, 0)}</span><span>{atWar ? "WAR" : "peace"}</span></div>
+                  <div className="relation-actions"><button onClick={() => onForceWar(emp.id, other.id)} disabled={atWar}>War</button><button onClick={() => onForcePeace(emp.id, other.id)} disabled={!atWar}>Peace</button></div>
+                  {mods.length > 0 && <div style={{ fontSize: 9, color: "rgba(180,200,240,0.55)", gridColumn: "1/-1", paddingLeft: 4, paddingBottom: 2 }}>{mods.map(m => m.label).join(" · ")}</div>}
+                </div>
+              );
             })}
           </div>
           {emp.historicalEventIds.length > 0 && <><h4>History</h4>{[...emp.historicalEventIds].reverse().slice(0, 6).map(eid => { const ev = snapshot.events[eid]; return ev ? <div key={eid} className="event-mini" style={{ borderLeft: `3px solid ${eventColor(ev.type)}`, paddingLeft: 5 }}>{ev.title}</div> : null; })}</>}

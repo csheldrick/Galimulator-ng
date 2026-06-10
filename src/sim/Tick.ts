@@ -7,7 +7,7 @@ import { MOOD_LABEL, MOOD_FLAVOR, IDEOLOGY_LABEL, IDEOLOGY_MODS, IDEOLOGIES, rul
 import { dist, findPath, pathLength, advanceAlongPath } from "./Pathing";
 import { stepReligion } from "./Religion";
 import { stepTrade, severEmpireRoutes } from "./Trade";
-import { stepMonsters, stepCrises, discoverArtifact } from "./Crises";
+import { stepMonsters, stepCrises, stepOddities, discoverArtifact } from "./Crises";
 import { makeCourt, stepCharacters, topByRole, findCharacter } from "./Characters";
 
 const SHIP_CLASS_MODS: Record<ShipClass, { speed: number; strength: number }> = {
@@ -284,6 +284,86 @@ function _dissolveAlliance(state: GalaxyState, allianceId: Id): void {
     if (emp) emp.allianceIds = emp.allianceIds?.filter(id => id !== allianceId) ?? [];
   }
   delete state.alliances[allianceId];
+}
+
+// ── Empire Control Mode ───────────────────────────────────────────────────────
+
+function stepPlayerControl(state: GalaxyState, rng: PRNG): void {
+  const pc = state.playerControl;
+  if (pc.mode !== "empire" || !pc.controlledEmpireId) return;
+  const emp = state.empires[pc.controlledEmpireId];
+  if (!emp) {
+    // Controlled empire no longer exists — fall back to observer
+    pc.mode = "observer";
+    pc.controlledEmpireId = null;
+    return;
+  }
+  const cap = state.systems[emp.capitalSystemId];
+  const avgStability = emp.ownedSystemIds.length
+    ? emp.ownedSystemIds.reduce((s, id) => s + (state.systems[id]?.stability ?? 0), 0) / emp.ownedSystemIds.length
+    : 0.5;
+
+  // Authority regenerates based on cohesion and capital stability
+  const authRegen = 0.5 * emp.cohesion * (cap ? cap.stability : 0.5);
+  pc.authority = Math.min(100, pc.authority + authRegen);
+
+  // Legitimacy drifts based on empire health
+  const atWar = emp.activeWarEmpireIds.length > 0;
+  const prospering = !atWar && avgStability > 0.6 && emp.cohesion > 0.6;
+  if (prospering) pc.legitimacy = Math.min(100, pc.legitimacy + 0.06);
+  else if (atWar) pc.legitimacy = Math.max(0, pc.legitimacy - 0.04);
+  if (emp.mood === "rioting") pc.legitimacy = Math.max(0, pc.legitimacy - 0.08);
+  if (emp.mood === "degenerating") pc.legitimacy = Math.max(0, pc.legitimacy - 0.04);
+
+  // Low legitimacy increases coup and pretender pressure
+  if (pc.legitimacy < 20 && rng.next() < 0.001) {
+    const pretender = emp.court.find(c => c.role === "pretender");
+    if (pretender && pretender.loyalty < 0.35) {
+      // Force a coup that ends player control
+      emp.ruler = makeRuler(rng, state.tick);
+      emp.cohesion = Math.max(0.1, emp.cohesion - 0.15);
+      pc.mode = "observer";
+      pc.controlledEmpireId = null;
+      if (cap) cap.stability = Math.max(0.1, cap.stability - 0.2);
+      createEvent(state, state.tick, "coup",
+        `Player-ruler overthrown in ${emp.name}`,
+        `${pretender.title} ${pretender.name} exploited imperial weakness and seized the throne. You return to observer mode.`,
+        5, [emp.id], cap ? [cap.id] : []);
+    }
+  }
+
+  // Apply priority modifiers to empire parameters this tick
+  const prio = emp.playerPriority ?? "balanced";
+  switch (prio) {
+    case "expand":
+      emp.expansionism = Math.min(1, emp.expansionism + 0.001);
+      break;
+    case "fortify":
+      emp.cohesion = Math.min(1, emp.cohesion + 0.0005);
+      if (cap) cap.stability = Math.min(1, cap.stability + 0.002);
+      break;
+    case "conquer":
+      emp.aggression = Math.min(1, emp.aggression + 0.001);
+      break;
+    case "trade":
+      emp.wealth += emp.ownedSystemIds.length * 0.05;
+      emp.aggression = Math.max(0.05, emp.aggression - 0.0005);
+      break;
+    case "research":
+      emp.techLevel = Math.min(3, emp.techLevel + 0.0003);
+      emp.wealth = Math.max(0, emp.wealth - 0.2);
+      break;
+    case "stabilize":
+      for (const id of emp.ownedSystemIds.slice(0, 10)) {
+        const sys = state.systems[id];
+        if (sys && sys.stability < 0.7) sys.stability = Math.min(0.7, sys.stability + 0.001);
+      }
+      break;
+    case "survive":
+      emp.cohesion = Math.min(1, emp.cohesion + 0.0003);
+      emp.aggression = Math.max(0.05, emp.aggression - 0.001);
+      break;
+  }
 }
 
 // ── Core subsystems ───────────────────────────────────────────────────────────
@@ -875,10 +955,116 @@ function stepEmergence(state: GalaxyState, rng: PRNG): void {
   createEvent(state, state.tick, "empire-founded", `${empire.name} has risen`, emergenceDescription(candidate.kind, empire, sys), 4, [empire.id], [sys.id]);
 }
 
+// ── Relation modifier decay ───────────────────────────────────────────────────
+
+function stepRelationModifiers(state: GalaxyState): void {
+  for (const emp of Object.values(state.empires)) {
+    for (const rel of Object.values(emp.relationshipByEmpireId)) {
+      if (!rel.modifiers || rel.modifiers.length === 0) continue;
+      for (const mod of rel.modifiers) {
+        if (mod.expiresAtTick && state.tick >= mod.expiresAtTick) continue;
+        rel.opinion = Math.max(0, Math.min(100, rel.opinion + mod.opinionDelta * 0.008));
+        rel.tension = Math.max(0, Math.min(100, rel.tension + mod.tensionDelta * 0.008));
+      }
+      rel.modifiers = rel.modifiers.filter(m => !m.expiresAtTick || state.tick < m.expiresAtTick);
+    }
+  }
+}
+
+// ── Local star weirdness ──────────────────────────────────────────────────────
+
+function stepLocalStarWeirdness(state: GalaxyState, rng: PRNG): void {
+  if (rng.next() > 0.025) return;
+  for (const sys of Object.values(state.systems)) {
+    if (!sys.markers || sys.markers.length === 0) continue;
+    for (const marker of sys.markers) {
+      if (rng.next() > 0.0015) continue;
+      switch (marker.kind) {
+        case "rebel-hotbed": {
+          if (!sys.ownerEmpireId) break;
+          const emp = state.empires[sys.ownerEmpireId];
+          if (!emp) break;
+          emp.wealth = Math.max(0, emp.wealth - rng.range(20, 55));
+          emp.cohesion = Math.max(0.05, emp.cohesion - 0.008);
+          if (rng.next() < 0.25) createEvent(state, state.tick, "rebellion",
+            `Tax revolt at ${sys.name}`,
+            `Rebel sympathizers at ${sys.name} refused imperial taxes, costing ${emp.name} dearly.`,
+            2, [emp.id], [sys.id]);
+          break;
+        }
+        case "plague-world": {
+          const neighbors = sys.connectedSystemIds.map(id => state.systems[id]).filter(Boolean) as typeof sys[];
+          if (neighbors.length > 0 && rng.next() < 0.35) {
+            const victim = rng.pick(neighbors);
+            victim.population = Math.max(0.05, victim.population * rng.range(0.88, 0.96));
+            victim.stability = Math.max(0.05, victim.stability - 0.04);
+          }
+          if (rng.next() < 0.12 && sys.ownerEmpireId) {
+            const emp = state.empires[sys.ownerEmpireId];
+            const dests = Object.values(state.systems).filter(s => s.ownerEmpireId && s.id !== sys.id && s.population < 1.5);
+            if (emp && dests.length > 0) {
+              const dest = rng.pick(dests);
+              const rfId = `fleet-rfg-${state.tick}-${rng.nextInt(0, 9999)}`;
+              if (!hasFleetTo(state, emp.id, dest.id, "refugee")) {
+                const path = findPath(state, sys.id, dest.id);
+                state.fleets[rfId] = {
+                  id: rfId, name: `Plague Refugees from ${sys.name}`, kind: "refugee", shipClass: "settler",
+                  ownerEmpireId: emp.id, originSystemId: sys.id, targetSystemId: dest.id,
+                  path, legIndex: 0, legProgress: 0, totalDist: Math.max(1, pathLength(state, path)),
+                  x: sys.x, y: sys.y, progress: 0, speed: rng.range(2.5, 3.5), strength: 1, createdTick: state.tick,
+                };
+              }
+            }
+          }
+          break;
+        }
+        case "dead-capital": {
+          sys.stability = Math.max(0.05, sys.stability - 0.005);
+          const nearEmpires = sys.connectedSystemIds
+            .map(id => state.systems[id]?.ownerEmpireId)
+            .filter(Boolean) as string[];
+          if (nearEmpires.length > 0 && rng.next() < 0.25) {
+            const empId = rng.pick(nearEmpires);
+            const emp = state.empires[empId];
+            const pretender = emp?.court.find(c => c.role === "pretender");
+            if (pretender) {
+              pretender.renown = Math.min(1, pretender.renown + 0.015);
+              pretender.loyalty = Math.max(0, pretender.loyalty - 0.008);
+            }
+          }
+          break;
+        }
+        case "trade-hub": {
+          if (rng.next() < 0.07) {
+            sys.stability = Math.max(0.05, sys.stability - 0.015);
+            sys.localWealth = Math.max(0, (sys.localWealth ?? 0) - rng.range(5, 14));
+            if (rng.next() < 0.18 && sys.ownerEmpireId) {
+              const emp = state.empires[sys.ownerEmpireId];
+              if (emp) createEvent(state, state.tick, "border-conflict",
+                `Raiders strike ${sys.name}`,
+                `Pirates exploited the prosperity of ${sys.name}'s trade hub, disrupting commerce for ${emp.name}.`,
+                2, [emp.id], [sys.id]);
+            }
+          }
+          break;
+        }
+        case "artifact-aura": {
+          if (rng.next() < 0.04 && sys.ownerEmpireId) {
+            const emp = state.empires[sys.ownerEmpireId];
+            if (emp) { emp.techLevel = Math.min(3, emp.techLevel + 0.004); sys.techLevel = Math.min(3, sys.techLevel + 0.008); }
+          }
+          break;
+        }
+      }
+    }
+  }
+}
+
 export function executeTick(state: GalaxyState, rng: PRNG): void {
   stepGrowth(state, rng); stepProgress(state, rng); stepReligion(state, rng); stepCharacters(state, rng); stepMoods(state, rng); stepRulers(state, rng); stepPolitics(state, rng);
-  stepFleets(state, rng); stepExpansion(state, rng); stepConflict(state, rng); stepTrade(state, rng); stepMonsters(state, rng); stepCrises(state, rng);
+  stepFleets(state, rng); stepExpansion(state, rng); stepConflict(state, rng); stepTrade(state, rng); stepMonsters(state, rng); stepCrises(state, rng); stepOddities(state, rng);
   stepCollapse(state, rng); stepEmergence(state, rng);
-  stepLocalWealth(state); stepArtifactEffects(state); stepAmbientShips(state, rng); stepAlliances(state, rng);
+  stepLocalWealth(state); stepArtifactEffects(state); stepAmbientShips(state, rng); stepAlliances(state, rng); stepPlayerControl(state, rng);
+  stepRelationModifiers(state); stepLocalStarWeirdness(state, rng);
   state.tick++;
 }

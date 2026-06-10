@@ -1,5 +1,5 @@
 import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler, Religion } from "../types/sim";
-import type { GalaxyShape, StarlaneMode } from "../types/sim";
+import type { GalaxyShape, StarlaneMode, EmpireLayout, PlanetTag, GovernmentType } from "../types/sim";
 import { resetEventCounter } from "./Events";
 import { makeReligion } from "./Religion";
 import { IDEOLOGIES } from "./Moods";
@@ -209,6 +209,57 @@ const EMPIRE_NOUN = [
   "Federation","Order","Kingdom","Sovereignty","Covenant","League","Union"
 ];
 
+// ── Planet tags ───────────────────────────────────────────────────────────────
+
+const ALL_PLANET_TAGS: PlanetTag[] = ["barren","oceanic","industrial","sacred","ruined","fortress","garden","toxic","frozen","ancient"];
+
+function makePlanets(rng: PRNG, habitability: number, resources: number, hasArtifact: boolean): PlanetTag[] {
+  const tags: PlanetTag[] = [];
+  if (hasArtifact) tags.push("ancient");
+  else if (habitability > 0.75) tags.push(rng.next() < 0.5 ? "garden" : "oceanic");
+  else if (habitability < 0.2) tags.push(rng.next() < 0.5 ? "barren" : "frozen");
+  else if (resources > 0.75) tags.push("industrial");
+  else if (rng.next() < 0.06) tags.push("sacred");
+  else if (rng.next() < 0.04) tags.push("ruined");
+  else tags.push(rng.pick(ALL_PLANET_TAGS));
+  return tags;
+}
+
+// ── Government type ───────────────────────────────────────────────────────────
+
+const GOVERNMENT_TYPES: GovernmentType[] = [
+  "empire","republic","theocracy","oligarchy","military-junta","tribal-council","technocracy","merchant-guild"
+];
+
+export const GOVERNMENT_LABEL: Record<GovernmentType, string> = {
+  "empire": "Empire", "republic": "Republic", "theocracy": "Theocracy",
+  "oligarchy": "Oligarchy", "military-junta": "Military Junta",
+  "tribal-council": "Tribal Council", "technocracy": "Technocracy", "merchant-guild": "Merchant Guild",
+};
+
+export const GOVERNMENT_RULER_TITLE: Record<GovernmentType, string[]> = {
+  "empire": ["Emperor","Empress","Overlord","Autarch","Despot"],
+  "republic": ["First Citizen","Consul","President","Chancellor","Magistrate"],
+  "theocracy": ["High Priest","Oracle","Archon","Eternal Sage","Prophet-King"],
+  "oligarchy": ["Grand Patriarch","Grand Matriarch","Speaker","Archon","High Council"],
+  "military-junta": ["Warlord","Supreme Commander","Marshal","General","Strategos"],
+  "tribal-council": ["High Chieftain","Elder Speaker","Warchief","Tribal Lord","Pathfinder"],
+  "technocracy": ["Architect","Prime Engineer","Chief Artificer","Master Planner","Grand Analyst"],
+  "merchant-guild": ["Grand Merchant","Trade Master","Guild Lord","Harbor Master","Coin Emperor"],
+};
+
+function pickGovernmentType(rng: PRNG, ideology: import("../types/sim").Ideology): GovernmentType {
+  switch (ideology) {
+    case "militarist": return rng.pick(["empire","military-junta","empire"]);
+    case "spiritualist": return rng.pick(["theocracy","empire","theocracy"]);
+    case "materialist": return rng.pick(["merchant-guild","technocracy","oligarchy"]);
+    case "expansionist": return rng.pick(["empire","republic","empire"]);
+    case "isolationist": return rng.pick(["oligarchy","tribal-council","republic"]);
+    case "pacifist": return rng.pick(["republic","merchant-guild","tribal-council"]);
+    default: return rng.pick(GOVERNMENT_TYPES);
+  }
+}
+
 export function makeEmpireName(rng: PRNG, capitalName: string): string {
   const roll = rng.next();
   if (roll < 0.4) return `${rng.pick(EMPIRE_ADJ)} ${rng.pick(EMPIRE_NOUN)}`;
@@ -218,13 +269,114 @@ export function makeEmpireName(rng: PRNG, capitalName: string): string {
 
 // ── Galaxy generator ──────────────────────────────────────────────────────────
 
+// ── Shape-specific resource biasing ──────────────────────────────────────────
+
+function applyShapeBias(sys: StarSystem, shape: GalaxyShape, cx: number, cy: number): void {
+  const dx = sys.x - cx, dy = sys.y - cy;
+  const r = Math.sqrt(dx * dx + dy * dy);
+  switch (shape) {
+    case "hollow-disc":
+      // rim worlds are richer and more habitable (outer colonies)
+      sys.resources = Math.min(1.5, sys.resources * 1.15);
+      sys.habitability = Math.min(1, sys.habitability * 1.1);
+      break;
+    case "clustered":
+      // cluster cores are rich, edges are frontier wastelands
+      break;
+    case "grid":
+      // ordered grid: resources more uniform, less variance
+      sys.resources = 0.3 + sys.resources * 0.7;
+      sys.habitability = 0.3 + sys.habitability * 0.7;
+      break;
+    case "chaos":
+      // chaotic: higher variance; some extremely rich, some barren
+      sys.resources = Math.min(1.5, sys.resources * (r < 200 ? 1.3 : 0.85));
+      break;
+    case "string":
+      // string nodes: high tech/resources at connection hubs
+      sys.techLevel = Math.min(0.9, sys.techLevel * 1.2);
+      break;
+    default:
+      break;
+  }
+}
+
+// ── Empire layout modes ───────────────────────────────────────────────────────
+
+function pickEmpireCapitals(sorted: StarSystem[], numEmpires: number, layout: EmpireLayout, rng: PRNG): StarSystem[] {
+  const used = new Set<Id>();
+  const result: StarSystem[] = [];
+  switch (layout) {
+    case "few-big-blobs": {
+      // place empires at extreme ends so they start far apart
+      const thirds = [sorted.slice(0, Math.ceil(sorted.length / 3)), sorted.slice(Math.ceil(sorted.length / 3), Math.ceil(2 * sorted.length / 3)), sorted.slice(Math.ceil(2 * sorted.length / 3))];
+      for (let i = 0; i < numEmpires; i++) {
+        const bucket = thirds[i % thirds.length];
+        for (const c of bucket) { if (!used.has(c.id)) { used.add(c.id); result.push(c); break; } }
+      }
+      break;
+    }
+    case "many-one-star": {
+      // each empire starts on a single mid-quality world, closely packed
+      const mid = sorted.slice(Math.floor(sorted.length * 0.2), Math.floor(sorted.length * 0.8));
+      for (let i = 0; i < numEmpires && i < mid.length; i++) {
+        used.add(mid[i].id); result.push(mid[i]);
+      }
+      break;
+    }
+    case "rim": {
+      // empires on the farthest systems from center
+      const byDist = [...sorted].sort((a, b) => {
+        const da = Math.hypot(a.x - 600, a.y - 450), db = Math.hypot(b.x - 600, b.y - 450);
+        return db - da;
+      });
+      for (const c of byDist) {
+        if (result.length >= numEmpires) break;
+        if (!used.has(c.id)) { used.add(c.id); result.push(c); }
+      }
+      break;
+    }
+    case "scattered": {
+      // random selection from mid-to-high habitability
+      const pool = sorted.slice(0, Math.floor(sorted.length * 0.7));
+      for (let tries = 0; tries < pool.length && result.length < numEmpires; tries++) {
+        const c = pool[rng.nextInt(0, pool.length - 1)];
+        if (!used.has(c.id)) { used.add(c.id); result.push(c); }
+      }
+      break;
+    }
+    case "classic":
+    case "random-blobs":
+    default: {
+      // classic: high hab, minimum separation
+      for (const candidate of sorted) {
+        if (result.length >= numEmpires) break;
+        if (used.has(candidate.id)) continue;
+        let tooClose = false;
+        for (const placed of result) {
+          if (Math.hypot(candidate.x - placed.x, candidate.y - placed.y) < 80) { tooClose = true; break; }
+        }
+        if (!tooClose) { used.add(candidate.id); result.push(candidate); }
+      }
+      break;
+    }
+  }
+  while (result.length < numEmpires) {
+    const fallback = sorted[result.length % sorted.length];
+    if (!used.has(fallback.id)) { used.add(fallback.id); result.push(fallback); }
+    else result.push(fallback);
+  }
+  return result;
+}
+
 export function generateGalaxy(
   seed: number,
   numStars: number,
   numEmpires: number,
   rng: PRNG,
   galaxyShape: GalaxyShape = "spiral",
-  starlaneMode: StarlaneMode = "standard"
+  starlaneMode: StarlaneMode = "standard",
+  empireLayout: EmpireLayout = "classic"
 ): GalaxyState {
   resetEventCounter();
   resetCharacterCounter();
@@ -233,28 +385,34 @@ export function generateGalaxy(
   const systems: Record<Id, StarSystem> = {};
   const systemList: StarSystem[] = [];
 
+  const CX = WIDTH / 2, CY = HEIGHT / 2;
   for (let i = 0; i < numStars; i++) {
     const id = `sys-${i}`;
     const [x, y] = getShapePoint(galaxyShape, rng, WIDTH, HEIGHT, i, numStars);
+    const hasArtifact = rng.next() < 0.04;
+    const habitability = rng.range(0.1, 1.0);
+    const resources = rng.range(0.1, 1.0);
     const system: StarSystem = {
       id,
       name: makeName(rng),
       x,
       y,
       population: rng.range(0.1, 1.0),
-      resources: rng.range(0.1, 1.0),
-      habitability: rng.range(0.1, 1.0),
+      resources,
+      habitability,
       stability: rng.range(0.5, 1.0),
       ownerEmpireId: null,
       cultureId: "none",
       religionId: null,
-      artifactName: rng.next() < 0.04 ? makeArtifactName(rng) : null,
+      artifactName: hasArtifact ? makeArtifactName(rng) : null,
       techLevel: rng.range(0.1, 0.5),
       recentEventIds: [],
       connectedSystemIds: [],
       markers: [],
       localWealth: rng.range(0, 30),
+      planets: makePlanets(rng, habitability, resources, hasArtifact),
     };
+    applyShapeBias(system, galaxyShape, CX, CY);
     systems[id] = system;
     systemList.push(system);
   }
@@ -278,46 +436,35 @@ export function generateGalaxy(
   const religions = stateForReligions.religions;
 
   const sorted = [...systemList].sort((a, b) => b.habitability - a.habitability);
+  const capitals = pickEmpireCapitals(sorted, numEmpires, empireLayout, rng);
 
   const empires: Record<Id, Empire> = {};
-  const usedCapitals = new Set<Id>();
   const colors = [...EMPIRE_COLORS];
   for (let i = colors.length - 1; i > 0; i--) {
     const j = rng.nextInt(0, i);
     [colors[i], colors[j]] = [colors[j], colors[i]];
   }
 
-  let colorIdx = 0;
   for (let i = 0; i < numEmpires; i++) {
-    let capital: StarSystem | null = null;
-    for (const candidate of sorted) {
-      if (usedCapitals.has(candidate.id)) continue;
-      let tooClose = false;
-      for (const cid of usedCapitals) {
-        const other = systems[cid];
-        const dx = candidate.x - other.x;
-        const dy = candidate.y - other.y;
-        if (Math.sqrt(dx * dx + dy * dy) < 80) { tooClose = true; break; }
-      }
-      if (!tooClose) { capital = candidate; break; }
-    }
-    if (!capital) capital = sorted[i % sorted.length];
-
-    usedCapitals.add(capital.id);
+    const capital = capitals[i] ?? sorted[i % sorted.length];
     const empId = `emp-${i}`;
     const cultureId = `culture-${i}`;
     capital.ownerEmpireId = empId;
     capital.cultureId = cultureId;
     capital.population = Math.max(capital.population, 0.5);
 
+    const ideology = rng.pick(IDEOLOGIES);
+    const govType = pickGovernmentType(rng, ideology);
+    const titlePool = GOVERNMENT_RULER_TITLE[govType];
+
     const empire: Empire = {
       id: empId,
       name: makeEmpireName(rng, capital.name),
-      color: colors[colorIdx++ % colors.length],
+      color: colors[i % colors.length],
       mood: "expanding",
       moodSince: 0,
-      ideology: rng.pick(IDEOLOGIES),
-      ruler: makeRuler(rng, 0),
+      ideology,
+      ruler: { name: makeName(rng), title: rng.pick(titlePool), dynasty: makeName(rng), ordinal: 1, accessionTick: 0 },
       court: makeCourt(rng, 0, capital.religionId !== null),
       capitalSystemId: capital.id,
       ownedSystemIds: [capital.id],
@@ -334,6 +481,7 @@ export function generateGalaxy(
       activeWarEmpireIds: [],
       historicalEventIds: [],
       allianceIds: [],
+      governmentType: govType,
     };
     empires[empId] = empire;
   }
@@ -341,5 +489,6 @@ export function generateGalaxy(
   return {
     tick: 0, seed, systems, empires, fleets: {}, religions, tradeRoutes: {},
     monsters: {}, events: {}, eventLog: [], alliances: {},
+    playerControl: { controlledEmpireId: null, mode: "observer", authority: 100, legitimacy: 75, commandCooldowns: {} },
   };
 }

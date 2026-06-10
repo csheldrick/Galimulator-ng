@@ -1,7 +1,15 @@
-import type { GalaxyState, StarSystem, Monster, MonsterKind, PRNG } from "../types/sim";
+import type { GalaxyState, StarSystem, Monster, MonsterKind, PRNG, SystemMarker, MarkerKind } from "../types/sim";
 import { createEvent } from "./Events";
 import { findPath, advanceAlongPath, dist } from "./Pathing";
 import { makeName } from "./Galaxy";
+
+function addMarker(sys: StarSystem, kind: MarkerKind, tick: number, label?: string): void {
+  if (!sys.markers) sys.markers = [];
+  const existing = sys.markers.findIndex(m => m.kind === kind);
+  const marker: SystemMarker = { kind, since: tick, label };
+  if (existing >= 0) sys.markers[existing] = marker;
+  else sys.markers.push(marker);
+}
 
 export function discoverArtifact(state: GalaxyState, sys: StarSystem): void {
   if (!sys.artifactName || !sys.ownerEmpireId) return;
@@ -64,7 +72,9 @@ function spawnMonster(state: GalaxyState, rng: PRNG): void {
 
 export function stepMonsters(state: GalaxyState, rng: PRNG): void {
   const empireCount = Object.keys(state.empires).length;
-  if (Object.keys(state.monsters).length < 2 && empireCount > 3 && rng.next() < 0.0012) spawnMonster(state, rng);
+  const markerCount = Object.values(state.systems).reduce((n, s) => n + (s.markers?.length ?? 0), 0);
+  const monsterRate = 0.0010 + markerCount * 0.000004 + Math.min(0.0004, state.tick / 3000000);
+  if (Object.keys(state.monsters).length < 2 && empireCount > 3 && rng.next() < monsterRate) spawnMonster(state, rng);
 
   for (const monster of Object.values(state.monsters)) {
     const arrived = advanceAlongPath(state, monster);
@@ -112,9 +122,120 @@ export function stepMonsters(state: GalaxyState, rng: PRNG): void {
   }
 }
 
+const ODDITY_NAMES: Record<string, string[]> = {
+  "star-eater": ["The Hungering Void", "Entropy's Maw", "The Great Consuming"],
+  "puppet-mind": ["Xenomorphic Puppeteer", "The Hive Whisper", "Psychic Dominator"],
+  "sloth-cloud": ["Torpor Nebula", "The Dreaming Density", "Lethic Cloud"],
+  "replicator": ["The Copying Engine", "Mimetic Storm", "Reality Echo"],
+  "void-gate": ["The Null Gate", "Void Aperture", "Tear in Space"],
+};
+
+export function stepOddities(state: GalaxyState, rng: PRNG): void {
+  if (rng.next() > 0.00025) return;
+  const systems = Object.values(state.systems);
+  if (systems.length === 0) return;
+  const center = rng.pick(systems);
+  const roll = rng.next();
+
+  if (roll < 0.2) {
+    // Star-eater: devastates a rich sector
+    const name = rng.pick(ODDITY_NAMES["star-eater"]);
+    const struck = systems.filter(s => dist(s, center) < 200 && s.population > 0.1);
+    for (const s of struck) {
+      s.population = Math.max(0.02, s.population * rng.range(0.4, 0.7));
+      s.resources = Math.max(0.05, s.resources * rng.range(0.6, 0.85));
+      s.stability = Math.max(0.05, s.stability - 0.2);
+      addMarker(s, "ruin", state.tick, `Consumed by ${name}`);
+    }
+    if (struck.length > 0) createEvent(state, state.tick, "galactic-crisis",
+      `${name} manifested`,
+      `${name} swept through ${struck.length} star systems near ${center.name}, consuming life and resources.`,
+      5, [], struck.slice(0, 8).map(s => s.id));
+  } else if (roll < 0.4) {
+    // Puppet-mind: forces mood shifts on nearby empires
+    const name = rng.pick(ODDITY_NAMES["puppet-mind"]);
+    const affected: string[] = [];
+    for (const emp of Object.values(state.empires)) {
+      const cap = state.systems[emp.capitalSystemId];
+      if (!cap || dist(cap, center) > 350) continue;
+      const old = emp.mood;
+      const forcedMoods = ["rioting", "crusading", "degenerating"] as const;
+      emp.mood = rng.pick(forcedMoods);
+      emp.moodSince = state.tick;
+      emp.cohesion = Math.max(0.1, emp.cohesion - 0.1);
+      affected.push(emp.id);
+      createEvent(state, state.tick, "mood-shift",
+        `${emp.name} gripped by psychic influence`,
+        `${name} influenced ${emp.name}, shifting its mood from ${old} to ${emp.mood}.`,
+        3, [emp.id], cap ? [cap.id] : []);
+    }
+    if (affected.length > 0) createEvent(state, state.tick, "galactic-crisis",
+      `${name} detected`,
+      `A xenopsychic entity — ${name} — manifested near ${center.name}, destabilizing ${affected.length} nearby civilizations.`,
+      5, affected, [center.id]);
+  } else if (roll < 0.6) {
+    // Sloth-cloud: destroys all non-merchant fleets in a wide region
+    const name = rng.pick(ODDITY_NAMES["sloth-cloud"]);
+    const trapped = Object.values(state.fleets).filter(f =>
+      Math.hypot(f.x - center.x, f.y - center.y) < 250 && f.kind !== "merchant"
+    );
+    for (const f of trapped) delete state.fleets[f.id];
+    for (const s of systems) if (dist(s, center) < 250) s.stability = Math.max(0.05, s.stability - 0.04);
+    createEvent(state, state.tick, "galactic-crisis",
+      `${name} engulfs region near ${center.name}`,
+      `A ${name} manifested near ${center.name}, consuming ${trapped.length} fleet${trapped.length === 1 ? "" : "s"} in stasis.`,
+      4, [], [center.id]);
+  } else if (roll < 0.8) {
+    // Replicator: gives tech boosts to nearby empires
+    const name = rng.pick(ODDITY_NAMES["replicator"]);
+    const lucky: string[] = [];
+    for (const emp of Object.values(state.empires)) {
+      const cap = state.systems[emp.capitalSystemId];
+      if (!cap || dist(cap, center) > 280) continue;
+      emp.techLevel = Math.min(3, emp.techLevel + rng.range(0.15, 0.4));
+      for (const sysId of emp.ownedSystemIds.slice(0, 10)) {
+        const s = state.systems[sysId];
+        if (s) s.techLevel = Math.max(s.techLevel, emp.techLevel * 0.85);
+      }
+      lucky.push(emp.id);
+    }
+    if (lucky.length > 0) createEvent(state, state.tick, "galactic-crisis",
+      `${name} seeded near ${center.name}`,
+      `${name} emerged near ${center.name}, replicating advanced technologies for ${lucky.length} nearby civilizations.`,
+      4, lucky, [center.id]);
+  } else {
+    // Void-gate: shunts nearby fleets to distant systems
+    const name = rng.pick(ODDITY_NAMES["void-gate"]);
+    const fleetList = Object.values(state.fleets).filter(f =>
+      Math.hypot(f.x - center.x, f.y - center.y) < 150 && f.kind === "war"
+    );
+    const distant = systems.filter(s => dist(s, center) > 400);
+    let shunted = 0;
+    for (const fleet of fleetList.slice(0, 3)) {
+      if (distant.length === 0) break;
+      const dest = rng.pick(distant);
+      fleet.x = dest.x; fleet.y = dest.y;
+      fleet.targetSystemId = dest.id; fleet.originSystemId = dest.id;
+      fleet.path = [dest.id]; fleet.legIndex = 0; fleet.legProgress = 0;
+      shunted++;
+    }
+    if (shunted > 0) {
+      addMarker(center, "ruin", state.tick, `Site of ${name}`);
+      createEvent(state, state.tick, "galactic-crisis",
+        `${name} tears space near ${center.name}`,
+        `${name} opened a void aperture near ${center.name}, shunting ${shunted} fleet${shunted === 1 ? "" : "s"} to distant corners of the galaxy.`,
+        4, [], [center.id]);
+    }
+  }
+}
+
 // Rare galaxy-shaking events that punctuate the slow grind of history.
 export function stepCrises(state: GalaxyState, rng: PRNG): void {
-  if (rng.next() > 0.0011) return;
+  // Scale crisis rate with galaxy age and active war count
+  const warCount = Object.values(state.empires).reduce((n, e) => n + e.activeWarEmpireIds.length, 0);
+  const markerCount = Object.values(state.systems).reduce((n, s) => n + (s.markers?.length ?? 0), 0);
+  const baseRate = 0.0007 + Math.min(0.0006, state.tick / 4000000) + warCount * 0.000008 + markerCount * 0.000002;
+  if (rng.next() > baseRate) return;
   const roll = rng.next();
   const systems = Object.values(state.systems);
 

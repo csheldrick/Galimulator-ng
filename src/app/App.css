@@ -148,3 +148,10 @@ button:disabled { opacity: 0.4; cursor: default; }
 .event-entry.major { background: rgba(255,159,28,0.05); border-left: 2px solid rgba(255,159,28,0.4); }
 .event-entry.defining { background: rgba(255,209,102,0.07); border-left: 2px solid #ffd166; }
 .event-entry.defining .event-title { color: #ffe9b8; font-weight: 600; }
+
+/* Empire Control Panel */
+.empire-control-panel { padding: 10px; border-bottom: 1px solid var(--panel-border); flex-shrink: 0; }
+.control-empire-btn { width: 100%; font-size: 12px; font-weight: 600; padding: 7px 8px; border-radius: 4px; background: rgba(255,255,255,0.04); cursor: pointer; letter-spacing: 0.3px; }
+.cmd-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
+.cmd-btn { font-size: 11px; padding: 5px 4px; border-radius: 4px; background: rgba(255,255,255,0.05); cursor: pointer; }
+.cmd-btn:disabled { cursor: default; }

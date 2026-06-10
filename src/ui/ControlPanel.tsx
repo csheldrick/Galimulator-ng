@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import type { GalaxyState, Id, SimSettings, GalaxyShape, StarlaneMode } from "../types/sim";
+import type { GalaxyState, Id, SimSettings, GalaxyShape, StarlaneMode, EmpireLayout } from "../types/sim";
 import type { ViewOptions } from "../render/GalaxyCanvas";
 import type { MapMode } from "../render/territory";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
@@ -204,6 +204,17 @@ export function ControlPanel({
           <option value="webbed">Webbed</option>
           <option value="dense">Dense</option>
           <option value="sparse">Sparse</option>
+        </select>
+      </div>
+      <div className="control-row">
+        <label>Layout</label>
+        <select style={{ flex: 1 }} value={settings.empireLayout ?? "classic"} onChange={e => onSettingsChange({ empireLayout: e.target.value as EmpireLayout })}>
+          <option value="classic">Classic</option>
+          <option value="few-big-blobs">Few Big Blobs</option>
+          <option value="many-one-star">Many One-Star</option>
+          <option value="random-blobs">Random Blobs</option>
+          <option value="scattered">Scattered</option>
+          <option value="rim">Rim</option>
         </select>
       </div>
 
