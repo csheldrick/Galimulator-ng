@@ -1,73 +1,201 @@
-# React + TypeScript + Vite
+# galimulator-ng
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A browser-based real-time galaxy civilization sandbox inspired by the observer-driven feel of Galimulator.
 
-Currently, two official plugins are available:
+The simulation generates a seeded galaxy, spawns autonomous empires, and lets galactic history unfold through expansion, war, peace, rebellion, collapse, golden ages, and technological breakthroughs.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Run
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Build check:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
 ```
+
+## Current implementation
+
+- Vite + React + TypeScript app
+- Canvas 2D renderer
+- Browser-only runtime
+- No backend
+- No database
+- Seeded deterministic generation and tick randomness
+- Fixed-timestep simulation loop separated from rendering
+- Authoritative simulation state lives outside React
+- React owns controls, selection, and coarse UI snapshots only
+- Canvas draws imperatively from simulation snapshots
+
+## Simulation systems
+
+Implemented:
+
+- Procedural spiral-ish galaxy generation
+- Procedural star/system names
+- Initial empire spawning on high-habitability systems
+- Empire colors, traits, cohesion, aggression, expansionism, wealth, military, technology
+- Autonomous system colonization
+- Passive population, stability, wealth, and military updates
+- Neighbor detection
+- Relationship/tension model
+- War declarations
+- Peace treaties
+- Border conflict resolution and territory transfer
+- Capital relocation after conquest
+- Overextension/war-strain collapse pressure
+- Rebellions and splinter empires
+- Full empire collapse
+- Golden ages
+- Technology breakthroughs
+- Global, empire, and system event history
+
+## UI
+
+Implemented:
+
+- Start / pause / step controls
+- Run-ahead buttons: `+25`, `+100`
+- Reset and new seed
+- Speed, star count, empire count, and seed controls
+- Camera reset
+- Galaxy stats cards
+- Top empire ranking
+- View toggles:
+  - territory halos
+  - labels
+  - war lines
+  - event flashes
+- Clickable systems
+- Empire inspector
+- System inspector
+- Relationship inspector
+- Clickable event log
+- Event importance filtering
+- JSON state export
+- Markdown history report export
+
+## God controls
+
+System controls:
+
+- Boost world
+- Devastate
+- Free system
+- Found empire
+
+Empire controls:
+
+- Strengthen
+- Destabilize
+- Inflame
+- Pacify
+- Force war
+- Force peace
+
+## Controls
+
+- Drag: pan
+- Mouse wheel: zoom
+- Click star: inspect system
+- Click empire in panel: inspect empire
+- Click event: jump to related system or empire
+
+## Architecture
+
+```txt
+Simulation class
+  owns mutable GalaxyState
+  owns seeded PRNG
+  advances only through deterministic ticks
+  exposes immutable snapshots
+
+Canvas renderer
+  requestAnimationFrame loop
+  reads snapshots directly
+  does not mutate simulation state
+
+React UI
+  controls
+  selection
+  view options
+  coarse snapshot refresh
+  no per-frame entity rendering
+```
+
+## Milestone status
+
+### Milestone 1: Running galaxy
+
+Complete.
+
+- seeded galaxy generation
+- canvas rendering
+- simulation loop
+- controls
+- expansion
+- clickable systems
+- inspector
+- event log
+
+### Milestone 2: Conflict and history
+
+Complete.
+
+- neighboring empires
+- tension model
+- war declarations
+- simple war outcomes
+- territory changes
+- event logging
+- active wars display
+- relationship UI
+
+### Milestone 3: Collapse and emergence
+
+Complete for the initial sandbox scope.
+
+- cohesion/stability model
+- rebellions
+- empire collapse
+- splinter empires
+- timelines via global, empire, and system event histories
+
+### Milestone 4: Better visualization
+
+Substantially complete for Canvas 2D scope.
+
+- pan/zoom
+- camera reset
+- territory halos
+- selected empire highlighting
+- war overlays
+- event flashes
+- capital labels
+- optional labels
+- hover tooltip
+
+## Intentionally deferred
+
+These are future depth features, not missing from the current milestone scope:
+
+- religions
+- ideologies
+- internal politics
+- dynasty/leader simulation
+- deep culture drift
+- economy/trade routes
+- complex technologies
+- save-file rehydration with PRNG continuation
+- WebGL renderer
+- mobile/touch-optimized controls
+- actual Galimulator content/assets
+
+## Design rule
+
+Keep the game an observer sandbox first.
+
+The user can intervene like a god, but autonomous history should remain the default experience.
