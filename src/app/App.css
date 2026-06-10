@@ -7,6 +7,7 @@
   --text: #c8d8e8;
   --text-muted: #6a8098;
   --accent: #4cc9f0;
+  --danger: #e63946;
   --btn-bg: #1a2535;
   --btn-hover: #243040;
   --input-bg: #0d1520;
@@ -173,8 +174,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 
 .right-panel {
-  width: 290px;
-  min-width: 260px;
+  width: 320px;
+  min-width: 290px;
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--panel-border);
@@ -187,7 +188,7 @@ button:disabled { opacity: 0.4; cursor: default; }
   border-bottom: 1px solid var(--panel-border);
   overflow-y: auto;
   flex-shrink: 0;
-  max-height: 62%;
+  max-height: 66%;
 }
 
 .inspector-panel h3 {
@@ -252,6 +253,57 @@ button:disabled { opacity: 0.4; cursor: default; }
 .god-grid button {
   font-size: 11px;
   padding: 5px 4px;
+}
+
+.relations-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.relation-row {
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 5px;
+  padding: 5px;
+  background: rgba(255,255,255,0.025);
+}
+
+.relation-row.at-war {
+  border-color: rgba(230,57,70,0.45);
+  background: rgba(230,57,70,0.07);
+}
+
+.relation-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.relation-head span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relation-stats {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: 10px;
+  margin: 4px 0;
+}
+
+.relation-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px;
+}
+
+.relation-actions button {
+  font-size: 10px;
+  padding: 3px 4px;
 }
 
 .emp-dot {
