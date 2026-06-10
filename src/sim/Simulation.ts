@@ -5,6 +5,7 @@ import { executeTick } from "./Tick";
 import { createEvent, getEventCounter, setEventCounter } from "./Events";
 import { IDEOLOGIES } from "./Moods";
 import { makeCourt } from "./Characters";
+import { addRelationModifier } from "./Relations";
 
 const SAVE_VERSION = 4;
 
@@ -251,6 +252,8 @@ export class Simulation {
     const attacker = this.state.empires[attackerId]; const defender = this.state.empires[defenderId]; if (!attacker || !defender) return;
     const rel = this._relationship(attacker, defenderId); const relBack = this._relationship(defender, attackerId);
     rel.atWar = true; relBack.atWar = true; rel.tension = 100; relBack.tension = 100; rel.opinion = Math.min(rel.opinion, 5); relBack.opinion = Math.min(relBack.opinion, 5);
+    const forcedWar = { label: "Forced into war", opinionDelta: -25, tensionDelta: 20, expiresAtTick: this.state.tick + 700 };
+    addRelationModifier(rel, forcedWar); addRelationModifier(relBack, { ...forcedWar });
     if (!attacker.activeWarEmpireIds.includes(defenderId)) attacker.activeWarEmpireIds.push(defenderId);
     if (!defender.activeWarEmpireIds.includes(attackerId)) defender.activeWarEmpireIds.push(attackerId);
     createEvent(this.state, this.state.tick, "war-declared", `War: ${attacker.name} vs ${defender.name}`, `${attacker.name} and ${defender.name} were forced into war.`, 4, [attackerId, defenderId], []);
@@ -262,6 +265,8 @@ export class Simulation {
     const empire = this.state.empires[empireId]; const other = this.state.empires[otherId]; if (!empire || !other) return;
     const rel = this._relationship(empire, otherId); const relBack = this._relationship(other, empireId);
     rel.atWar = false; relBack.atWar = false; rel.tension = Math.min(rel.tension, 20); relBack.tension = Math.min(relBack.tension, 20); rel.opinion = Math.max(rel.opinion, 45); relBack.opinion = Math.max(relBack.opinion, 45);
+    const forcedPeace = { label: "Forced into peace", opinionDelta: -8, tensionDelta: -15, expiresAtTick: this.state.tick + 500 };
+    addRelationModifier(rel, forcedPeace); addRelationModifier(relBack, { ...forcedPeace });
     empire.activeWarEmpireIds = empire.activeWarEmpireIds.filter(id => id !== otherId); other.activeWarEmpireIds = other.activeWarEmpireIds.filter(id => id !== empireId);
     createEvent(this.state, this.state.tick, "peace-signed", `Peace: ${empire.name} & ${other.name}`, `${empire.name} and ${other.name} were forced into peace.`, 3, [empireId, otherId], []);
     this._touch();

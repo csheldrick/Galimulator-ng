@@ -1,7 +1,7 @@
 import type { GalaxyState, StarSystem } from "../types/sim";
 import { parseColorToRgb } from "./colors";
 
-export type MapMode = "empire" | "religion" | "wealth";
+export type MapMode = "empire" | "religion" | "wealth" | "alliance";
 
 // Resolution of the territory bitmap in world units per cell. Lower is
 // sharper but more expensive to rebuild.
@@ -43,6 +43,15 @@ function systemRegion(snap: Readonly<GalaxyState>, sys: StarSystem, mode: MapMod
   if (mode === "wealth") {
     const [key, rgb] = wealthHeat(sys);
     return { key, rgb, neutral: !sys.ownerEmpireId };
+  }
+  if (mode === "alliance") {
+    const owner = sys.ownerEmpireId ? snap.empires[sys.ownerEmpireId] : null;
+    if (!owner) return { key: "none", rgb: NEUTRAL_RGB, neutral: true };
+    const allianceId = owner.allianceIds?.[0];
+    const alliance = allianceId ? snap.alliances?.[allianceId] : null;
+    if (alliance) return { key: alliance.id, rgb: parseColorToRgb(alliance.color ?? owner.color), neutral: false };
+    // unallied empires read as their own dim color
+    return { key: `solo-${owner.id}`, rgb: parseColorToRgb(owner.color), neutral: true };
   }
   const emp = sys.ownerEmpireId ? snap.empires[sys.ownerEmpireId] : null;
   if (!emp) return { key: "none", rgb: NEUTRAL_RGB, neutral: true };

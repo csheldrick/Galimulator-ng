@@ -1,7 +1,8 @@
-import type { GalaxyState, Empire, StarSystem, Id, Fleet, FleetKind, EmpireMood, ShipClass, SystemMarker, MarkerKind } from "../types/sim";
+import type { GalaxyState, Empire, StarSystem, Id, Fleet, FleetKind, EmpireMood, ShipClass, SystemMarker, MarkerKind, Alliance, AlliancePurpose } from "../types/sim";
 import type { PRNG } from "../types/sim";
 import { createEvent } from "./Events";
 import { updateRelationships, getNeighboringEmpires, tryDeclareWar, tryMakePeace } from "./Diplomacy";
+import { pruneExpiredModifiers, effectiveOpinion, effectiveTension } from "./Relations";
 import { makeName, makeRuler, makeEmpireName } from "./Galaxy";
 import { MOOD_LABEL, MOOD_FLAVOR, IDEOLOGY_LABEL, IDEOLOGY_MODS, IDEOLOGIES, rulerDisplayName } from "./Moods";
 import { dist, findPath, pathLength, advanceAlongPath } from "./Pathing";
@@ -223,6 +224,28 @@ function stepAmbientShips(state: GalaxyState, rng: PRNG): void {
 
 const ALLIANCE_NOUNS = ["Pact","Accord","League","Coalition","Compact","Union","Concordat","Alliance"];
 
+const ALLIANCE_EMBLEM: Record<AlliancePurpose, string> = {
+  "defensive": "⛨", "anti-hegemon": "⚔", "trade": "⊕", "religious": "✦", "survival": "❂",
+};
+
+/** Infer why two friendly empires banded together, from their circumstances. */
+function _alliancePurpose(state: GalaxyState, a: Empire, b: Empire): AlliancePurpose {
+  if (a.stateReligionId && a.stateReligionId === b.stateReligionId) return "religious";
+  const trades = Object.values(state.tradeRoutes).some(
+    r => (r.empireAId === a.id && r.empireBId === b.id) || (r.empireAId === b.id && r.empireBId === a.id)
+  );
+  if (trades && (a.ideology === "materialist" || b.ideology === "materialist")) return "trade";
+  // a much larger neighbor turns the pact defensive (survival for the small, anti-hegemon otherwise)
+  const pairMax = Math.max(a.ownedSystemIds.length, b.ownedSystemIds.length);
+  let biggestNeighbor = 0;
+  for (const nId of [...getNeighboringEmpires(state, a.id), ...getNeighboringEmpires(state, b.id)]) {
+    if (nId === a.id || nId === b.id) continue;
+    biggestNeighbor = Math.max(biggestNeighbor, state.empires[nId]?.ownedSystemIds.length ?? 0);
+  }
+  if (biggestNeighbor > pairMax * 2) return pairMax <= 3 ? "survival" : "anti-hegemon";
+  return "defensive";
+}
+
 function stepAlliances(state: GalaxyState, rng: PRNG): void {
   // Try forming new alliances between friendly neighbors
   if (rng.next() > 0.006) return;
@@ -239,14 +262,19 @@ function stepAlliances(state: GalaxyState, rng: PRNG): void {
       if (!empB) continue;
       if ((empB.allianceIds?.length ?? 0) >= 2) continue;
       const rel = empA.relationshipByEmpireId[neighborId];
-      if (!rel || rel.atWar || rel.opinion < 60 || rel.tension > 40) continue;
+      if (!rel || rel.atWar) continue;
+      if (effectiveOpinion(rel, state.tick) < 60 || effectiveTension(rel, state.tick) > 40) continue;
       // Check they're not already allied together
       const sharedAlliance = empA.allianceIds?.some(aid => empB.allianceIds?.includes(aid));
       if (sharedAlliance) continue;
 
       const id = `alliance-${state.tick}-${rng.nextInt(0, 9999)}`;
       const name = `${empA.name.split(" ")[0]}-${empB.name.split(" ")[0]} ${rng.pick(ALLIANCE_NOUNS)}`;
-      const alliance = { id, name, memberEmpireIds: [empA.id, empB.id], formedTick: state.tick, leaderId: empA.id };
+      const purpose = _alliancePurpose(state, empA, empB);
+      const alliance: Alliance = {
+        id, name, memberEmpireIds: [empA.id, empB.id], formedTick: state.tick, leaderId: empA.id,
+        purpose, color: empA.color, emblem: ALLIANCE_EMBLEM[purpose], historicalEventIds: [],
+      };
       state.alliances[id] = alliance;
       empA.allianceIds = [...(empA.allianceIds ?? []), id];
       empB.allianceIds = [...(empB.allianceIds ?? []), id];
@@ -368,10 +396,22 @@ function stepPlayerControl(state: GalaxyState, rng: PRNG): void {
 
 // ── Core subsystems ───────────────────────────────────────────────────────────
 
+/** Planet tags subtly bias local growth so stars feel distinct without being full colonies. */
+function planetGrowthMul(sys: StarSystem): number {
+  if (!sys.planets?.length) return 1;
+  let m = 1;
+  for (const p of sys.planets) {
+    if (p === "garden" || p === "oceanic") m += 0.25;
+    else if (p === "industrial") m += 0.1;
+    else if (p === "toxic" || p === "frozen" || p === "barren") m -= 0.18;
+  }
+  return Math.max(0.4, m);
+}
+
 function stepGrowth(state: GalaxyState, rng: PRNG): void {
   for (const sys of Object.values(state.systems)) {
     if (sys.ownerEmpireId) {
-      sys.population = Math.min(sys.population + 0.002 * sys.habitability, 2.0);
+      sys.population = Math.min(sys.population + 0.002 * sys.habitability * planetGrowthMul(sys), 2.0);
       const owner = state.empires[sys.ownerEmpireId];
       if (owner && sys.cultureId !== owner.cultureId) {
         sys.stability = Math.max(0.05, sys.stability - 0.0006);
@@ -447,6 +487,7 @@ function stepExpansion(state: GalaxyState, rng: PRNG): void {
 }
 
 function stepConflict(state: GalaxyState, rng: PRNG): void {
+  pruneExpiredModifiers(state);
   updateRelationships(state);
   for (const emp of Object.values(state.empires)) {
     const neighbors = getNeighboringEmpires(state, emp.id);

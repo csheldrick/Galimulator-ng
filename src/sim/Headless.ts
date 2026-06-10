@@ -52,6 +52,8 @@ function snapshotMetrics(state: GalaxyState, originalIds: Set<Id>) {
     fleets: Object.keys(state.fleets).length,
     monsters: Object.keys(state.monsters).length,
     faiths: Object.keys(state.religions).length,
+    alliances: Object.keys(state.alliances ?? {}).length,
+    tradeRoutes: Object.keys(state.tradeRoutes ?? {}).length,
     topFaiths,
     largest: [...empires].sort((a, b) => b.ownedSystemIds.length - a.ownedSystemIds.length)[0],
   };
@@ -99,6 +101,7 @@ export function runHeadlessReport(settings: SimSettings, milestones: number[] = 
         `- Owned systems: ${m.ownedSystems}/${settings.numStars}`,
         `- Largest power: ${m.largest ? `${m.largest.name} (${m.largest.ownedSystemIds.length} systems)` : "none"}`,
         `- Active wars now: ${m.wars} · cumulative wars declared: ${cumulative.warsDeclared}`,
+        `- Alliances: ${m.alliances} blocs · Trade routes: ${m.tradeRoutes}`,
         `- Churn since last milestone: ${churn} empire births+deaths`,
         `- Cumulative: ${cumulative.founded} founded, ${cumulative.collapsed} collapsed, ${cumulative.rebellions} rebellions, ${cumulative.coups} coups, ${cumulative.transcended} transcended`,
         `- Religion: ${m.faiths} faiths · ${cumulative.newFaiths} founded · ${cumulative.conversions} state conversions`,
