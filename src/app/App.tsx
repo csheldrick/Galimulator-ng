@@ -10,7 +10,7 @@ import { EventLog } from "../ui/EventLog";
 import "./App.css";
 
 const DEFAULT_SETTINGS: SimSettings = { seed: 42, numStars: 400, numEmpires: 12, ticksPerSecond: 4 };
-const DEFAULT_VIEW: ViewOptions = { territory: true, labels: false, wars: true, events: true, fleets: true };
+const DEFAULT_VIEW: ViewOptions = { territory: true, borders: true, labels: false, wars: true, events: true, fleets: true };
 
 function downloadText(filename: string, content: string, type = "text/plain") {
   const blob = new Blob([content], { type });
