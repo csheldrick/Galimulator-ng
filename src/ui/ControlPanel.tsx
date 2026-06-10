@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import type { GalaxyState, Id, SimSettings } from "../types/sim";
+import type { GalaxyState, Id, SimSettings, GalaxyShape, StarlaneMode } from "../types/sim";
 import type { ViewOptions } from "../render/GalaxyCanvas";
 import type { MapMode } from "../render/territory";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
@@ -100,6 +100,7 @@ export function ControlPanel({
         <div><b>{activeWars.size}</b><span>wars</span></div>
         <div><b>{fleets.length}</b><span>fleets</span></div>
         <div><b>{fmt(totalPop / 1000)}K</b><span>pop</span></div>
+        <div><b>{Object.keys(snapshot.alliances ?? {}).length}</b><span>alliances</span></div>
       </div>
 
       {selectedEmpire && (
@@ -184,6 +185,27 @@ export function ControlPanel({
       <div className="control-row"><label>Stars</label><input type="range" min={100} max={1000} step={50} value={settings.numStars} onChange={e => onSettingsChange({ numStars: Number(e.target.value) })} /><span>{settings.numStars}</span></div>
       <div className="control-row"><label>Empires</label><input type="range" min={4} max={24} step={1} value={settings.numEmpires} onChange={e => onSettingsChange({ numEmpires: Number(e.target.value) })} /><span>{settings.numEmpires}</span></div>
       <div className="control-row seed-row"><label>Seed</label><input type="number" value={settings.seed} onChange={e => onSettingsChange({ seed: Number(e.target.value) || 0 })} /></div>
+      <div className="control-row">
+        <label>Shape</label>
+        <select style={{ flex: 1 }} value={settings.galaxyShape ?? "spiral"} onChange={e => onSettingsChange({ galaxyShape: e.target.value as GalaxyShape })}>
+          <option value="spiral">Spiral</option>
+          <option value="disc">Disc</option>
+          <option value="hollow-disc">Hollow Disc</option>
+          <option value="clustered">Clustered</option>
+          <option value="chaos">Chaos</option>
+          <option value="grid">Grid</option>
+          <option value="string">String</option>
+        </select>
+      </div>
+      <div className="control-row">
+        <label>Lanes</label>
+        <select style={{ flex: 1 }} value={settings.starlaneMode ?? "standard"} onChange={e => onSettingsChange({ starlaneMode: e.target.value as StarlaneMode })}>
+          <option value="standard">Standard</option>
+          <option value="webbed">Webbed</option>
+          <option value="dense">Dense</option>
+          <option value="sparse">Sparse</option>
+        </select>
+      </div>
 
       <div className="section-title">Empires</div>
       <div className="empire-nav-tools">

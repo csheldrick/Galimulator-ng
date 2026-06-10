@@ -1,4 +1,5 @@
 import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler, Religion } from "../types/sim";
+import type { GalaxyShape, StarlaneMode } from "../types/sim";
 import { resetEventCounter } from "./Events";
 import { makeReligion } from "./Religion";
 import { IDEOLOGIES } from "./Moods";
@@ -43,6 +44,8 @@ export function makeRuler(rng: PRNG, accessionTick: number): Ruler {
   };
 }
 
+// ── Shape generators ──────────────────────────────────────────────────────────
+
 function spiralPoint(rng: PRNG, width: number, height: number): [number, number] {
   const arms = 3;
   const arm = rng.nextInt(0, arms - 1);
@@ -54,34 +57,86 @@ function spiralPoint(rng: PRNG, width: number, height: number): [number, number]
   return [cx + Math.cos(angle) * r, cy + Math.sin(angle) * r];
 }
 
-const EMPIRE_COLORS = [
-  "#e63946","#457b9d","#2a9d8f","#e9c46a","#f4a261","#6a4c93",
-  "#1982c4","#8ac926","#ff595e","#6a0572","#0096c7","#ff9f1c",
-  "#d62828","#023e8a","#606c38","#bc6c25","#7209b7","#4cc9f0",
-  "#f72585","#3a86ff"
-];
-
-const EMPIRE_ADJ = [
-  "Grand","Imperial","Free","Ancient","United","Sacred","Iron","Golden",
-  "Silver","Dark","Bright","Northern","Southern","Eastern","Western","Eternal"
-];
-const EMPIRE_NOUN = [
-  "Alliance","Empire","Republic","Dominion","Collective","Realm","Confederacy",
-  "Federation","Order","Kingdom","Sovereignty","Covenant","League","Union"
-];
-
-export function makeEmpireName(rng: PRNG, capitalName: string): string {
-  const roll = rng.next();
-  if (roll < 0.4) return `${rng.pick(EMPIRE_ADJ)} ${rng.pick(EMPIRE_NOUN)}`;
-  if (roll < 0.75) return `${rng.pick(EMPIRE_NOUN)} of ${capitalName}`;
-  return `${capitalName} ${rng.pick(EMPIRE_NOUN)}`;
+function discPoint(rng: PRNG, width: number, height: number): [number, number] {
+  const cx = width / 2, cy = height / 2;
+  const maxR = Math.min(width, height) * 0.44;
+  // use sqrt for uniform disc density
+  const r = Math.sqrt(rng.next()) * maxR + rng.range(-10, 10);
+  const angle = rng.next() * Math.PI * 2;
+  return [cx + Math.cos(angle) * r, cy + Math.sin(angle) * r];
 }
 
-// Connect each star to its nearest neighbors, then stitch disconnected
-// clusters together so every system is reachable along starlanes.
-function buildStarlanes(systemList: StarSystem[]): void {
-  const NEIGHBOR_LINKS = 3;
-  const MAX_LANE = 130;
+function hollowDiscPoint(rng: PRNG, width: number, height: number): [number, number] {
+  const cx = width / 2, cy = height / 2;
+  const maxR = Math.min(width, height) * 0.44;
+  const minR = maxR * 0.35;
+  const r = minR + rng.next() * (maxR - minR) + rng.range(-8, 8);
+  const angle = rng.next() * Math.PI * 2;
+  return [cx + Math.cos(angle) * r, cy + Math.sin(angle) * r];
+}
+
+function clusteredPoint(rng: PRNG, width: number, height: number): [number, number] {
+  const NUM_CLUSTERS = 6;
+  const spread = Math.min(width, height) * 0.14;
+  const clusterR = Math.min(width, height) * 0.36;
+  const clusterIdx = rng.nextInt(0, NUM_CLUSTERS - 1);
+  const clusterAngle = (clusterIdx / NUM_CLUSTERS) * Math.PI * 2 + rng.range(-0.2, 0.2);
+  const cr = clusterR * rng.range(0.5, 1.0);
+  const cx = width / 2 + Math.cos(clusterAngle) * cr;
+  const cy = height / 2 + Math.sin(clusterAngle) * cr;
+  const angle = rng.next() * Math.PI * 2;
+  const r = Math.sqrt(rng.next()) * spread;
+  return [cx + Math.cos(angle) * r, cy + Math.sin(angle) * r];
+}
+
+function chaosPoint(rng: PRNG, width: number, height: number): [number, number] {
+  const margin = 40;
+  return [margin + rng.next() * (width - margin * 2), margin + rng.next() * (height - margin * 2)];
+}
+
+function gridPoint(rng: PRNG, width: number, height: number, index: number, total: number): [number, number] {
+  const cols = Math.ceil(Math.sqrt(total * (width / height)));
+  const rows = Math.ceil(total / cols);
+  const col = index % cols;
+  const row = Math.floor(index / cols);
+  const cellW = (width - 80) / cols;
+  const cellH = (height - 80) / rows;
+  return [
+    40 + col * cellW + cellW / 2 + rng.range(-cellW * 0.25, cellW * 0.25),
+    40 + row * cellH + cellH / 2 + rng.range(-cellH * 0.25, cellH * 0.25),
+  ];
+}
+
+function stringPoint(rng: PRNG, width: number, height: number): [number, number] {
+  const NUM_STRINGS = 3;
+  const strIdx = rng.nextInt(0, NUM_STRINGS - 1);
+  const t = rng.range(0.02, 0.98);
+  const stringAngle = (strIdx / NUM_STRINGS) * Math.PI;
+  const cx = width / 2, cy = height / 2;
+  const len = Math.min(width, height) * 0.42;
+  const bx = cx + Math.cos(stringAngle) * len * (t - 0.5) * 2;
+  const by = cy + Math.sin(stringAngle) * len * (t - 0.5) * 2;
+  return [bx + rng.range(-18, 18), by + rng.range(-18, 18)];
+}
+
+function getShapePoint(shape: GalaxyShape, rng: PRNG, width: number, height: number, index: number, total: number): [number, number] {
+  switch (shape) {
+    case "disc": return discPoint(rng, width, height);
+    case "hollow-disc": return hollowDiscPoint(rng, width, height);
+    case "clustered": return clusteredPoint(rng, width, height);
+    case "chaos": return chaosPoint(rng, width, height);
+    case "grid": return gridPoint(rng, width, height, index, total);
+    case "string": return stringPoint(rng, width, height);
+    case "spiral":
+    default: return spiralPoint(rng, width, height);
+  }
+}
+
+// ── Starlane builder ──────────────────────────────────────────────────────────
+
+function buildStarlanes(systemList: StarSystem[], mode: StarlaneMode = "standard"): void {
+  const neighborLinks = mode === "webbed" ? 5 : mode === "dense" ? 4 : mode === "sparse" ? 2 : 3;
+  const maxLane = mode === "dense" ? 160 : mode === "sparse" ? 100 : 130;
   const n = systemList.length;
   const linked = new Set<string>();
 
@@ -101,10 +156,10 @@ function buildStarlanes(systemList: StarSystem[]): void {
       const b = systemList[j];
       const dx = a.x - b.x, dy = a.y - b.y;
       const d = Math.sqrt(dx * dx + dy * dy);
-      if (d <= MAX_LANE) candidates.push({ s: b, d });
+      if (d <= maxLane) candidates.push({ s: b, d });
     }
     candidates.sort((p, q) => p.d - q.d);
-    for (const { s } of candidates.slice(0, NEIGHBOR_LINKS)) link(a, s);
+    for (const { s } of candidates.slice(0, neighborLinks)) link(a, s);
   }
 
   // merge components until the whole graph is connected
@@ -136,11 +191,40 @@ function buildStarlanes(systemList: StarSystem[]): void {
   }
 }
 
+// ── Empire name pool ──────────────────────────────────────────────────────────
+
+const EMPIRE_COLORS = [
+  "#e63946","#457b9d","#2a9d8f","#e9c46a","#f4a261","#6a4c93",
+  "#1982c4","#8ac926","#ff595e","#6a0572","#0096c7","#ff9f1c",
+  "#d62828","#023e8a","#606c38","#bc6c25","#7209b7","#4cc9f0",
+  "#f72585","#3a86ff"
+];
+
+const EMPIRE_ADJ = [
+  "Grand","Imperial","Free","Ancient","United","Sacred","Iron","Golden",
+  "Silver","Dark","Bright","Northern","Southern","Eastern","Western","Eternal"
+];
+const EMPIRE_NOUN = [
+  "Alliance","Empire","Republic","Dominion","Collective","Realm","Confederacy",
+  "Federation","Order","Kingdom","Sovereignty","Covenant","League","Union"
+];
+
+export function makeEmpireName(rng: PRNG, capitalName: string): string {
+  const roll = rng.next();
+  if (roll < 0.4) return `${rng.pick(EMPIRE_ADJ)} ${rng.pick(EMPIRE_NOUN)}`;
+  if (roll < 0.75) return `${rng.pick(EMPIRE_NOUN)} of ${capitalName}`;
+  return `${capitalName} ${rng.pick(EMPIRE_NOUN)}`;
+}
+
+// ── Galaxy generator ──────────────────────────────────────────────────────────
+
 export function generateGalaxy(
   seed: number,
   numStars: number,
   numEmpires: number,
-  rng: PRNG
+  rng: PRNG,
+  galaxyShape: GalaxyShape = "spiral",
+  starlaneMode: StarlaneMode = "standard"
 ): GalaxyState {
   resetEventCounter();
   resetCharacterCounter();
@@ -151,7 +235,7 @@ export function generateGalaxy(
 
   for (let i = 0; i < numStars; i++) {
     const id = `sys-${i}`;
-    const [x, y] = spiralPoint(rng, WIDTH, HEIGHT);
+    const [x, y] = getShapePoint(galaxyShape, rng, WIDTH, HEIGHT, i, numStars);
     const system: StarSystem = {
       id,
       name: makeName(rng),
@@ -168,12 +252,14 @@ export function generateGalaxy(
       techLevel: rng.range(0.1, 0.5),
       recentEventIds: [],
       connectedSystemIds: [],
+      markers: [],
+      localWealth: rng.range(0, 30),
     };
     systems[id] = system;
     systemList.push(system);
   }
 
-  buildStarlanes(systemList);
+  buildStarlanes(systemList, starlaneMode);
 
   // seed the great faiths on populous worlds; they spread along starlanes from there
   const stateForReligions = { tick: 0, religions: {} as Record<Id, Religion> } as GalaxyState;
@@ -247,9 +333,13 @@ export function generateGalaxy(
       relationshipByEmpireId: {},
       activeWarEmpireIds: [],
       historicalEventIds: [],
+      allianceIds: [],
     };
     empires[empId] = empire;
   }
 
-  return { tick: 0, seed, systems, empires, fleets: {}, religions, tradeRoutes: {}, monsters: {}, events: {}, eventLog: [] };
+  return {
+    tick: 0, seed, systems, empires, fleets: {}, religions, tradeRoutes: {},
+    monsters: {}, events: {}, eventLog: [], alliances: {},
+  };
 }
