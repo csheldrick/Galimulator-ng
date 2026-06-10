@@ -93,10 +93,11 @@ export function tryMakePeace(
   if (rng.next() > peaceChance) return;
 
   rel.atWar = false;
-  rel.tension = Math.max(0, rel.tension - 30);
+  // drop tension well below the war-declaration threshold so peace actually holds
+  rel.tension = Math.max(0, rel.tension - 60);
   rel.opinion = Math.min(100, rel.opinion + 15);
   const relBack = enemy.relationshipByEmpireId[empire.id];
-  if (relBack) { relBack.atWar = false; relBack.tension = Math.max(0, relBack.tension - 30); relBack.opinion = Math.min(100, relBack.opinion + 15); }
+  if (relBack) { relBack.atWar = false; relBack.tension = Math.max(0, relBack.tension - 60); relBack.opinion = Math.min(100, relBack.opinion + 15); }
 
   empire.activeWarEmpireIds = empire.activeWarEmpireIds.filter(id => id !== enemyId);
   enemy.activeWarEmpireIds = enemy.activeWarEmpireIds.filter(id => id !== empire.id);

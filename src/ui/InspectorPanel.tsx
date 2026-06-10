@@ -1,6 +1,7 @@
 import type { GalaxyState, Id } from "../types/sim";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL } from "../sim/Characters";
+import { eventColor } from "../render/colors";
 
 interface Props {
   snapshot: Readonly<GalaxyState>;
@@ -9,6 +10,7 @@ interface Props {
   selectedFleetId: Id | null;
   followEmpireId: Id | null;
   onSelectEmpire: (id: Id) => void;
+  onSelectSystem: (id: Id) => void;
   onSelectFleet: (id: Id | null) => void;
   onClearSelection: () => void;
   onCancelFleet: (id: Id) => void;
@@ -29,7 +31,7 @@ function fmt(n: number, dec = 1) { return n.toFixed(dec); }
 function eta(progress: number, totalDist: number, speed: number) { return Math.max(0, Math.ceil(((1 - progress) * totalDist) / Math.max(0.001, speed))); }
 
 export function InspectorPanel({
-  snapshot, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, onSelectEmpire, onSelectFleet, onClearSelection, onCancelFleet, onToggleFollow,
+  snapshot, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, onSelectEmpire, onSelectSystem, onSelectFleet, onClearSelection, onCancelFleet, onToggleFollow,
   onBoostSystem, onDevastateSystem, onNeutralizeSystem, onFoundEmpire, onBoostEmpire, onWeakenEmpire, onInflameEmpire, onPacifyEmpire, onForceWar, onForcePeace,
 }: Props) {
   const fleet = selectedFleetId ? snapshot.fleets[selectedFleetId] : null;
@@ -111,7 +113,7 @@ export function InspectorPanel({
           {sys.artifactName && <div className="info-row"><span>Artifact</span><span>◆ {sys.artifactName}</span></div>}
           <h4>God Controls</h4>
           <div className="god-grid"><button onClick={() => onBoostSystem(sys.id)}>Boost world</button><button onClick={() => onDevastateSystem(sys.id)}>Devastate</button><button onClick={() => onNeutralizeSystem(sys.id)} disabled={!sys.ownerEmpireId}>Free system</button><button onClick={() => onFoundEmpire(sys.id)}>Found empire</button></div>
-          {sys.recentEventIds.length > 0 && <><h4>Recent Events</h4>{[...sys.recentEventIds].reverse().slice(0, 5).map(eid => { const ev = snapshot.events[eid]; return ev ? <div key={eid} className="event-mini">{ev.title}</div> : null; })}</>}
+          {sys.recentEventIds.length > 0 && <><h4>Recent Events</h4>{[...sys.recentEventIds].reverse().slice(0, 5).map(eid => { const ev = snapshot.events[eid]; return ev ? <div key={eid} className="event-mini" style={{ borderLeft: `3px solid ${eventColor(ev.type)}`, paddingLeft: 5 }}>{ev.title}</div> : null; })}</>}
         </>
       )}
 
@@ -139,7 +141,15 @@ export function InspectorPanel({
               </div>
             </>
           )}
-          <div className="info-row"><span>Capital</span><span>{snapshot.systems[emp.capitalSystemId]?.name ?? "?"}</span></div>
+          <div className="info-row">
+            <span>Capital</span>
+            <span
+              style={{ cursor: "pointer", textDecoration: "underline dotted" }}
+              onClick={() => { if (snapshot.systems[emp.capitalSystemId]) onSelectSystem(emp.capitalSystemId); }}
+            >
+              {snapshot.systems[emp.capitalSystemId]?.name ?? "?"}
+            </span>
+          </div>
           <div className="info-row"><span>Systems</span><span>{emp.ownedSystemIds.length}</span></div>
           <div className="info-row"><span>Fleets</span><span>{Object.values(snapshot.fleets).filter(f => f.ownerEmpireId === emp.id).length}</span></div>
           <div className="info-row"><span>Population</span><span>{fmt(emp.population / 1000, 0)}K</span></div>
@@ -152,7 +162,17 @@ export function InspectorPanel({
           <h4>God Controls</h4>
           <div className="god-grid"><button onClick={() => onBoostEmpire(emp.id)}>Strengthen</button><button onClick={() => onWeakenEmpire(emp.id)}>Destabilize</button><button onClick={() => onInflameEmpire(emp.id)}>Inflame</button><button onClick={() => onPacifyEmpire(emp.id)}>Pacify</button></div>
           <h4>Active Fleets</h4>
-          <div className="fleet-list">{Object.values(snapshot.fleets).filter(f => f.ownerEmpireId === emp.id).slice(0, 6).map(f => <button key={f.id} className="fleet-row" onClick={() => onSelectFleet(f.id)}><span>{f.name}</span><b>{fmt(f.progress * 100, 0)}%</b></button>)}</div>
+          {(() => {
+            const empFleets = Object.values(snapshot.fleets).filter(f => f.ownerEmpireId === emp.id);
+            const visible = empFleets.slice(0, 6);
+            const hidden = empFleets.length - visible.length;
+            return (
+              <div className="fleet-list">
+                {visible.map(f => <button key={f.id} className="fleet-row" onClick={() => onSelectFleet(f.id)}><span>{f.name}</span><b>{fmt(f.progress * 100, 0)}%</b></button>)}
+                {hidden > 0 && <div className="empty-hint">and {hidden} more</div>}
+              </div>
+            );
+          })()}
           <h4>Relations</h4>
           <div className="relations-list">
             {Object.values(snapshot.empires).filter(other => other.id !== emp.id).map(other => ({ other, rel: emp.relationshipByEmpireId[other.id] })).sort((a, b) => Number(b.rel?.atWar ?? false) - Number(a.rel?.atWar ?? false) || (b.rel?.tension ?? 0) - (a.rel?.tension ?? 0)).slice(0, 10).map(({ other, rel }) => {
@@ -160,7 +180,7 @@ export function InspectorPanel({
               return <div key={other.id} className={atWar ? "relation-row at-war" : "relation-row"}><div className="relation-head" onClick={() => onSelectEmpire(other.id)}><span className="emp-dot" style={{ background: other.color }} /><span>{other.name}</span></div><div className="relation-stats"><span>T {fmt(tension, 0)}</span><span>O {fmt(opinion, 0)}</span><span>{atWar ? "WAR" : "peace"}</span></div><div className="relation-actions"><button onClick={() => onForceWar(emp.id, other.id)} disabled={atWar}>War</button><button onClick={() => onForcePeace(emp.id, other.id)} disabled={!atWar}>Peace</button></div></div>;
             })}
           </div>
-          {emp.historicalEventIds.length > 0 && <><h4>History</h4>{[...emp.historicalEventIds].reverse().slice(0, 6).map(eid => { const ev = snapshot.events[eid]; return ev ? <div key={eid} className="event-mini">{ev.title}</div> : null; })}</>}
+          {emp.historicalEventIds.length > 0 && <><h4>History</h4>{[...emp.historicalEventIds].reverse().slice(0, 6).map(eid => { const ev = snapshot.events[eid]; return ev ? <div key={eid} className="event-mini" style={{ borderLeft: `3px solid ${eventColor(ev.type)}`, paddingLeft: 5 }}>{ev.title}</div> : null; })}</>}
         </>
       )}
     </div>
