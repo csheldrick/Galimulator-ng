@@ -2,6 +2,11 @@ import type { GalaxyState, SimEvent, Id, EventType } from "../types/sim";
 
 let _eventCounter = 0;
 
+// Called when a galaxy is (re)generated so event ids stay deterministic per seed.
+export function resetEventCounter(): void {
+  _eventCounter = 0;
+}
+
 export function createEvent(
   state: GalaxyState,
   tick: number,

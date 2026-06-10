@@ -1,7 +1,7 @@
 import type { GalaxyState, Empire, Id } from "../types/sim";
 import { createEvent } from "./Events";
 
-export function updateRelationships(state: GalaxyState, _rng: { next(): number }): void {
+export function updateRelationships(state: GalaxyState): void {
   const empireList = Object.values(state.empires);
   for (const emp of empireList) {
     for (const other of empireList) {

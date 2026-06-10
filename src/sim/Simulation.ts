@@ -82,6 +82,8 @@ export class Simulation {
         ticked = true;
         safeGuard++;
       }
+      // drop backlog (e.g. after a background tab) instead of fast-forwarding forever
+      if (this.accumulator >= msPerTick) this.accumulator = 0;
       if (ticked) this._notify();
       this.rafId = requestAnimationFrame(loop);
     };
