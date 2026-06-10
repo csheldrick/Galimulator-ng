@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import type { GalaxyState, Id, SimSettings } from "../types/sim";
 import { Simulation } from "../sim/Simulation";
 import { GalaxyCanvas } from "../render/GalaxyCanvas";
+import type { ViewOptions } from "../render/GalaxyCanvas";
 import { ControlPanel } from "../ui/ControlPanel";
 import { InspectorPanel } from "../ui/InspectorPanel";
 import { EventLog } from "../ui/EventLog";
@@ -14,6 +15,13 @@ const DEFAULT_SETTINGS: SimSettings = {
   ticksPerSecond: 4,
 };
 
+const DEFAULT_VIEW: ViewOptions = {
+  territory: true,
+  labels: false,
+  wars: true,
+  events: true,
+};
+
 export default function App() {
   const [sim] = useState(() => new Simulation(DEFAULT_SETTINGS));
   const [snapshot, setSnapshot] = useState<Readonly<GalaxyState>>(
@@ -21,6 +29,8 @@ export default function App() {
   );
   const [running, setRunning] = useState(false);
   const [settings, setSettings] = useState<SimSettings>(DEFAULT_SETTINGS);
+  const [viewOptions, setViewOptions] = useState<ViewOptions>(DEFAULT_VIEW);
+  const [resetCameraToken, setResetCameraToken] = useState(0);
   const [selectedSystemId, setSelectedSystemId] = useState<Id | null>(null);
   const [selectedEmpireId, setSelectedEmpireId] = useState<Id | null>(null);
   const [minImportance, setMinImportance] = useState(1);
@@ -60,6 +70,7 @@ export default function App() {
     setRunning(false);
     setSelectedSystemId(null);
     setSelectedEmpireId(null);
+    setResetCameraToken(t => t + 1);
     refreshSnapshot();
   }, [sim, settings, refreshSnapshot]);
 
@@ -71,6 +82,7 @@ export default function App() {
     setRunning(false);
     setSelectedSystemId(null);
     setSelectedEmpireId(null);
+    setResetCameraToken(t => t + 1);
     refreshSnapshot();
   }, [sim, settings, refreshSnapshot]);
 
@@ -119,14 +131,19 @@ export default function App() {
         onRunTicks={handleRunTicks}
         onReset={handleReset}
         onNewSeed={handleNewSeed}
+        onResetCamera={() => setResetCameraToken(t => t + 1)}
         settings={settings}
         onSettingsChange={handleSettingsChange}
+        viewOptions={viewOptions}
+        onViewOptionsChange={setViewOptions}
       />
       <div className="canvas-area">
         <GalaxyCanvas
           simulation={sim}
           selectedSystemId={selectedSystemId}
           selectedEmpireId={selectedEmpireId}
+          viewOptions={viewOptions}
+          resetCameraToken={resetCameraToken}
           onSelectSystem={setSelectedSystemId}
           onSelectEmpire={setSelectedEmpireId}
         />
