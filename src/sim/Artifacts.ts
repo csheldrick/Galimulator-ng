@@ -117,9 +117,10 @@ export function stepArtifacts(state: GalaxyState): void {
         break;
       case "strange-engine":
         if (state.tick % 300 === 0) {
+          const sign = (artifact.id.charCodeAt(artifact.id.length - 1) + state.tick) % 2 === 0 ? 1 : -1;
           emp.techLevel = Math.min(3, emp.techLevel + 0.01);
           emp.wealth += 30;
-          sys.stability = Math.max(0.05, Math.min(1, sys.stability + (Math.random() < 0.5 ? -0.04 : 0.04)));
+          sys.stability = Math.max(0.05, Math.min(1, sys.stability + sign * 0.04));
         }
         break;
     }
