@@ -1,4 +1,4 @@
-import type { GalaxyState, SimSettings, Id, Empire } from "../types/sim";
+import type { GalaxyState, SimSettings, Id, Empire, EmpireRelationship } from "../types/sim";
 import { SeededRandom } from "./Random";
 import { generateGalaxy } from "./Galaxy";
 import { executeTick } from "./Tick";
@@ -67,6 +67,14 @@ export class Simulation {
 
   private _touch(): void {
     this._notify();
+  }
+
+  private _relationship(source: Empire, targetId: Id): EmpireRelationship {
+    const existing = source.relationshipByEmpireId[targetId];
+    if (existing) return existing;
+    const rel: EmpireRelationship = { targetEmpireId: targetId, tension: 0, opinion: 50, atWar: false };
+    source.relationshipByEmpireId[targetId] = rel;
+    return rel;
   }
 
   start(): void {
@@ -227,6 +235,71 @@ export class Simulation {
       if (sys) sys.stability = Math.max(0.05, sys.stability - 0.15);
     }
     createEvent(this.state, this.state.tick, "empire-collapsed", `${emp.name} destabilized`, `${emp.name} was weakened by outside forces.`, 3, [emp.id], emp.ownedSystemIds.slice(0, 8));
+    this._touch();
+  }
+
+  forceWar(attackerId: Id, defenderId: Id): void {
+    if (attackerId === defenderId) return;
+    const attacker = this.state.empires[attackerId];
+    const defender = this.state.empires[defenderId];
+    if (!attacker || !defender) return;
+    const rel = this._relationship(attacker, defenderId);
+    const relBack = this._relationship(defender, attackerId);
+    rel.atWar = true;
+    relBack.atWar = true;
+    rel.tension = 100;
+    relBack.tension = 100;
+    rel.opinion = Math.min(rel.opinion, 5);
+    relBack.opinion = Math.min(relBack.opinion, 5);
+    if (!attacker.activeWarEmpireIds.includes(defenderId)) attacker.activeWarEmpireIds.push(defenderId);
+    if (!defender.activeWarEmpireIds.includes(attackerId)) defender.activeWarEmpireIds.push(attackerId);
+    createEvent(this.state, this.state.tick, "war-declared", `War: ${attacker.name} vs ${defender.name}`, `${attacker.name} and ${defender.name} were forced into war.`, 4, [attackerId, defenderId], []);
+    this._touch();
+  }
+
+  forcePeace(empireId: Id, otherId: Id): void {
+    if (empireId === otherId) return;
+    const empire = this.state.empires[empireId];
+    const other = this.state.empires[otherId];
+    if (!empire || !other) return;
+    const rel = this._relationship(empire, otherId);
+    const relBack = this._relationship(other, empireId);
+    rel.atWar = false;
+    relBack.atWar = false;
+    rel.tension = Math.min(rel.tension, 20);
+    relBack.tension = Math.min(relBack.tension, 20);
+    rel.opinion = Math.max(rel.opinion, 45);
+    relBack.opinion = Math.max(relBack.opinion, 45);
+    empire.activeWarEmpireIds = empire.activeWarEmpireIds.filter(id => id !== otherId);
+    other.activeWarEmpireIds = other.activeWarEmpireIds.filter(id => id !== empireId);
+    createEvent(this.state, this.state.tick, "peace-signed", `Peace: ${empire.name} & ${other.name}`, `${empire.name} and ${other.name} were forced into peace.`, 3, [empireId, otherId], []);
+    this._touch();
+  }
+
+  inflameEmpire(empireId: Id): void {
+    const emp = this.state.empires[empireId];
+    if (!emp) return;
+    emp.aggression = Math.min(1, emp.aggression + 0.25);
+    for (const other of Object.values(this.state.empires)) {
+      if (other.id === emp.id) continue;
+      const rel = this._relationship(emp, other.id);
+      rel.tension = Math.min(100, rel.tension + 30);
+      rel.opinion = Math.max(0, rel.opinion - 20);
+    }
+    createEvent(this.state, this.state.tick, "border-conflict", `${emp.name} radicalized`, `${emp.name} became more aggressive toward its rivals.`, 3, [emp.id], []);
+    this._touch();
+  }
+
+  pacifyEmpire(empireId: Id): void {
+    const emp = this.state.empires[empireId];
+    if (!emp) return;
+    emp.aggression = Math.max(0, emp.aggression - 0.25);
+    emp.cohesion = Math.min(1, emp.cohesion + 0.1);
+    for (const rel of Object.values(emp.relationshipByEmpireId)) {
+      rel.tension = Math.max(0, rel.tension - 40);
+      rel.opinion = Math.min(100, rel.opinion + 20);
+    }
+    createEvent(this.state, this.state.tick, "peace-signed", `${emp.name} pacified`, `${emp.name} turned inward and reduced foreign tensions.`, 2, [emp.id], []);
     this._touch();
   }
 
