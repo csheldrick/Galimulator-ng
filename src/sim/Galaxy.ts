@@ -1,6 +1,7 @@
 import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler, Religion } from "../types/sim";
 import type { GalaxyShape, StarlaneMode, EmpireLayout, GridAlignment, PlanetTag, GovernmentType } from "../types/sim";
 import { resetEventCounter } from "./Events";
+import { resetModifierSeq } from "./Relations";
 import { makeReligion } from "./Religion";
 import { IDEOLOGIES } from "./Moods";
 import { makeCourt, resetCharacterCounter } from "./Characters";
@@ -576,6 +577,7 @@ export function generateGalaxy(
   gridAlignment: GridAlignment = "none"
 ): GalaxyState {
   resetEventCounter();
+  resetModifierSeq();
   resetCharacterCounter();
   const WIDTH = 1200;
   const HEIGHT = 900;

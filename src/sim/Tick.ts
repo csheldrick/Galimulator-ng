@@ -3,7 +3,7 @@ import type { PRNG } from "../types/sim";
 import { createEvent } from "./Events";
 import { updateRelationships, getNeighboringEmpires, tryDeclareWar, tryMakePeace } from "./Diplomacy";
 import { pruneExpiredModifiers, effectiveOpinion, effectiveTension, addRelationModifier } from "./Relations";
-import type { WarFocus } from "../types/sim";
+import type { WarFocus, RelationModifierInput } from "../types/sim";
 import { makeName, makeRuler, makeEmpireName } from "./Galaxy";
 import { MOOD_LABEL, MOOD_FLAVOR, IDEOLOGY_LABEL, IDEOLOGY_MODS, IDEOLOGIES, rulerDisplayName } from "./Moods";
 import { dist, findPath, pathLength, advanceAlongPath } from "./Pathing";
@@ -686,17 +686,17 @@ function stepConflict(state: GalaxyState, rng: PRNG): void {
         const relBack = b?.relationshipByEmpireId[a.id];
         if (b && rel && relBack && !rel.atWar) {
           if (rng.next() < 0.5) {
-            const mod = { label: "Diplomatic accident", opinionDelta: -14, tensionDelta: 10, expiresAtTick: state.tick + 400 };
-            addRelationModifier(rel, mod); addRelationModifier(relBack, { ...mod });
-            createEvent(state, state.tick, "border-conflict", `Diplomatic accident: ${a.name} & ${b.name}`,
+            const ev = createEvent(state, state.tick, "border-conflict", `Diplomatic accident: ${a.name} & ${b.name}`,
               `An envoy of ${a.name} gravely insulted the court of ${b.name}. Relations soured overnight.`,
               2, [a.id, b.id], []);
-          } else {
-            const mod = { label: "Diplomatic masterstroke", opinionDelta: 16, tensionDelta: -12, expiresAtTick: state.tick + 400 };
+            const mod: RelationModifierInput = { kind: "diplomacy", label: "Diplomatic accident", opinionDelta: -14, tensionDelta: 10, expiresAtTick: state.tick + 400, sourceEventId: ev.id };
             addRelationModifier(rel, mod); addRelationModifier(relBack, { ...mod });
-            createEvent(state, state.tick, "peace-signed", `Diplomatic masterstroke: ${a.name} & ${b.name}`,
+          } else {
+            const ev = createEvent(state, state.tick, "peace-signed", `Diplomatic masterstroke: ${a.name} & ${b.name}`,
               `A brilliant envoy of ${a.name} charmed the court of ${b.name}; the two powers drew closer.`,
               2, [a.id, b.id], []);
+            const mod: RelationModifierInput = { kind: "diplomacy", label: "Diplomatic masterstroke", opinionDelta: 16, tensionDelta: -12, expiresAtTick: state.tick + 400, sourceEventId: ev.id };
+            addRelationModifier(rel, mod); addRelationModifier(relBack, { ...mod });
           }
         }
       }
@@ -837,20 +837,20 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
       const admiral = findCharacter(owner, fleet.admiralId);
       if (admiral) { admiral.renown = Math.min(1, admiral.renown + 0.08); admiral.loyalty = Math.min(1, admiral.loyalty + 0.02); }
       const credit = fleet.admiralName ? ` ${fleet.admiralName} is hailed for the victory.` : "";
+      const captureEv = createEvent(state, state.tick, "border-conflict", `${owner.name} captured ${target.name}`, `${fleet.name} seized ${target.name} from ${defender.name}.${credit}`, tookCapital ? 4 : 3, [owner.id, defenderId], [target.id]);
       if (tookCapital) {
         // losing the throne world is a wound diplomacy remembers for a long time
         const relBack = defender.relationshipByEmpireId[owner.id];
-        if (relBack) addRelationModifier(relBack, { label: "Capital occupied", opinionDelta: -30, tensionDelta: 25, expiresAtTick: state.tick + 1500 });
+        if (relBack) addRelationModifier(relBack, { kind: "clash", label: "Capital occupied", opinionDelta: -30, tensionDelta: 25, expiresAtTick: state.tick + 1500, sourceEventId: captureEv.id });
       }
-      createEvent(state, state.tick, "border-conflict", `${owner.name} captured ${target.name}`, `${fleet.name} seized ${target.name} from ${defender.name}.${credit}`, tookCapital ? 4 : 3, [owner.id, defenderId], [target.id]);
       discoverArtifact(state, target);
       if (defender.ownedSystemIds.length === 0) collapseEmpire(state, defender, rng);
     } else {
       owner.cohesion = Math.max(0.1, owner.cohesion - 0.02);
+      const clashEv = createEvent(state, state.tick, "border-conflict", `${owner.name} failed at ${target.name}`, `${fleet.name} was repelled by ${defender.name}.`, 2, [owner.id, defenderId], [target.id]);
       // a repelled assault still sours the border for a while
       const relBack = defender.relationshipByEmpireId[owner.id];
-      if (relBack) addRelationModifier(relBack, { label: "Border clash", opinionDelta: -6, tensionDelta: 8, expiresAtTick: state.tick + 300 });
-      createEvent(state, state.tick, "border-conflict", `${owner.name} failed at ${target.name}`, `${fleet.name} was repelled by ${defender.name}.`, 2, [owner.id, defenderId], [target.id]);
+      if (relBack) addRelationModifier(relBack, { kind: "clash", label: "Border clash", opinionDelta: -6, tensionDelta: 8, expiresAtTick: state.tick + 300, sourceEventId: clashEv.id });
     }
   }
 }

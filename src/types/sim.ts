@@ -63,16 +63,38 @@ export type PlanetTag =
   | "frozen"
   | "ancient";
 
+/** Category of a relationship modifier. `structural` entries are standing conditions
+ *  (faith, alliance, trade, common enemy) that are recomputed and deduped each pass;
+ *  every other kind is a discrete historical incident that coexists with its peers so
+ *  repeated wars, clashes, spy operations and diplomatic incidents build a real ledger. */
+export type RelationModifierKind =
+  | "structural"
+  | "war"
+  | "peace"
+  | "clash"
+  | "spy"
+  | "diplomacy";
+
 /** Specific historical events that permanently or semi-permanently modify a diplomatic relationship.
  *  Deltas are absolute points applied on top of the stored base opinion/tension to produce
  *  the *effective* values that war/peace/alliance logic reads. */
 export interface RelationModifier {
+  /** Unique identity for this ledger entry, stamped by addRelationModifier. */
+  id: Id;
+  /** Drives dedupe: structural modifiers replace by label; historical ones coexist. */
+  kind: RelationModifierKind;
   label: string;
   opinionDelta: number;
   tensionDelta: number;
   /** Tick this modifier lapses. Undefined = structural/standing (refreshed each pass). */
   expiresAtTick?: number;
+  /** The SimEvent that produced this modifier, when applicable, linking the ledger to real history. */
+  sourceEventId?: Id;
 }
+
+/** Input shape for addRelationModifier — callers supply everything except the id, which the
+ *  function stamps so each ledger entry has its own identity even when two sides share data. */
+export type RelationModifierInput = Omit<RelationModifier, "id">;
 
 export type GovernmentType =
   | "empire"
@@ -461,5 +483,7 @@ export interface SaveFile {
   settings: SimSettings;
   rngState: number;
   eventCounter: number;
+  /** Sequence for relation-modifier ids so post-load entries never collide. Optional for older saves. */
+  modifierCounter?: number;
   state: GalaxyState;
 }
