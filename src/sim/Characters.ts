@@ -3,6 +3,7 @@ import { createEvent } from "./Events";
 import { makeName } from "./Galaxy";
 import { IDEOLOGIES, rulerDisplayName } from "./Moods";
 import { recordRulerTransition } from "./Lineage";
+import { usurpThroneByName } from "./Dynasty";
 
 const ROLE_TITLES: Record<CharacterRole, string[]> = {
   admiral: ["Grand Admiral", "Fleet Marshal", "Star Admiral", "War Marshal", "Lord of Fleets"],
@@ -174,6 +175,9 @@ function stageCoup(state: GalaxyState, emp: Empire, usurper: Character, rng: PRN
     accessionTick: state.tick,
     traits: usurper.traits,
   }, state.tick, "coup", "deposed");
+  // The court officer takes the throne as a real person, founding their own house.
+  usurpThroneByName(state, emp, rng, { name: usurper.name, skill: usurper.skill, renown: usurper.renown });
+
   const flips = IDEOLOGIES.filter(i => i !== emp.ideology);
   emp.ideology = rng.pick(flips);
   emp.cohesion = Math.max(0.1, emp.cohesion - 0.15);

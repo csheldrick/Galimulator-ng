@@ -1,5 +1,7 @@
 # Wiki-Surfaced Feature Gaps
 
+> **Status: Completed (translated, not copied).** Planets as inspector flavor with mechanical hooks, majority/minority faith per star, persistent typed artifacts, layered ship ecology (strategic + flagship/patrol + ambient), emperor-mode toy controls, relation-ledger diplomacy with accidents/masterstrokes, alliances as first-class blocs incl. rare merges, government flavor, bespoke persistent oddities, and local visual wealth are implemented.
+
 ## Purpose
 
 This document captures additional `galimulator-ng` gaps surfaced from the Galimulator wiki after the initial feel-restoration and galaxy-creation plans.

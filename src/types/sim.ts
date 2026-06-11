@@ -44,7 +44,15 @@ export type EventType =
   | "faction-formed"
   | "faction-engaged"
   | "faction-uprising"
-  | "faction-dissolved";
+  | "faction-dissolved"
+  | "dynasty-founded"
+  | "heir-born"
+  | "dynastic-marriage"
+  | "heir-died"
+  | "succession-crisis"
+  | "pretender-revolt"
+  | "dynasty-restored"
+  | "dynasty-extinct";
 
 export interface SimEvent {
   id: Id;
@@ -70,16 +78,38 @@ export type PlanetTag =
   | "frozen"
   | "ancient";
 
+/** Category of a relationship modifier. `structural` entries are standing conditions
+ *  (faith, alliance, trade, common enemy) that are recomputed and deduped each pass;
+ *  every other kind is a discrete historical incident that coexists with its peers so
+ *  repeated wars, clashes, spy operations and diplomatic incidents build a real ledger. */
+export type RelationModifierKind =
+  | "structural"
+  | "war"
+  | "peace"
+  | "clash"
+  | "spy"
+  | "diplomacy";
+
 /** Specific historical events that permanently or semi-permanently modify a diplomatic relationship.
  *  Deltas are absolute points applied on top of the stored base opinion/tension to produce
  *  the *effective* values that war/peace/alliance logic reads. */
 export interface RelationModifier {
+  /** Unique identity for this ledger entry, stamped by addRelationModifier. */
+  id: Id;
+  /** Drives dedupe: structural modifiers replace by label; historical ones coexist. */
+  kind: RelationModifierKind;
   label: string;
   opinionDelta: number;
   tensionDelta: number;
   /** Tick this modifier lapses. Undefined = structural/standing (refreshed each pass). */
   expiresAtTick?: number;
+  /** The SimEvent that produced this modifier, when applicable, linking the ledger to real history. */
+  sourceEventId?: Id;
 }
+
+/** Input shape for addRelationModifier — callers supply everything except the id, which the
+ *  function stamps so each ledger entry has its own identity even when two sides share data. */
+export type RelationModifierInput = Omit<RelationModifier, "id">;
 
 export type GovernmentType =
   | "empire"
@@ -151,6 +181,8 @@ export interface StarSystem {
   ownerEmpireId: Id | null;
   cultureId: Id;
   religionId: Id | null;
+  /** A dissenting faith held by part of the population after a conversion swept through. */
+  minorityReligionId?: Id | null;
   /** Name of a precursor artifact buried here, if any. */
   artifactName: string | null;
   /** First-class artifact hosted here, if any. */
@@ -265,6 +297,68 @@ export interface RulerLineageEntry {
   predecessorId?: Id | null;
   parentId?: Id | null;
   traits?: CharacterTrait[];
+  /** The Person in `state.people` this throne-shim mirrors. Optional for legacy saves. */
+  personId?: Id;
+}
+
+/** Where a person sits in the social graph of a dynasty. */
+export type PersonRole =
+  | "ruler"
+  | "consort"
+  | "heir"
+  | "relative"
+  | "noble"
+  | "pretender";
+
+export type Gender = "male" | "female";
+
+/** A first-class human (or alien) being: the atoms of dynastic lineage. People are born,
+ *  marry, have children, claim thrones, and die — and persist in `state.people` as a graph. */
+export interface Person {
+  id: Id;
+  name: string;
+  gender: Gender;
+  dynastyId: Id;
+  role: PersonRole;
+  title: string;
+  bornTick: number;
+  diedTick?: number;
+  deathReason?: string;
+  /** Parents within the people graph (0, 1, or 2 entries). */
+  parentIds: Id[];
+  /** Marriages — usually one, occasionally dynastic unions across empires. */
+  spouseIds: Id[];
+  childIds: Id[];
+  /** 0..1 strength of claim to a throne. Drives succession ordering. */
+  claimStrength: number;
+  /** 0..1 allegiance to the current ruler. Low loyalty breeds pretenders. */
+  loyalty: number;
+  /** 0..1 competence as a ruler. */
+  skill: number;
+  /** 0..1 fame. */
+  renown: number;
+  /** Empire this person belongs to, or null if stateless/exiled. */
+  empireId: Id | null;
+  alive: boolean;
+  /** The ruler who reigned immediately before this person, when this person took a throne.
+   *  Lets the UI walk a chronological chain of rulers regardless of blood relation. */
+  predecessorPersonId?: Id;
+}
+
+/** A ruling house: a named lineage that can span generations and even branch into
+ *  multiple empires, rise, fall, be restored, or die out entirely. */
+export interface Dynasty {
+  id: Id;
+  name: string;
+  founderPersonId: Id;
+  foundedTick: number;
+  /** Empires this house currently rules (a dynasty can branch across several). */
+  rulingEmpireIds: Id[];
+  /** 0..100 standing of the house; grows with long reigns, falls with coups/extinction. */
+  prestige: number;
+  historicalEventIds: Id[];
+  /** Tick the last member died, if the house has gone extinct. */
+  extinctTick?: number;
 }
 
 /** Named figures who serve below the ruler and give an empire its supporting cast. */
@@ -343,6 +437,10 @@ export interface Empire {
   ruler: Ruler;
   /** Succession chain for the ruling office. Current ruler is the entry without endTick. */
   rulerLineage?: RulerLineageEntry[];
+  /** The reigning monarch's Person in `state.people`. Mirrors `ruler` for display. */
+  rulerPersonId?: Id;
+  /** The ruling house in `state.dynasties`. */
+  dynastyId?: Id;
   /** Supporting cast: admirals, ministers, prophets, and would-be pretenders. */
   court: Character[];
   capitalSystemId: Id;
@@ -365,6 +463,8 @@ export interface Empire {
   allianceIds?: Id[];
   /** Player-set strategic bias. Only meaningful when this empire is player-controlled. */
   playerPriority?: EmpirePriority;
+  /** War-room stances toward specific enemies, keyed by target empire id. */
+  warDirectives?: Record<Id, WarDirective>;
   /** Constitutional / cultural government flavor. Affects court titles and event text. */
   governmentType?: GovernmentType;
   /** Artifacts this empire personally commissioned; captured artifacts do not count. */
@@ -424,6 +524,15 @@ export type EmpirePriority =
 
 export type SpyMission = "steal-tech" | "incite-riots" | "improve-relations" | "sabotage-fleet";
 
+/** War-room stance toward one enemy. Biases autonomous war behavior; it does not micromanage fleets. */
+export type WarFocus = "attack" | "defend" | "raid" | "exhaust";
+
+export interface WarDirective {
+  targetEmpireId: Id;
+  focus: WarFocus;
+  createdTick: number;
+}
+
 export interface PlayerControlState {
   controlledEmpireId: Id | null;
   mode: "observer" | "empire";
@@ -437,14 +546,23 @@ export interface PlayerControlState {
 
 export type GalaxyShape =
   | "spiral"
+  | "barred-spiral"
   | "disc"
   | "hollow-disc"
+  | "elliptical"
+  | "irregular"
   | "clustered"
+  | "hub"
   | "chaos"
   | "grid"
-  | "string";
+  | "web"
+  | "string"
+  | "continents";
 
-export type StarlaneMode = "standard" | "webbed" | "dense" | "sparse";
+export type StarlaneMode = "standard" | "webbed" | "dense" | "sparse" | "string";
+
+/** Optional post-generation snap of star positions onto a board-like lattice. */
+export type GridAlignment = "none" | "square" | "hex";
 
 export type EmpireLayout =
   | "classic"
@@ -457,6 +575,9 @@ export type EmpireLayout =
 /** Bespoke weird actors that are not standard monsters. */
 export type OddityKind = "star-eater" | "puppet-mind" | "sloth-cloud" | "replicator" | "void-gate";
 
+// AI NOTE: This is broken attempting to merge...
+/** A persistent space oddity: a strange object or entity that lives on the map,
+ *  wanders or roosts, and interacts with the galaxy by one memorable rule. */
 export interface Oddity {
   id: Id;
   kind: OddityKind;
@@ -471,6 +592,21 @@ export interface Oddity {
   strength: number;
   spawnedTick: number;
   lastPulseTick: number;
+  /** System currently occupied/targeted, when the oddity is system-bound. */
+  systemId?: Id | null;
+  /** Lane route currently being followed (star-eater walks lanes like a monster). */
+  path?: Id[];
+  legIndex?: number;
+  legProgress?: number;
+  /** Free drift velocity for cloud-like oddities that ignore lanes. */
+  vx?: number;
+  vy?: number;
+  speed: number;
+  strength: number;
+  spawnedTick: number;
+  expiresTick?: number;
+  /** Kind-specific counters: systems consumed, replications left, dwell timers... */
+  state: Record<string, number>;
 }
 
 export interface GalaxyState {
@@ -489,6 +625,10 @@ export interface GalaxyState {
   artifacts?: Record<Id, Artifact>;
   oddities?: Record<Id, Oddity>;
   factions?: Record<Id, Faction>;
+  /** First-class people: rulers, heirs, consorts, relatives, nobles, pretenders. */
+  people?: Record<Id, Person>;
+  /** Ruling houses keyed by id. */
+  dynasties?: Record<Id, Dynasty>;
 }
 
 export interface SimSettings {
@@ -499,6 +639,7 @@ export interface SimSettings {
   galaxyShape?: GalaxyShape;
   starlaneMode?: StarlaneMode;
   empireLayout?: EmpireLayout;
+  gridAlignment?: GridAlignment;
 }
 
 /** Saved-game envelope; rngState lets a loaded galaxy continue deterministically. */
@@ -507,5 +648,10 @@ export interface SaveFile {
   settings: SimSettings;
   rngState: number;
   eventCounter: number;
+  /** Sequence for relation-modifier ids so post-load entries never collide. Optional for older saves. */
+  modifierCounter?: number;
+  /** Sequences for person/dynasty ids so post-load entries never collide. Optional for older saves. */
+  personCounter?: number;
+  dynastyCounter?: number;
   state: GalaxyState;
 }

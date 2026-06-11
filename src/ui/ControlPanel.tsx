@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import type { GalaxyState, Id, SimSettings, GalaxyShape, StarlaneMode, EmpireLayout } from "../types/sim";
+import type { GalaxyState, Id, SimSettings, GalaxyShape, StarlaneMode, EmpireLayout, GridAlignment } from "../types/sim";
 import type { ViewOptions } from "../render/GalaxyCanvas";
 import type { MapMode } from "../render/territory";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
@@ -21,6 +21,7 @@ interface Props {
   onExportJson: () => void;
   onExportReport: () => void;
   onHeadlessReport: () => void;
+  onPresetSweep: () => void;
   onImportSave: (text: string) => void;
   onSelectEmpire: (id: Id) => void;
   onToggleFollow: (id: Id) => void;
@@ -47,6 +48,7 @@ export function ControlPanel({
   onExportJson,
   onExportReport,
   onHeadlessReport,
+  onPresetSweep,
   onImportSave,
   onSelectEmpire,
   onToggleFollow,
@@ -148,6 +150,7 @@ export function ControlPanel({
         </div>
         <div className="btn-row">
           <button onClick={onHeadlessReport} title="Run a fresh 1k/3k/10k-tick headless simulation and download the survival/churn/war report">Headless 10k Report</button>
+          <button onClick={onPresetSweep} title="Run every galaxy preset headlessly to 3k ticks and download a comparison report (slow)">Preset Sweep</button>
         </div>
         <input
           ref={fileInputRef}
@@ -199,9 +202,15 @@ export function ControlPanel({
               <label>Shape</label>
               <select style={{ flex: 1 }} value={settings.galaxyShape ?? "spiral"} onChange={e => onSettingsChange({ galaxyShape: e.target.value as GalaxyShape })}>
                 <option value="spiral">Spiral</option>
+                <option value="barred-spiral">Barred Spiral</option>
                 <option value="disc">Disc</option>
                 <option value="hollow-disc">Hollow Disc</option>
+                <option value="elliptical">Elliptical</option>
+                <option value="irregular">Irregular</option>
                 <option value="clustered">Clustered</option>
+                <option value="hub">Hub</option>
+                <option value="web">Web</option>
+                <option value="continents">Continents</option>
                 <option value="chaos">Chaos</option>
                 <option value="grid">Grid</option>
                 <option value="string">String</option>
@@ -214,6 +223,7 @@ export function ControlPanel({
                 <option value="webbed">Webbed</option>
                 <option value="dense">Dense</option>
                 <option value="sparse">Sparse</option>
+                <option value="string">String</option>
               </select>
             </div>
             <div className="control-row">
@@ -226,6 +236,28 @@ export function ControlPanel({
                 <option value="scattered">Scattered</option>
                 <option value="rim">Rim</option>
               </select>
+            </div>
+            <div className="control-row">
+              <label>Align</label>
+              <select style={{ flex: 1 }} value={settings.gridAlignment ?? "none"} onChange={e => onSettingsChange({ gridAlignment: e.target.value as GridAlignment })}>
+                <option value="none">Free</option>
+                <option value="square">Square Grid</option>
+                <option value="hex">Hex Grid</option>
+              </select>
+            </div>
+            <div className="section-title" style={{ marginTop: 6 }}>Presets</div>
+            <div className="btn-row" style={{ flexWrap: "wrap" }}>
+              {([
+                ["Classic Spiral", { galaxyShape: "spiral", starlaneMode: "standard", empireLayout: "classic", gridAlignment: "none" }],
+                ["Ring War", { galaxyShape: "hollow-disc", starlaneMode: "webbed", empireLayout: "random-blobs", gridAlignment: "none" }],
+                ["Clustered Civs", { galaxyShape: "clustered", starlaneMode: "sparse", empireLayout: "few-big-blobs", gridAlignment: "none" }],
+                ["Trade Web", { galaxyShape: "web", starlaneMode: "webbed", empireLayout: "scattered", gridAlignment: "none" }],
+                ["Death Chain", { galaxyShape: "string", starlaneMode: "string", empireLayout: "many-one-star", gridAlignment: "none" }],
+                ["Toybox Chaos", { galaxyShape: "chaos", starlaneMode: "dense", empireLayout: "random-blobs", gridAlignment: "none" }],
+                ["Archipelago", { galaxyShape: "continents", starlaneMode: "standard", empireLayout: "few-big-blobs", gridAlignment: "none" }],
+              ] as Array<[string, Partial<SimSettings>]>).map(([name, patch]) => (
+                <button key={name} style={{ fontSize: 10 }} onClick={() => onSettingsChange(patch)} title="Applies these galaxy settings; press Reset to regenerate">{name}</button>
+              ))}
             </div>
           </div>
         </div>

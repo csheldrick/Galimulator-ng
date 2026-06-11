@@ -31,6 +31,13 @@ const TYPE_WEIGHT: Partial<Record<EventType, number>> = {
   "faction-engaged": 3,
   "faction-uprising": 8,
   "faction-dissolved": 3,
+  "dynasty-extinct": 7,
+  "succession-crisis": 6,
+  "pretender-revolt": 6,
+  "dynasty-restored": 5,
+  "dynastic-marriage": 3,
+  "heir-born": 2,
+  "heir-died": 2,
 };
 
 function biggestEmpire(snapshot: Readonly<GalaxyState>, ids: Id[]) {
@@ -65,6 +72,11 @@ function reasonFor(ev: SimEvent, snapshot: Readonly<GalaxyState>): string {
     case "empire-founded": return `${big ? big.name : "A new power"} has entered the galactic stage.`;
     case "monster-slain": return "A galactic menace has finally been put down.";
     case "religion-adopted": return `A faith has captured the soul of ${big ? big.name : "an empire"}.`;
+    case "dynasty-extinct": return `A ruling house has died out${big ? ` in ${big.name}` : ""} — the throne passes to a new line.`;
+    case "succession-crisis": return `${big ? big.name : "An empire"} is gripped by a contested succession.`;
+    case "pretender-revolt": return `A pretender has raised a claim against ${big ? big.name : "an empire"}'s throne.`;
+    case "dynasty-restored": return "A fallen dynasty has clawed its way back to power.";
+    case "dynastic-marriage": return "Two ruling houses have bound themselves by marriage.";
     default: return ev.description;
   }
 }

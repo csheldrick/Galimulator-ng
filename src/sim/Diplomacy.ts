@@ -1,4 +1,4 @@
-import type { GalaxyState, Empire, Id, RelationModifier } from "../types/sim";
+import type { GalaxyState, Empire, Id, RelationModifierInput } from "../types/sim";
 import { createEvent } from "./Events";
 import {
   addRelationModifier,
@@ -72,12 +72,9 @@ export function tryDeclareWar(
 
   rel.atWar = true;
   rel.opinion = Math.max(0, rel.opinion - 25);
-  const warMod: RelationModifier = { label: "Recent war", opinionDelta: -20, tensionDelta: 15, expiresAtTick: state.tick + 600 };
-  addRelationModifier(rel, warMod);
   const relBack = defender.relationshipByEmpireId[attacker.id];
   if (relBack) {
     relBack.atWar = true; relBack.opinion = Math.max(0, relBack.opinion - 25);
-    addRelationModifier(relBack, { ...warMod });
   }
 
   if (!attacker.activeWarEmpireIds.includes(defenderId))
@@ -85,12 +82,15 @@ export function tryDeclareWar(
   if (!defender.activeWarEmpireIds.includes(attacker.id))
     defender.activeWarEmpireIds.push(attacker.id);
 
-  createEvent(
+  const ev = createEvent(
     state, state.tick, "war-declared",
     `War: ${attacker.name} vs ${defender.name}`,
     `${attacker.name} declared war on ${defender.name}.`,
     3, [attacker.id, defenderId], []
   );
+  const warMod: RelationModifierInput = { kind: "war", label: "Recent war", opinionDelta: -20, tensionDelta: 15, expiresAtTick: state.tick + 600, sourceEventId: ev.id };
+  addRelationModifier(rel, warMod);
+  if (relBack) addRelationModifier(relBack, { ...warMod });
 }
 
 export function tryMakePeace(
@@ -111,22 +111,22 @@ export function tryMakePeace(
   rel.atWar = false;
   rel.tension = Math.max(0, rel.tension - 60);
   rel.opinion = Math.min(100, rel.opinion + 15);
-  // peace lingers as lowered tension; the recent-war grudge stays until it lapses
-  const peaceMod: RelationModifier = { label: "Recent peace", opinionDelta: 6, tensionDelta: -25, expiresAtTick: state.tick + 800 };
-  addRelationModifier(rel, peaceMod);
   const relBack = enemy.relationshipByEmpireId[empire.id];
   if (relBack) {
     relBack.atWar = false; relBack.tension = Math.max(0, relBack.tension - 60); relBack.opinion = Math.min(100, relBack.opinion + 15);
-    addRelationModifier(relBack, { ...peaceMod });
   }
 
   empire.activeWarEmpireIds = empire.activeWarEmpireIds.filter(id => id !== enemyId);
   enemy.activeWarEmpireIds = enemy.activeWarEmpireIds.filter(id => id !== empire.id);
 
-  createEvent(
+  const ev = createEvent(
     state, state.tick, "peace-signed",
     `Peace: ${empire.name} & ${enemy.name}`,
     `${empire.name} and ${enemy.name} signed a peace treaty.`,
     2, [empire.id, enemyId], []
   );
+  // peace lingers as lowered tension; the recent-war grudge stays until it lapses
+  const peaceMod: RelationModifierInput = { kind: "peace", label: "Recent peace", opinionDelta: 6, tensionDelta: -25, expiresAtTick: state.tick + 800, sourceEventId: ev.id };
+  addRelationModifier(rel, peaceMod);
+  if (relBack) addRelationModifier(relBack, { ...peaceMod });
 }

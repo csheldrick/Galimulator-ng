@@ -1,5 +1,7 @@
 # Galimulator-ng Feel Restoration Plan
 
+> **Status: Completed.** Ambient life (merchants/pilgrims/refugees/patrols), persistent markers, messier collapse with successors and refugee waves, mood expression (halos, patrols, riot refugees), map-first event glyphs/labels, local star weirdness, and empire control with authority/legitimacy/priorities/commands/consequences are implemented.
+
 ## Purpose
 
 `galimulator-ng` already has most of the obvious Galimulator-like systems: empires, fleets, wars, peace, rebellion, collapse, emergence, rulers, dynasties, religions, ideologies, coups, culture drift, trade, monsters, artifacts, crises, top stories, map modes, and god controls.

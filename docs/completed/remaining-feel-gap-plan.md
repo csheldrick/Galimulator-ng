@@ -1,5 +1,7 @@
 # Remaining Feel Gap Plan
 
+> **Status: Completed.** Relation modifier ledger drives diplomacy and the inspector breakdown; artifacts are typed persistent objects with kind-specific tick effects; empire control has flagship, spy network (4 missions), war room directives, faith and reform commands with corruption; oddities are persistent map actors; planet tags bias growth/defense/wealth and fire local events; alliances have purpose/color/emblem, a map mode, growth, and war support; headless report and preset sweep cover shape/layout metrics.
+
 ## Purpose
 
 `galimulator-ng` now has the core missing-feel layers in place:

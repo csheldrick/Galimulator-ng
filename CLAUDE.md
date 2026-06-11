@@ -29,6 +29,7 @@ The project is a browser-only, no-backend galaxy civilization sandbox. Three dis
 - **`Diplomacy.ts`** — Relationship updates, war declarations, peace treaties.
 - **`Pathing.ts`** — BFS along `connectedSystemIds` for fleet routing.
 - **`Religion.ts`**, **`Trade.ts`**, **`Crises.ts`**, **`Characters.ts`**, **`Moods.ts`** — each encapsulates one simulation subsystem. `Moods.ts` also exports display-label constants (`MOOD_LABEL`, `IDEOLOGY_LABEL`, `rulerDisplayName`) shared with the renderer and UI.
+- **`Dynasty.ts`** — First-class genealogy: `Person` and `Dynasty` graphs in `state.people`/`state.dynasties`. `foundDynasty()` stands up a ruling house around an empire's `ruler` shim (founder + consort + heirs + relatives); `stepDynasties()` replaces the old random `stepRulers` with heir-based succession (children → kin → pretenders → nobles → new house), plus rare dynastic life events (births, marriages, heir deaths, pretender revolts). `installPretender()`/`usurpThroneByName()` give coups a real claimant identity. `Empire.ruler` is kept as a display shim mirroring `rulerPersonId`. Has its own id counters (`resetDynastyCounters()`, persisted in saves) like `Events.ts`.
 - **`Events.ts`** — `createEvent()` helper plus a module-level counter (must be reset on galaxy generation via `resetEventCounter()`).
 - **`Random.ts`** — `SeededRandom` — the sole PRNG. All randomness must flow through it so replays are deterministic.
 - **`Headless.ts`** — Runs a full galaxy to configurable milestone ticks in-process with no rendering, for balance/health checks.

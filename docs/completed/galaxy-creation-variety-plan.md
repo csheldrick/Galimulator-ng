@@ -1,5 +1,7 @@
 # Galaxy Creation Variety Plan
 
+> **Status: Completed.** All 13 shapes (spiral, barred-spiral, disc, hollow-disc, elliptical, irregular, clustered, hub, web, string, continents, grid, chaos), starlane modes incl. `string`, square/hex grid alignment, shape-aware empire placement, UI presets, save/load settings, and shape metrics in the headless report + preset sweep are implemented.
+
 ## Why this matters
 
 The current `galimulator-ng` galaxy generator is spiral-only. That means different seeds vary details, but the macro-board is always the same kind of board.

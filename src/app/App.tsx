@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import type { ArtifactKind, GalaxyState, Id, SimSettings, SimEvent, EmpirePriority, SpyMission, ShipClass } from "../types/sim";
+import type { ArtifactKind, GalaxyState, Id, SimSettings, SimEvent, EmpirePriority, SpyMission, ShipClass, WarFocus  } from "../types/sim";
 import { EmpireControlPanel } from "../ui/EmpireControlPanel";
 import { Simulation } from "../sim/Simulation";
 import { GalaxyCanvas } from "../render/GalaxyCanvas";
@@ -10,7 +10,7 @@ import { GalaxyPulse } from "../ui/GalaxyPulse";
 import { EventLog } from "../ui/EventLog";
 import { TopStories } from "../ui/TopStories";
 import { MOOD_LABEL, IDEOLOGY_LABEL, rulerDisplayName } from "../sim/Moods";
-import { runHeadlessReport } from "../sim/Headless";
+import { runHeadlessReport, runPresetSweep } from "../sim/Headless";
 import "./App.css";
 
 const DEFAULT_SETTINGS: SimSettings = { seed: 42, numStars: 400, numEmpires: 12, ticksPerSecond: 4 };
@@ -176,10 +176,12 @@ export default function App() {
   const handleSponsorColonization = useCallback((sid: Id) => { withRefresh(() => sim.commandSponsorColonization(sid)); }, [sim, withRefresh]);
   const handleAdoptReligion = useCallback((rid: Id) => { withRefresh(() => sim.commandAdoptReligion(rid)); }, [sim, withRefresh]);
   const handleReformGovernment = useCallback(() => { withRefresh(() => sim.commandReformGovernment()); }, [sim, withRefresh]);
+  const handleSetWarDirective = useCallback((eid: Id, focus: WarFocus) => { withRefresh(() => sim.commandSetWarDirective(eid, focus)); }, [sim, withRefresh]);
 
   const handleExportJson = useCallback(() => { const snap = sim.getSnapshot(); downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.json`, sim.exportSave(), "application/json"); }, [sim]);
   const handleExportReport = useCallback(() => { const snap = sim.getSnapshot(); downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.md`, buildReport(snap), "text/markdown"); }, [sim]);
   const handleHeadlessReport = useCallback(() => { const text = runHeadlessReport(settings); downloadText(`galimulator-ng-${settings.seed}-headless.md`, text, "text/markdown"); }, [settings]);
+  const handlePresetSweep = useCallback(() => { const text = runPresetSweep(settings); downloadText(`galimulator-ng-${settings.seed}-preset-sweep.md`, text, "text/markdown"); }, [settings]);
   const handleImportSave = useCallback((text: string) => {
     const error = sim.importSave(text);
     if (error) { window.alert(error); return; }
@@ -209,6 +211,7 @@ export default function App() {
       onSponsorColonization={handleSponsorColonization}
       onAdoptReligion={handleAdoptReligion}
       onReformGovernment={handleReformGovernment}
+      onSetWarDirective={handleSetWarDirective}
     />
   );
 
@@ -227,7 +230,7 @@ export default function App() {
           </div>
           <div className="bottom-tab-body">
             {bottomTab === "control" ? (
-              <ControlPanel snapshot={snapshot} selectedEmpireId={selectedEmpireId} followEmpireId={followEmpireId} running={running} onStart={handleStart} onPause={handlePause} onStep={handleStep} onRunTicks={handleRunTicks} onReset={handleReset} onNewSeed={handleNewSeed} onResetCamera={() => setResetCameraToken(t => t + 1)} onExportJson={handleExportJson} onExportReport={handleExportReport} onHeadlessReport={handleHeadlessReport} onImportSave={handleImportSave} onSelectEmpire={handleSelectEmpire} onToggleFollow={handleToggleFollow} settings={settings} onSettingsChange={handleSettingsChange} viewOptions={viewOptions} onViewOptionsChange={setViewOptions} />
+              <ControlPanel snapshot={snapshot} selectedEmpireId={selectedEmpireId} followEmpireId={followEmpireId} running={running} onStart={handleStart} onPause={handlePause} onStep={handleStep} onRunTicks={handleRunTicks} onReset={handleReset} onNewSeed={handleNewSeed} onResetCamera={() => setResetCameraToken(t => t + 1)} onExportJson={handleExportJson} onExportReport={handleExportReport} onHeadlessReport={handleHeadlessReport} onPresetSweep={handlePresetSweep} onImportSave={handleImportSave} onSelectEmpire={handleSelectEmpire} onToggleFollow={handleToggleFollow} settings={settings} onSettingsChange={handleSettingsChange} viewOptions={viewOptions} onViewOptionsChange={setViewOptions} />
             ) : empireControl}
           </div>
         </div>

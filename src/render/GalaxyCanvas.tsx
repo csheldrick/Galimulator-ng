@@ -71,14 +71,71 @@ const ODDITY_GLYPH: Record<Oddity["kind"], string> = {
   "void-gate": "◎",
 };
 
+//const ODDITY_COLOR: Record<Oddity["kind"], string> = {
+//  "star-eater": "#ff5a5a",
+//  "puppet-mind": "#c77dff",
+//  "sloth-cloud": "#9aa6b8",
+//  "replicator": "#8ef0a6",
+//  "void-gate": "#6ee7ff",
+//};
+
 const ODDITY_COLOR: Record<Oddity["kind"], string> = {
-  "star-eater": "#ff5a5a",
-  "puppet-mind": "#c77dff",
-  "sloth-cloud": "#9aa6b8",
-  "replicator": "#8ef0a6",
-  "void-gate": "#6ee7ff",
+  "star-eater": "#ff5d8f",
+  "puppet-mind": "#d0a2ff",
+  "sloth-cloud": "#8fb8a8",
+  "replicator": "#ffd166",
+  "void-gate": "#74e0ff",
 };
 
+function drawOddity(ctx: CanvasRenderingContext2D, oddity: Oddity, sx: number, sy: number, zoom: number, now: number) {
+  const color = ODDITY_COLOR[oddity.kind];
+  const pulse = 1 + Math.sin(now / 350 + oddity.spawnedTick) * 0.2;
+  const r = Math.max(5, (6 + oddity.strength / 14) * zoom) * pulse;
+  ctx.save();
+  ctx.translate(sx, sy);
+  if (oddity.kind === "sloth-cloud") {
+    // soft layered haze
+    for (let k = 3; k >= 1; k--) {
+      ctx.beginPath();
+      ctx.arc(0, 0, r * k * 0.8, 0, Math.PI * 2);
+      ctx.fillStyle = colorWithAlpha(color, 0.07 * k);
+      ctx.fill();
+    }
+  } else if (oddity.kind === "void-gate") {
+    // a slowly rotating tear
+    ctx.rotate(now / 1400);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 1.4, r * 0.45, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = colorWithAlpha(color, 0.9);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 0.7, r * 0.22, 0, 0, Math.PI * 2);
+    ctx.fillStyle = colorWithAlpha("#04060c", 0.95);
+    ctx.fill();
+  } else {
+    // angular sigil: diamond with inner spin
+    ctx.rotate(now / 700);
+    ctx.beginPath();
+    ctx.moveTo(0, -r); ctx.lineTo(r * 0.8, 0); ctx.lineTo(0, r); ctx.lineTo(-r * 0.8, 0);
+    ctx.closePath();
+    ctx.fillStyle = colorWithAlpha(color, 0.75);
+    ctx.strokeStyle = "rgba(0,0,0,0.8)";
+    ctx.lineWidth = 1.5;
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+  if (zoom > 0.8) {
+    ctx.font = "italic 10px monospace";
+    ctx.textAlign = "center";
+    ctx.fillStyle = colorWithAlpha(color, 0.9);
+    ctx.fillText(oddity.name, sx, sy + r + 14);
+    ctx.textAlign = "left";
+  }
+}
+
+>>>>>>> 39778dd220a6e50bcdc51c7dc724c9c76b9d4760
 function drawMonster(ctx: CanvasRenderingContext2D, monster: Monster, sx: number, sy: number, zoom: number, now: number) {
   const pulse = 1 + Math.sin(now / 220 + monster.x) * 0.15;
   const r = Math.max(4, (5 + monster.strength / 12) * zoom) * pulse;
@@ -379,12 +436,18 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
             : fleet.kind === "pilgrim" ? "rgba(200,240,200,0.88)"
             : fleet.kind === "refugee" ? "rgba(200,200,255,0.82)"
             : fleet.kind === "quest" ? "rgba(180,220,255,0.9)"
-            : fleet.kind === "patrol" ? "rgba(180,245,255,0.92)"
+            : fleet.kind === "flagship" ? "rgba(255,215,80,0.95)"
+            : fleet.kind === "patrol" ? "rgba(170,210,255,0.85)"
             : "rgba(220,245,255,0.9)";
           ctx.fillStyle = fleetFill;
           ctx.strokeStyle = fleet.id === selectedFleetId ? SELECTION_COLOR : owner.color;
           ctx.lineWidth = fleet.id === selectedFleetId ? 2.5 : selected ? 1.5 : 1;
           ctx.fill(); ctx.stroke(); ctx.restore();
+          if (fleet.kind === "flagship") {
+            // royal ring so the ruler's ship reads as unique on the map
+            ctx.beginPath(); ctx.arc(sx, sy, size + 5, 0, Math.PI * 2);
+            ctx.strokeStyle = "rgba(255,215,80,0.7)"; ctx.lineWidth = 1.5; ctx.stroke();
+          }
 
           if (fleet.id === selectedFleetId) {
             ctx.font = "11px monospace";

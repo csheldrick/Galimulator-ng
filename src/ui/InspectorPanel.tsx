@@ -1,7 +1,9 @@
-import type { GalaxyState, Id, RulerLineageEntry } from "../types/sim";
+import type { GalaxyState, Id, RulerLineageEntry, Empire, Person } from "../types/sim";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL, TRAIT_LABEL } from "../sim/Characters";
+import { lineageChain, livingDynastyCount, dynastyMembers, personDisplayName } from "../sim/Dynasty";
 import { GOVERNMENT_LABEL } from "../sim/Galaxy";
+import { ARTIFACT_LABEL } from "../sim/Artifacts";
 import { eventColor } from "../render/colors";
 import { effectiveOpinion, effectiveTension, activeModifiers } from "../sim/Relations";
 
@@ -68,6 +70,51 @@ function lineageSpan(ruler: RulerLineageEntry) {
   return ruler.endTick === undefined ? `${ruler.accessionTick}-present` : `${ruler.accessionTick}-${ruler.endTick}`;
 }
 
+/** Ruler identity, ruling house, heir, predecessor/parent ties, and a compact lineage chain. */
+function LineageSection({ snapshot, emp }: { snapshot: Readonly<GalaxyState>; emp: Empire }) {
+  const people = snapshot.people ?? {};
+  const ruler: Person | null = emp.rulerPersonId ? people[emp.rulerPersonId] ?? null : null;
+  const dynasty = emp.dynastyId ? snapshot.dynasties?.[emp.dynastyId] ?? null : null;
+  const dynastyName = dynasty?.name ?? emp.ruler.dynasty;
+
+  // Heir apparent: strongest-claim living member of the ruling house (not the ruler).
+  const heir = emp.dynastyId
+    ? dynastyMembers(snapshot, emp.dynastyId, { aliveOnly: true })
+        .filter(p => p.id !== emp.rulerPersonId && p.role !== "consort" && (p.empireId === emp.id || p.empireId === null))
+        .sort((a, b) => b.claimStrength - a.claimStrength)[0] ?? null
+    : null;
+
+  // Predecessor on the throne, and the ruler's parent (for "child of …" flavor).
+  const predecessor = ruler?.predecessorPersonId ? people[ruler.predecessorPersonId] ?? null : null;
+  const rulerParent = ruler?.parentIds.map(id => people[id]).find(Boolean) ?? null;
+
+  const livingHouse = livingDynastyCount(snapshot, emp.dynastyId);
+  const chain = lineageChain(snapshot, emp, 6);
+
+  return (
+    <>
+      <div className="info-row"><span>Ruler</span><span>{ruler ? personDisplayName(ruler) : rulerDisplayName(emp)}</span></div>
+      <div className="info-row"><span>House</span><span>{dynastyName}{dynasty ? <small style={{ opacity: 0.6 }}> · since {dynasty.foundedTick} · prestige {fmt(dynasty.prestige, 0)}</small> : null}</span></div>
+      {rulerParent && <div className="info-row"><span>Parentage</span><span>{ruler && ruler.gender === "female" ? "daughter" : ruler && ruler.gender === "male" ? "son" : "child"} of {personDisplayName(rulerParent)}</span></div>}
+      {!rulerParent && predecessor && <div className="info-row"><span>Succeeded</span><span>{personDisplayName(predecessor)}</span></div>}
+      <div className="info-row"><span>Heir</span><span>{heir ? <>{personDisplayName(heir)} <small style={{ opacity: 0.6 }}>· claim {fmt(heir.claimStrength, 2)}</small></> : <em style={{ opacity: 0.6 }}>none — no clear successor</em>}</span></div>
+      <div className="info-row"><span>House members</span><span>{livingHouse} living</span></div>
+      {chain.length > 1 && (
+        <div className="info-row" style={{ alignItems: "flex-start" }}>
+          <span>Lineage</span>
+          <span style={{ textAlign: "right" }}>
+            {chain.map((p, i) => (
+              <span key={p.id} style={{ opacity: i === 0 ? 1 : 0.55 - i * 0.05 }}>
+                {i > 0 ? " ← " : ""}{p.title} {p.name}
+              </span>
+            ))}
+          </span>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function InspectorPanel({
   snapshot, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, onSelectEmpire, onSelectSystem, onSelectFleet, onClearSelection, onCancelFleet, onToggleFollow,
   onBoostSystem, onDevastateSystem, onNeutralizeSystem, onFoundEmpire, onBoostEmpire, onWeakenEmpire, onInflameEmpire, onPacifyEmpire, onForceWar, onForcePeace, onForceMerge,
@@ -130,7 +177,14 @@ export function InspectorPanel({
         <div className="info-row"><span>Population</span><span>{fmt(empList.reduce((s, e) => s + e.population, 0) / 1000, 0)}K</span></div>
         <div className="info-row"><span>Trade routes</span><span>{Object.keys(snapshot.tradeRoutes).length}</span></div>
         <div className="info-row"><span>Monsters</span><span>{Object.keys(snapshot.monsters).length}</span></div>
-        <div className="info-row"><span>Oddities</span><span>{Object.keys(snapshot.oddities ?? {}).length}</span></div>
+        {Object.values(snapshot.oddities ?? {}).length > 0 && (
+          <>
+            <h4>Space Oddities</h4>
+            {Object.values(snapshot.oddities ?? {}).map(o => (
+              <div key={o.id} className="info-row"><span>{o.name}</span><span style={{ opacity: 0.7 }}>{o.kind.replace(/-/g, " ")}</span></div>
+            ))}
+          </>
+        )}
         <h4>Faiths</h4>
         {Object.values(snapshot.religions).map(r => {
           const worlds = Object.values(snapshot.systems).filter(s => s.religionId === r.id).length;
@@ -154,6 +208,9 @@ export function InspectorPanel({
           <div className="info-row"><span>Stability</span><span>{fmt(sys.stability)}</span></div>
           <div className="info-row"><span>Tech</span><span>{fmt(sys.techLevel)}</span></div>
           <div className="info-row"><span>Faith</span><span>{sys.religionId ? (snapshot.religions[sys.religionId]?.name ?? "?") : "None"}</span></div>
+          {sys.minorityReligionId && snapshot.religions[sys.minorityReligionId] && (
+            <div className="info-row"><span>Minority faith</span><span style={{ opacity: 0.75 }}>{snapshot.religions[sys.minorityReligionId]?.name}</span></div>
+          )}
           {emp && <div className="info-row"><span>Culture</span><span>{sys.cultureId === emp.cultureId ? "Assimilated" : "Foreign"}</span></div>}
           {sysFaction && <div className="info-row"><span>Faction</span><span>{sysFaction.name} <small style={{ opacity: 0.6 }}>· {Math.round(sysFaction.uprisingProgress * 100)}%</small></span></div>}
           {sys.artifactName && <div className="info-row"><span>Artifact</span><span>◆ {sys.artifactName}</span></div>}
@@ -167,6 +224,19 @@ export function InspectorPanel({
               ))}
             </>
           )}
+          {(() => {
+            const artifact = sys.artifactId ? snapshot.artifacts?.[sys.artifactId] : null;
+            if (!artifact) return null;
+            const ownerName = artifact.ownerEmpireId ? snapshot.empires[artifact.ownerEmpireId]?.name : null;
+            return (
+              <div className="event-mini" style={{ borderLeft: "3px solid rgba(255,224,130,0.6)", paddingLeft: 5, fontSize: 10, marginBottom: 3 }}>
+                {ARTIFACT_LABEL[artifact.kind]} · {artifact.origin}
+                {artifact.discoveredTick === undefined && artifact.origin === "precursor" ? " · undiscovered" : ""}
+                {ownerName ? ` · held by ${ownerName}` : ""}
+                {artifact.capturedTick !== undefined ? ` · captured t${artifact.capturedTick}` : artifact.origin === "built" ? ` · built t${artifact.createdTick}` : ""}
+              </div>
+            );
+          })()}
           {sys.planets && sys.planets.length > 0 && (
             <div className="info-row"><span>Worlds</span><span style={{ fontSize: 10, color: "rgba(200,220,255,0.7)" }}>{sys.planets.join(", ")}</span></div>
           )}
@@ -213,6 +283,8 @@ export function InspectorPanel({
               })}
             </>
           )}
+
+          <LineageSection snapshot={snapshot} emp={emp} />
           {emp.court && emp.court.length > 0 && (
             <>
               <h4>Court</h4>
