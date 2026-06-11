@@ -434,6 +434,35 @@ export class Simulation {
     this._touch();
   }
 
+  /** Ship builder: spawn a military patrol ship of the chosen class at a star, for its owner. */
+  buildShipAtSystem(systemId: Id, shipClass: ShipClass): Id | null {
+    const sys = this.state.systems[systemId];
+    if (!sys || !sys.ownerEmpireId) return null;
+    const owner = this.state.empires[sys.ownerEmpireId];
+    if (!owner) return null;
+    const mods: Record<ShipClass, { speed: number; strength: number }> = {
+      settler: { speed: 1, strength: 1 }, raider: { speed: 1.45, strength: 0.6 },
+      strike: { speed: 1, strength: 1 }, armada: { speed: 0.7, strength: 1.9 },
+    };
+    const m = mods[shipClass];
+    const base = (shipClass === "armada" ? 30 : shipClass === "raider" ? 13 : 20) + owner.techLevel * 8;
+    const strength = base * m.strength;
+    const hull = Math.max(8, strength * 0.6);
+    const id = `fleet-built-${this.state.tick}-${Object.keys(this.state.fleets).length}-${this.rng.nextInt(0, 9999)}`;
+    const banner = owner.name.split(" ")[0] ?? "Imperial";
+    this.state.fleets[id] = {
+      id, name: `${banner} ${shipClass[0].toUpperCase()}${shipClass.slice(1)} at ${sys.name}`, kind: "patrol", shipClass,
+      ownerEmpireId: owner.id, originSystemId: sys.id, targetSystemId: sys.id,
+      path: [sys.id], legIndex: 0, legProgress: 1, totalDist: 1,
+      x: sys.x, y: sys.y, progress: 1,
+      speed: (this.rng.range(1.4, 2.8) + owner.techLevel * 0.5) * m.speed,
+      strength, createdTick: this.state.tick, hp: hull, maxHp: hull, level: 1, xp: 0,
+    };
+    createEvent(this.state, this.state.tick, "golden-age", `${owner.name} commissioned a ${shipClass}`, `A ${shipClass} was raised at ${sys.name} by divine command.`, 1, [owner.id], [sys.id]);
+    this._touch();
+    return id;
+  }
+
   weakenEmpire(empireId: Id): void { const emp = this.state.empires[empireId]; if (!emp) return; emp.wealth = Math.max(0, emp.wealth * 0.4); emp.cohesion = Math.max(0.05, emp.cohesion - 0.35); emp.militaryBonus = Math.max(0, (emp.militaryBonus ?? 0) * 0.45); emp.militaryStrength = Math.max(1, emp.militaryStrength * 0.45); for (const sysId of emp.ownedSystemIds) { const sys = this.state.systems[sysId]; if (sys) sys.stability = Math.max(0.05, sys.stability - 0.15); } createEvent(this.state, this.state.tick, "empire-collapsed", `${emp.name} destabilized`, `${emp.name} was weakened by outside forces.`, 3, [emp.id], emp.ownedSystemIds.slice(0, 8)); this._touch(); }
 
   // Relationship/war mutations shared by god controls and empire-control commands.

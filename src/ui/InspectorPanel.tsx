@@ -1,4 +1,4 @@
-import type { GalaxyState, Id, Empire, Person, EmpireAdjustableProperty, EmpireMood, Ideology, CharacterTrait, TotemKind } from "../types/sim";
+import type { GalaxyState, Id, Empire, Person, EmpireAdjustableProperty, EmpireMood, Ideology, CharacterTrait, TotemKind, ShipClass } from "../types/sim";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL, TRAIT_LABEL } from "../sim/Characters";
 import { lineageChain, livingDynastyCount, dynastyMembers, personDisplayName } from "../sim/Dynasty";
@@ -41,6 +41,7 @@ interface Props {
   onSetEmpireIdeology: (id: Id, ideology: Ideology) => void;
   onToggleRulerTrait: (id: Id, trait: CharacterTrait) => void;
   onSetSystemTotem: (id: Id, totem: TotemKind | null) => void;
+  onBuildShip: (id: Id, shipClass: ShipClass) => void;
   onForceWar: (a: Id, b: Id) => void;
   onForcePeace: (a: Id, b: Id) => void;
   onForceMerge: (dominant: Id, absorbed: Id) => void;
@@ -59,6 +60,9 @@ const RULER_TRAITS: CharacterTrait[] = ["bright", "dull", "mechanic", "mutineer"
 const TOTEMS: { kind: TotemKind; label: string }[] = [
   { kind: "prosperity", label: "Prosperity" }, { kind: "order", label: "Order" }, { kind: "war", label: "War" },
   { kind: "faith", label: "Faith" }, { kind: "growth", label: "Growth" },
+];
+const SHIP_CLASSES: { cls: ShipClass; label: string }[] = [
+  { cls: "raider", label: "Raider" }, { cls: "strike", label: "Strike" }, { cls: "armada", label: "Armada" },
 ];
 
 const EMPIRE_ADJUST_STATS: { prop: EmpireAdjustableProperty; label: string; get: (e: Empire) => number; dec: number }[] = [
@@ -136,7 +140,7 @@ function LineageSection({ snapshot, emp }: { snapshot: Readonly<GalaxyState>; em
 
 export function InspectorPanel({
   snapshot, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, onSelectEmpire, onSelectSystem, onSelectFleet, onClearSelection, onCancelFleet, onToggleFollow,
-  onBoostSystem, onDevastateSystem, onNeutralizeSystem, onFoundEmpire, onBoostEmpire, onStabilizeEmpire, onWeakenEmpire, onInflameEmpire, onPacifyEmpire, onAdjustEmpire, onSetEmpireMood, onSetEmpireIdeology, onToggleRulerTrait, onSetSystemTotem, onForceWar, onForcePeace, onForceMerge,
+  onBoostSystem, onDevastateSystem, onNeutralizeSystem, onFoundEmpire, onBoostEmpire, onStabilizeEmpire, onWeakenEmpire, onInflameEmpire, onPacifyEmpire, onAdjustEmpire, onSetEmpireMood, onSetEmpireIdeology, onToggleRulerTrait, onSetSystemTotem, onBuildShip, onForceWar, onForcePeace, onForceMerge,
 }: Props) {
   const fleet = selectedFleetId ? snapshot.fleets[selectedFleetId] : null;
   const sys = !fleet && selectedSystemId ? snapshot.systems[selectedSystemId] : null;
@@ -278,6 +282,11 @@ export function InspectorPanel({
               <option value="">None</option>
               {TOTEMS.map(t => <option key={t.kind} value={t.kind}>{t.label}</option>)}
             </select>
+          </div>
+          <div className="god-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            {SHIP_CLASSES.map(s => (
+              <button key={s.cls} disabled={!sys.ownerEmpireId} title={sys.ownerEmpireId ? `Build a ${s.label}` : "Build needs an owning empire"} onClick={() => onBuildShip(sys.id, s.cls)}>{s.label}</button>
+            ))}
           </div>
           {sys.recentEventIds.length > 0 && <><h4>Recent Events</h4>{[...sys.recentEventIds].reverse().slice(0, 5).map(eid => { const ev = snapshot.events[eid]; return ev ? <div key={eid} className="event-mini" style={{ borderLeft: `3px solid ${eventColor(ev.type)}`, paddingLeft: 5 }}>{ev.title}</div> : null; })}</>}
         </>
