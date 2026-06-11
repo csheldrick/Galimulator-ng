@@ -37,7 +37,15 @@ export type EventType =
   | "character-rose"
   | "character-fell"
   | "alliance-formed"
-  | "alliance-dissolved";
+  | "alliance-dissolved"
+  | "dynasty-founded"
+  | "heir-born"
+  | "dynastic-marriage"
+  | "heir-died"
+  | "succession-crisis"
+  | "pretender-revolt"
+  | "dynasty-restored"
+  | "dynasty-extinct";
 
 export interface SimEvent {
   id: Id;
@@ -250,6 +258,68 @@ export interface Ruler {
   dynasty: string;
   ordinal: number;
   accessionTick: number;
+  /** The Person in `state.people` this throne-shim mirrors. Optional for legacy saves. */
+  personId?: Id;
+}
+
+/** Where a person sits in the social graph of a dynasty. */
+export type PersonRole =
+  | "ruler"
+  | "consort"
+  | "heir"
+  | "relative"
+  | "noble"
+  | "pretender";
+
+export type Gender = "male" | "female";
+
+/** A first-class human (or alien) being: the atoms of dynastic lineage. People are born,
+ *  marry, have children, claim thrones, and die — and persist in `state.people` as a graph. */
+export interface Person {
+  id: Id;
+  name: string;
+  gender: Gender;
+  dynastyId: Id;
+  role: PersonRole;
+  title: string;
+  bornTick: number;
+  diedTick?: number;
+  deathReason?: string;
+  /** Parents within the people graph (0, 1, or 2 entries). */
+  parentIds: Id[];
+  /** Marriages — usually one, occasionally dynastic unions across empires. */
+  spouseIds: Id[];
+  childIds: Id[];
+  /** 0..1 strength of claim to a throne. Drives succession ordering. */
+  claimStrength: number;
+  /** 0..1 allegiance to the current ruler. Low loyalty breeds pretenders. */
+  loyalty: number;
+  /** 0..1 competence as a ruler. */
+  skill: number;
+  /** 0..1 fame. */
+  renown: number;
+  /** Empire this person belongs to, or null if stateless/exiled. */
+  empireId: Id | null;
+  alive: boolean;
+  /** The ruler who reigned immediately before this person, when this person took a throne.
+   *  Lets the UI walk a chronological chain of rulers regardless of blood relation. */
+  predecessorPersonId?: Id;
+}
+
+/** A ruling house: a named lineage that can span generations and even branch into
+ *  multiple empires, rise, fall, be restored, or die out entirely. */
+export interface Dynasty {
+  id: Id;
+  name: string;
+  founderPersonId: Id;
+  foundedTick: number;
+  /** Empires this house currently rules (a dynasty can branch across several). */
+  rulingEmpireIds: Id[];
+  /** 0..100 standing of the house; grows with long reigns, falls with coups/extinction. */
+  prestige: number;
+  historicalEventIds: Id[];
+  /** Tick the last member died, if the house has gone extinct. */
+  extinctTick?: number;
 }
 
 /** Named figures who serve below the ruler and give an empire its supporting cast. */
@@ -313,6 +383,10 @@ export interface Empire {
   moodSince: number;
   ideology: Ideology;
   ruler: Ruler;
+  /** The reigning monarch's Person in `state.people`. Mirrors `ruler` for display. */
+  rulerPersonId?: Id;
+  /** The ruling house in `state.dynasties`. */
+  dynastyId?: Id;
   /** Supporting cast: admirals, ministers, prophets, and would-be pretenders. */
   court: Character[];
   capitalSystemId: Id;
@@ -464,6 +538,10 @@ export interface GalaxyState {
   playerControl: PlayerControlState;
   artifacts?: Record<Id, Artifact>;
   oddities?: Record<Id, Oddity>;
+  /** First-class people: rulers, heirs, consorts, relatives, nobles, pretenders. */
+  people?: Record<Id, Person>;
+  /** Ruling houses keyed by id. */
+  dynasties?: Record<Id, Dynasty>;
 }
 
 export interface SimSettings {
@@ -485,5 +563,8 @@ export interface SaveFile {
   eventCounter: number;
   /** Sequence for relation-modifier ids so post-load entries never collide. Optional for older saves. */
   modifierCounter?: number;
+  /** Sequences for person/dynasty ids so post-load entries never collide. Optional for older saves. */
+  personCounter?: number;
+  dynastyCounter?: number;
   state: GalaxyState;
 }

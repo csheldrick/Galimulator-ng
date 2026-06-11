@@ -1,6 +1,7 @@
-import type { GalaxyState, Id } from "../types/sim";
+import type { GalaxyState, Id, Empire, Person } from "../types/sim";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL } from "../sim/Characters";
+import { lineageChain, livingDynastyCount, dynastyMembers, personDisplayName } from "../sim/Dynasty";
 import { GOVERNMENT_LABEL } from "../sim/Galaxy";
 import { ARTIFACT_LABEL } from "../sim/Artifacts";
 import { eventColor } from "../render/colors";
@@ -43,6 +44,51 @@ const MARKER_GLYPH: Record<string, string> = {
 
 function fmt(n: number, dec = 1) { return n.toFixed(dec); }
 function eta(progress: number, totalDist: number, speed: number) { return Math.max(0, Math.ceil(((1 - progress) * totalDist) / Math.max(0.001, speed))); }
+
+/** Ruler identity, ruling house, heir, predecessor/parent ties, and a compact lineage chain. */
+function LineageSection({ snapshot, emp }: { snapshot: Readonly<GalaxyState>; emp: Empire }) {
+  const people = snapshot.people ?? {};
+  const ruler: Person | null = emp.rulerPersonId ? people[emp.rulerPersonId] ?? null : null;
+  const dynasty = emp.dynastyId ? snapshot.dynasties?.[emp.dynastyId] ?? null : null;
+  const dynastyName = dynasty?.name ?? emp.ruler.dynasty;
+
+  // Heir apparent: strongest-claim living member of the ruling house (not the ruler).
+  const heir = emp.dynastyId
+    ? dynastyMembers(snapshot, emp.dynastyId, { aliveOnly: true })
+        .filter(p => p.id !== emp.rulerPersonId && p.role !== "consort" && (p.empireId === emp.id || p.empireId === null))
+        .sort((a, b) => b.claimStrength - a.claimStrength)[0] ?? null
+    : null;
+
+  // Predecessor on the throne, and the ruler's parent (for "child of …" flavor).
+  const predecessor = ruler?.predecessorPersonId ? people[ruler.predecessorPersonId] ?? null : null;
+  const rulerParent = ruler?.parentIds.map(id => people[id]).find(Boolean) ?? null;
+
+  const livingHouse = livingDynastyCount(snapshot, emp.dynastyId);
+  const chain = lineageChain(snapshot, emp, 6);
+
+  return (
+    <>
+      <div className="info-row"><span>Ruler</span><span>{ruler ? personDisplayName(ruler) : rulerDisplayName(emp)}</span></div>
+      <div className="info-row"><span>House</span><span>{dynastyName}{dynasty ? <small style={{ opacity: 0.6 }}> · since {dynasty.foundedTick} · prestige {fmt(dynasty.prestige, 0)}</small> : null}</span></div>
+      {rulerParent && <div className="info-row"><span>Parentage</span><span>{ruler && ruler.gender === "female" ? "daughter" : ruler && ruler.gender === "male" ? "son" : "child"} of {personDisplayName(rulerParent)}</span></div>}
+      {!rulerParent && predecessor && <div className="info-row"><span>Succeeded</span><span>{personDisplayName(predecessor)}</span></div>}
+      <div className="info-row"><span>Heir</span><span>{heir ? <>{personDisplayName(heir)} <small style={{ opacity: 0.6 }}>· claim {fmt(heir.claimStrength, 2)}</small></> : <em style={{ opacity: 0.6 }}>none — no clear successor</em>}</span></div>
+      <div className="info-row"><span>House members</span><span>{livingHouse} living</span></div>
+      {chain.length > 1 && (
+        <div className="info-row" style={{ alignItems: "flex-start" }}>
+          <span>Lineage</span>
+          <span style={{ textAlign: "right" }}>
+            {chain.map((p, i) => (
+              <span key={p.id} style={{ opacity: i === 0 ? 1 : 0.55 - i * 0.05 }}>
+                {i > 0 ? " ← " : ""}{p.title} {p.name}
+              </span>
+            ))}
+          </span>
+        </div>
+      )}
+    </>
+  );
+}
 
 export function InspectorPanel({
   snapshot, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, onSelectEmpire, onSelectSystem, onSelectFleet, onClearSelection, onCancelFleet, onToggleFollow,
@@ -180,8 +226,7 @@ export function InspectorPanel({
             <div key={al.id} className="info-row"><span>Alliance</span><span style={{ color: al.color ?? "inherit" }}>{al.emblem ?? "◇"} {al.name} <small style={{ opacity: 0.6 }}>· {ALLIANCE_PURPOSE_LABEL[al.purpose ?? "defensive"]} · {al.memberEmpireIds.length} · {snapshot.tick - al.formedTick}t</small></span></div>
           ))}
           <div className="info-row"><span>Trade</span><span>{Object.values(snapshot.tradeRoutes).filter(r => r.empireAId === emp.id || r.empireBId === emp.id).length} routes</span></div>
-          <div className="info-row"><span>Ruler</span><span>{rulerDisplayName(emp)}</span></div>
-          <div className="info-row"><span>Dynasty</span><span>{emp.ruler.dynasty} (since {emp.ruler.accessionTick})</span></div>
+          <LineageSection snapshot={snapshot} emp={emp} />
           {emp.court && emp.court.length > 0 && (
             <>
               <h4>Court</h4>

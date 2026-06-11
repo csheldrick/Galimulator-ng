@@ -54,7 +54,16 @@ export function eventColor(type: EventType): string {
     case "monster-spawned": return "rgba(255,90,90,0.75)";
     case "rebellion":
     case "coup":
+    case "succession-crisis":
+    case "pretender-revolt":
+    case "dynasty-extinct":
     case "galactic-crisis": return "rgba(255,210,90,0.75)";
+    case "succession":
+    case "dynasty-founded":
+    case "heir-born":
+    case "dynastic-marriage":
+    case "dynasty-restored": return "rgba(255,200,160,0.7)";
+    case "heir-died": return "rgba(200,160,140,0.6)";
     case "golden-age":
     case "technology-breakthrough":
     case "artifact-discovered":

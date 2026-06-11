@@ -33,6 +33,14 @@ const TYPE_COLORS: Record<string, string> = {
   "coup": "#f15bb5",
   "character-rose": "#ffe066",
   "character-fell": "#9aa5b8",
+  "dynasty-founded": "#ffc8a0",
+  "heir-born": "#ffd6c0",
+  "dynastic-marriage": "#ffb3d9",
+  "heir-died": "#c89c8c",
+  "succession-crisis": "#ffaa66",
+  "pretender-revolt": "#ff8c66",
+  "dynasty-restored": "#a0e0c0",
+  "dynasty-extinct": "#b08c9c",
 };
 
 export function EventLog({

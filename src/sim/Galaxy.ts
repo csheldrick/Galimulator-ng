@@ -1,10 +1,11 @@
-import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler, Religion } from "../types/sim";
+import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler, Religion, Person, Dynasty } from "../types/sim";
 import type { GalaxyShape, StarlaneMode, EmpireLayout, GridAlignment, PlanetTag, GovernmentType } from "../types/sim";
 import { resetEventCounter } from "./Events";
 import { resetModifierSeq } from "./Relations";
 import { makeReligion } from "./Religion";
 import { IDEOLOGIES } from "./Moods";
 import { makeCourt, resetCharacterCounter } from "./Characters";
+import { foundDynasty, resetDynastyCounters } from "./Dynasty";
 
 const SYLLABLES = [
   "al","ar","an","ax","az","bar","bel","cer","cor","den","dor","el","en",
@@ -579,6 +580,7 @@ export function generateGalaxy(
   resetEventCounter();
   resetModifierSeq();
   resetCharacterCounter();
+  resetDynastyCounters();
   const WIDTH = 1200;
   const HEIGHT = 900;
   const systems: Record<Id, StarSystem> = {};
@@ -639,6 +641,8 @@ export function generateGalaxy(
   const capitals = pickEmpireCapitals(sorted, numEmpires, empireLayout, rng, galaxyShape);
 
   const empires: Record<Id, Empire> = {};
+  const people: Record<Id, Person> = {};
+  const dynasties: Record<Id, Dynasty> = {};
   const colors = [...EMPIRE_COLORS];
   for (let i = colors.length - 1; i > 0; i--) {
     const j = rng.nextInt(0, i);
@@ -684,11 +688,14 @@ export function generateGalaxy(
       governmentType: govType,
     };
     empires[empId] = empire;
+    // Stand up the ruling house around the freshly-minted ruler shim.
+    foundDynasty({ people, dynasties }, empire, 0, rng);
   }
 
   return {
     tick: 0, seed, systems, empires, fleets: {}, religions, tradeRoutes: {},
     monsters: {}, events: {}, eventLog: [], alliances: {}, oddities: {},
+    people, dynasties,
     playerControl: { controlledEmpireId: null, mode: "observer", authority: 100, legitimacy: 75, commandCooldowns: {} },
   };
 }
