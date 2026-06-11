@@ -19,9 +19,14 @@ html, body, #root { width: 100%; height: 100%; overflow: hidden; background: var
 .main-stage { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .canvas-area { flex: 1; min-width: 0; overflow: hidden; position: relative; }
 .right-panel { width: 330px; min-width: 300px; height: 100%; display: flex; flex-direction: column; border-left: 1px solid var(--panel-border); background: var(--panel-bg); overflow: hidden; }
-.bottom-hud { height: 250px; flex-shrink: 0; display: grid; grid-template-columns: minmax(720px, 1.65fr) minmax(380px, 0.9fr); gap: 0; border-top: 1px solid var(--panel-border); background: rgba(9,14,22,0.98); box-shadow: 0 -10px 26px rgba(0,0,0,0.34); overflow: hidden; }
+.bottom-hud { height: 250px; flex-shrink: 0; border-top: 1px solid var(--panel-border); background: rgba(9,14,22,0.98); box-shadow: 0 -10px 26px rgba(0,0,0,0.34); overflow: hidden; }
+.bottom-hud.tabbed { display: flex; flex-direction: column; }
+.bottom-tabs { flex-shrink: 0; display: flex; gap: 4px; padding: 6px 8px 0; border-bottom: 1px solid var(--panel-border); background: rgba(0,0,0,0.18); }
+.bottom-tabs button { border-bottom-left-radius: 0; border-bottom-right-radius: 0; color: var(--text-muted); background: rgba(255,255,255,0.025); }
+.bottom-tabs button.active { color: #eaf7ff; background: var(--panel-bg); border-color: rgba(76,201,240,0.45); border-bottom-color: var(--panel-bg); }
+.bottom-tab-body { flex: 1; min-height: 0; overflow: hidden; display: flex; }
 
-.control-panel { background: var(--panel-bg); padding: 10px 12px; display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden; border-right: 1px solid var(--panel-border); align-items: stretch; }
+.control-panel { flex: 1; min-width: 0; background: var(--panel-bg); padding: 10px 12px; display: flex; gap: 12px; overflow-x: auto; overflow-y: hidden; align-items: stretch; }
 .hud-group { min-width: 0; padding-right: 12px; border-right: 1px solid rgba(255,255,255,0.06); overflow: hidden; }
 .hud-group:last-child { border-right: none; padding-right: 0; }
 .hud-status { flex: 0 0 190px; overflow-y: auto; }
@@ -63,6 +68,19 @@ button:disabled { opacity: 0.4; cursor: default; }
 .sidebar-empire:hover { background: rgba(255,255,255,0.04); }
 .sidebar-empire.selected { border-color: rgba(76,201,240,0.38); background: rgba(76,201,240,0.08); }
 
+.right-section { display: flex; flex-direction: column; min-height: 0; border-bottom: 1px solid var(--panel-border); }
+.right-section:not(.collapsed) { flex: 1 1 0; }
+.right-section.collapsed { flex: 0 0 auto; }
+.right-section-header { width: 100%; display: flex; align-items: center; gap: 6px; padding: 7px 9px; border: 0; border-radius: 0; border-bottom: 1px solid rgba(255,255,255,0.05); background: rgba(0,0,0,0.18); color: var(--text-muted); text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+.right-section-header:hover { background: rgba(255,255,255,0.05); }
+.right-section-header b { font-size: 11px; font-weight: 600; }
+.right-section-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.right-section-body > * { flex: 1; min-height: 0; }
+.right-section-body .inspector-panel,
+.right-section-body .top-stories,
+.right-section-body .galaxy-pulse,
+.right-section-body .event-log { max-height: none; border-bottom: none; }
+
 .inspector-panel { padding: 10px; border-bottom: 1px solid var(--panel-border); overflow-y: auto; flex-shrink: 0; max-height: 45%; }
 .inspector-panel h3 { font-size: 13px; margin-bottom: 8px; color: var(--accent); }
 .inspector-panel h4 { font-size: 11px; color: var(--text-muted); margin: 8px 0 4px; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -89,7 +107,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .relation-stats { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 10px; margin: 4px 0; }
 .relation-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
 .relation-actions button { font-size: 10px; padding: 3px 4px; }
-.galaxy-pulse { border-bottom: 1px solid var(--panel-border); padding: 8px; flex-shrink: 0; }
+.galaxy-pulse { border-bottom: 1px solid var(--panel-border); padding: 8px; flex-shrink: 0; overflow: auto; }
 .pulse-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
 .pulse-header h3 { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .pulse-header span { color: var(--text-muted); font-size: 9px; }
@@ -153,8 +171,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 .event-entry.major { background: rgba(255,159,28,0.05); border-left: 2px solid rgba(255,159,28,0.4); }
 .event-entry.defining { background: rgba(255,209,102,0.07); border-left: 2px solid #ffd166; }
 .event-entry.defining .event-title { color: #ffe9b8; font-weight: 600; }
-.empire-control-panel { padding: 10px; overflow: auto; background: var(--panel-bg); }
-.bottom-hud .empire-control-panel { border-left: 1px solid var(--panel-border); border-bottom: none; min-width: 0; }
+.empire-control-panel { flex: 1; min-height: 0; padding: 10px; overflow: auto; background: var(--panel-bg); }
+.bottom-hud .empire-control-panel { border-bottom: none; min-width: 0; }
 .control-empire-btn { width: 100%; font-size: 12px; font-weight: 600; padding: 7px 8px; border-radius: 4px; background: rgba(255,255,255,0.04); cursor: pointer; letter-spacing: 0.3px; }
 .cmd-grid { display: grid; grid-template-columns: repeat(3, minmax(95px, 1fr)); gap: 4px; }
 .cmd-btn { font-size: 11px; padding: 5px 4px; border-radius: 4px; background: rgba(255,255,255,0.05); cursor: pointer; }
@@ -162,8 +180,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 
 @media (max-width: 1100px) {
   .right-panel { width: 290px; min-width: 270px; }
-  .bottom-hud { height: 310px; grid-template-columns: 1fr; grid-template-rows: 160px 150px; }
-  .bottom-hud .empire-control-panel { border-left: none; border-top: 1px solid var(--panel-border); }
+  .bottom-hud { height: 280px; }
   .control-panel { overflow-x: auto; }
   .hud-status { flex-basis: 180px; }
   .hud-sim { flex-basis: 165px; }
