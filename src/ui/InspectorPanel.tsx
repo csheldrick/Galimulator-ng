@@ -1,4 +1,4 @@
-import type { GalaxyState, Id, Empire, Person, EmpireAdjustableProperty } from "../types/sim";
+import type { GalaxyState, Id, Empire, Person, EmpireAdjustableProperty, EmpireMood, Ideology, CharacterTrait, TotemKind } from "../types/sim";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL, TRAIT_LABEL } from "../sim/Characters";
 import { lineageChain, livingDynastyCount, dynastyMembers, personDisplayName } from "../sim/Dynasty";
@@ -37,6 +37,10 @@ interface Props {
   onInflameEmpire: (id: Id) => void;
   onPacifyEmpire: (id: Id) => void;
   onAdjustEmpire: (id: Id, prop: EmpireAdjustableProperty, dir: number) => void;
+  onSetEmpireMood: (id: Id, mood: EmpireMood) => void;
+  onSetEmpireIdeology: (id: Id, ideology: Ideology) => void;
+  onToggleRulerTrait: (id: Id, trait: CharacterTrait) => void;
+  onSetSystemTotem: (id: Id, totem: TotemKind | null) => void;
   onForceWar: (a: Id, b: Id) => void;
   onForcePeace: (a: Id, b: Id) => void;
   onForceMerge: (dominant: Id, absorbed: Id) => void;
@@ -46,8 +50,16 @@ const MARKER_GLYPH: Record<string, string> = {
   "ruin": "☠", "holy-site": "✦", "battlefield": "⚔", "shipyard": "⚙",
   "rebel-hotbed": "⚡", "artifact-aura": "◆", "dead-capital": "☽",
   "monster-wound": "✗", "trade-hub": "⊕", "plague-world": "☣",
-  "transcendent-ruin": "✸",
+  "transcendent-ruin": "✸", "totem": "🜲",
 };
+
+const EMPIRE_MOODS: EmpireMood[] = ["expanding", "fortifying", "degenerating", "rioting", "crusading", "transcending"];
+const IDEOLOGIES_LIST: Ideology[] = ["militarist", "pacifist", "spiritualist", "materialist", "expansionist", "isolationist"];
+const RULER_TRAITS: CharacterTrait[] = ["bright", "dull", "mechanic", "mutineer", "zealot", "merchant", "warlike", "popular", "corrupt"];
+const TOTEMS: { kind: TotemKind; label: string }[] = [
+  { kind: "prosperity", label: "Prosperity" }, { kind: "order", label: "Order" }, { kind: "war", label: "War" },
+  { kind: "faith", label: "Faith" }, { kind: "growth", label: "Growth" },
+];
 
 const EMPIRE_ADJUST_STATS: { prop: EmpireAdjustableProperty; label: string; get: (e: Empire) => number; dec: number }[] = [
   { prop: "wealth", label: "Wealth", get: e => e.wealth, dec: 0 },
@@ -124,7 +136,7 @@ function LineageSection({ snapshot, emp }: { snapshot: Readonly<GalaxyState>; em
 
 export function InspectorPanel({
   snapshot, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, onSelectEmpire, onSelectSystem, onSelectFleet, onClearSelection, onCancelFleet, onToggleFollow,
-  onBoostSystem, onDevastateSystem, onNeutralizeSystem, onFoundEmpire, onBoostEmpire, onStabilizeEmpire, onWeakenEmpire, onInflameEmpire, onPacifyEmpire, onAdjustEmpire, onForceWar, onForcePeace, onForceMerge,
+  onBoostSystem, onDevastateSystem, onNeutralizeSystem, onFoundEmpire, onBoostEmpire, onStabilizeEmpire, onWeakenEmpire, onInflameEmpire, onPacifyEmpire, onAdjustEmpire, onSetEmpireMood, onSetEmpireIdeology, onToggleRulerTrait, onSetSystemTotem, onForceWar, onForcePeace, onForceMerge,
 }: Props) {
   const fleet = selectedFleetId ? snapshot.fleets[selectedFleetId] : null;
   const sys = !fleet && selectedSystemId ? snapshot.systems[selectedSystemId] : null;
@@ -260,6 +272,13 @@ export function InspectorPanel({
           )}
           <h4>God Controls</h4>
           <div className="god-grid"><button onClick={() => onBoostSystem(sys.id)}>Boost world</button><button onClick={() => onDevastateSystem(sys.id)}>Devastate</button><button onClick={() => onNeutralizeSystem(sys.id)} disabled={!sys.ownerEmpireId}>Free system</button><button onClick={() => onFoundEmpire(sys.id)}>Found empire</button></div>
+          <div className="control-row" style={{ marginTop: 4 }}>
+            <label>Totem</label>
+            <select style={{ flex: 1 }} value={sys.totem ?? ""} onChange={e => onSetSystemTotem(sys.id, (e.target.value || null) as TotemKind | null)}>
+              <option value="">None</option>
+              {TOTEMS.map(t => <option key={t.kind} value={t.kind}>{t.label}</option>)}
+            </select>
+          </div>
           {sys.recentEventIds.length > 0 && <><h4>Recent Events</h4>{[...sys.recentEventIds].reverse().slice(0, 5).map(eid => { const ev = snapshot.events[eid]; return ev ? <div key={eid} className="event-mini" style={{ borderLeft: `3px solid ${eventColor(ev.type)}`, paddingLeft: 5 }}>{ev.title}</div> : null; })}</>}
         </>
       )}
@@ -330,6 +349,24 @@ export function InspectorPanel({
                 <button title={`Raise ${s.label}`} onClick={() => onAdjustEmpire(emp.id, s.prop, 1)}>+</button>
               </div>
             ))}
+          </div>
+          <div className="control-row" style={{ marginTop: 4 }}>
+            <label>State</label>
+            <select style={{ flex: 1 }} value={emp.mood} onChange={e => onSetEmpireMood(emp.id, e.target.value as EmpireMood)}>
+              {EMPIRE_MOODS.map(m => <option key={m} value={m}>{MOOD_LABEL[m]}</option>)}
+            </select>
+          </div>
+          <div className="control-row">
+            <label>Ideology</label>
+            <select style={{ flex: 1 }} value={emp.ideology} onChange={e => onSetEmpireIdeology(emp.id, e.target.value as Ideology)}>
+              {IDEOLOGIES_LIST.map(i => <option key={i} value={i}>{IDEOLOGY_LABEL[i]}</option>)}
+            </select>
+          </div>
+          <div className="trait-chips">
+            {RULER_TRAITS.map(t => {
+              const on = emp.ruler.traits?.includes(t) ?? false;
+              return <button key={t} className={on ? "trait-chip on" : "trait-chip"} onClick={() => onToggleRulerTrait(emp.id, t)}>{TRAIT_LABEL[t]}</button>;
+            })}
           </div>
           <h4>Active Fleets</h4>
           {(() => {

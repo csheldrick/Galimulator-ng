@@ -133,7 +133,16 @@ export type MarkerKind =
   | "monster-wound"
   | "trade-hub"
   | "plague-world"
-  | "transcendent-ruin";
+  | "transcendent-ruin"
+  | "totem";
+
+/** God-placed structures that indefinitely buff the star they sit on and its owner empire. */
+export type TotemKind =
+  | "prosperity"
+  | "order"
+  | "war"
+  | "faith"
+  | "growth";
 
 export interface SystemMarker {
   kind: MarkerKind;
@@ -200,6 +209,8 @@ export interface StarSystem {
   planets?: PlanetTag[];
   /** Separatist, religious, or court faction currently organizing here. */
   factionId?: Id | null;
+  /** God-placed totem buffing this star and its owner empire every tick. */
+  totem?: TotemKind | null;
 }
 
 export type FleetKind = "colonizer" | "war" | "patrol" | "merchant" | "pilgrim" | "refugee" | "flagship" | "quest";

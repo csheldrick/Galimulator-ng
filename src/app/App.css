@@ -132,6 +132,9 @@ button:disabled { opacity: 0.4; cursor: default; }
 .god-stat-row span { color: var(--text-muted); font-size: 11px; }
 .god-stat-row b { text-align: center; font-size: 11px; color: var(--accent); }
 .god-stat-row button { font-size: 13px; line-height: 1; padding: 2px 0; }
+.trait-chips { display: flex; flex-wrap: wrap; gap: 3px; margin: 4px 0; }
+.trait-chip { font-size: 10px; padding: 2px 6px; opacity: 0.5; }
+.trait-chip.on { opacity: 1; border-color: var(--accent); color: var(--accent); }
 .fleet-list { display: flex; flex-direction: column; gap: 3px; }
 .fleet-row { width: 100%; display: grid; grid-template-columns: 1fr 34px; gap: 6px; align-items: center; text-align: left; background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.05); padding: 4px 5px; }
 .fleet-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }

@@ -630,6 +630,35 @@ function planetGrowthMul(sys: StarSystem): number {
   return Math.max(0.4, m);
 }
 
+/** God-placed totems apply small, bounded buffs to their star and its owner every tick. */
+function stepTotems(state: GalaxyState): void {
+  for (const sys of Object.values(state.systems)) {
+    if (!sys.totem) continue;
+    const owner = sys.ownerEmpireId ? state.empires[sys.ownerEmpireId] : null;
+    switch (sys.totem) {
+      case "prosperity":
+        sys.resources = Math.min(1.5, sys.resources + 0.002);
+        if (owner) owner.wealth += sys.resources * 0.5;
+        break;
+      case "order":
+        sys.stability = Math.min(1, sys.stability + 0.004);
+        if (owner) owner.cohesion = Math.min(1, owner.cohesion + 0.0004);
+        break;
+      case "war":
+        sys.stability = Math.min(1, sys.stability + 0.002);
+        if (owner) owner.aggression = Math.min(1, owner.aggression + 0.0006);
+        break;
+      case "faith":
+        sys.stability = Math.min(1, sys.stability + 0.002);
+        if (owner?.stateReligionId && sys.religionId === null) sys.religionId = owner.stateReligionId;
+        break;
+      case "growth":
+        sys.population = Math.min(2.5, sys.population + 0.004 * sys.habitability);
+        break;
+    }
+  }
+}
+
 function stepGrowth(state: GalaxyState, rng: PRNG): void {
   for (const sys of Object.values(state.systems)) {
     if (sys.ownerEmpireId) {
@@ -1821,7 +1850,7 @@ function stepLocalStarWeirdness(state: GalaxyState, rng: PRNG): void {
 }
 
 export function executeTick(state: GalaxyState, rng: PRNG): void {
-  stepGrowth(state, rng); stepProgress(state, rng); stepReligion(state, rng); stepCharacters(state, rng); stepMoods(state, rng); stepFactions(state, rng); stepDynasties(state, rng); stepPolitics(state, rng);
+  stepTotems(state); stepGrowth(state, rng); stepProgress(state, rng); stepReligion(state, rng); stepCharacters(state, rng); stepMoods(state, rng); stepFactions(state, rng); stepDynasties(state, rng); stepPolitics(state, rng);
   stepFleets(state, rng); stepExpansion(state, rng); stepQuests(state, rng); stepShipConstruction(state, rng); stepConflict(state, rng); stepTrade(state, rng); stepMonsters(state, rng); stepCrises(state, rng); stepOddities(state, rng);
   stepCollapse(state, rng); stepEmergence(state, rng);
   stepLocalWealth(state); stepArtifacts(state); stepAmbientShips(state, rng); stepAlliances(state, rng); stepEmpireMerges(state, rng); stepPlayerControl(state, rng);

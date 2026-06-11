@@ -1,4 +1,4 @@
-import type { ArtifactKind, GalaxyState, SimSettings, SaveFile, Id, Empire, EmpireRelationship, EmpirePriority, EmpireAdjustableProperty, StarSystem, SpyMission, ShipClass, WarFocus } from "../types/sim";
+import type { ArtifactKind, GalaxyState, SimSettings, SaveFile, Id, Empire, EmpireRelationship, EmpirePriority, EmpireAdjustableProperty, EmpireMood, Ideology, CharacterTrait, TotemKind, StarSystem, SpyMission, ShipClass, WarFocus } from "../types/sim";
 import { SeededRandom } from "./Random";
 import { generateGalaxy, makeRuler, pickGovernmentType, GOVERNMENT_RULER_TITLE } from "./Galaxy";
 import { executeTick } from "./Tick";
@@ -71,6 +71,7 @@ function upgradeState(state: GalaxyState): GalaxyState {
     sys.localWealth ??= 0;
     sys.planets ??= [];
     sys.factionId ??= null;
+    sys.totem ??= null;
   }
   for (const emp of Object.values(state.empires)) {
     emp.ideology ??= IDEOLOGIES[0];
@@ -356,6 +357,80 @@ export class Simulation {
       case "expansionism": emp.expansionism = clamp(emp.expansionism + step * 0.1, 0, 1); break;
       case "techLevel": emp.techLevel = clamp(emp.techLevel + step * 0.25, 0, 3); break;
     }
+    this._touch();
+  }
+
+  /** Force an empire into a political state (Galimulator's "change empire state"). */
+  setEmpireMood(empireId: Id, mood: EmpireMood): void {
+    const emp = this.state.empires[empireId];
+    if (!emp || emp.mood === mood) return;
+    emp.mood = mood;
+    emp.moodSince = this.state.tick;
+    createEvent(this.state, this.state.tick, "golden-age", `${emp.name} turned ${mood}`, `A divine will reshaped ${emp.name} into a ${mood} state.`, 2, [emp.id], []);
+    this._touch();
+  }
+
+  /** Set an empire's ideology (Galimulator's "specials"). */
+  setEmpireIdeology(empireId: Id, ideology: Ideology): void {
+    const emp = this.state.empires[empireId];
+    if (!emp || emp.ideology === ideology) return;
+    emp.ideology = ideology;
+    createEvent(this.state, this.state.tick, "golden-age", `${emp.name} embraced ${ideology}`, `${emp.name} was set upon the ${ideology} path.`, 2, [emp.id], []);
+    this._touch();
+  }
+
+  /** Toggle a ruler trait on/off — the closest analog to Galimulator empire specials. */
+  toggleRulerTrait(empireId: Id, trait: CharacterTrait): void {
+    const emp = this.state.empires[empireId];
+    if (!emp) return;
+    const traits = (emp.ruler.traits ??= []);
+    const idx = traits.indexOf(trait);
+    if (idx >= 0) traits.splice(idx, 1); else traits.push(trait);
+    this._touch();
+  }
+
+  /** Place or clear a permanent totem on a star (pass null to remove). */
+  setSystemTotem(systemId: Id, totem: TotemKind | null): void {
+    const sys = this.state.systems[systemId];
+    if (!sys) return;
+    sys.totem = totem;
+    sys.markers = (sys.markers ?? []).filter(m => m.kind !== "totem");
+    if (totem) {
+      sys.markers.push({ kind: "totem", since: this.state.tick, label: `${totem} totem` });
+      createEvent(this.state, this.state.tick, "golden-age", `${totem} totem raised at ${sys.name}`, `A divine ${totem} totem now stands at ${sys.name}, blessing it forever.`, 2, sys.ownerEmpireId ? [sys.ownerEmpireId] : [], [sys.id]);
+    }
+    this._touch();
+  }
+
+  /** Galaxy-wide chaos: throw every empire into a riot. */
+  riotGalaxy(): void {
+    let n = 0;
+    for (const emp of Object.values(this.state.empires)) {
+      if (emp.mood !== "rioting") { emp.mood = "rioting"; emp.moodSince = this.state.tick; n++; }
+    }
+    if (n === 0) return;
+    createEvent(this.state, this.state.tick, "rebellion", "The galaxy descends into chaos", `A divine scream drove ${n} empires into open revolt.`, 5, [], []);
+    this._touch();
+  }
+
+  /** Galaxy-wide cull: destroy roughly half of all stars and fleets ("Balance"). */
+  balanceGalaxy(): void {
+    const systems = Object.values(this.state.systems);
+    for (const sys of systems) {
+      if (this.rng.next() >= 0.5) continue;
+      if (sys.ownerEmpireId) {
+        const owner = this.state.empires[sys.ownerEmpireId];
+        if (owner) owner.ownedSystemIds = owner.ownedSystemIds.filter(id => id !== sys.id);
+        sys.ownerEmpireId = null;
+        sys.cultureId = "none";
+      }
+      sys.population = Math.max(0.02, sys.population * 0.2);
+      sys.stability = Math.max(0.05, sys.stability - 0.4);
+    }
+    for (const fleet of Object.values(this.state.fleets)) {
+      if (this.rng.next() < 0.5) delete this.state.fleets[fleet.id];
+    }
+    createEvent(this.state, this.state.tick, "border-conflict", "The galaxy is rebalanced", "A divine reckoning scoured half the stars and fleets from existence.", 5, [], []);
     this._touch();
   }
 
