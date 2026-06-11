@@ -19,16 +19,10 @@ interface Tally {
   crises: number;
   artifacts: number;
   mergers: number;
-  questsLaunched: number;
-  questsCompleted: number;
-  factionsFormed: number;
-  factionsEngaged: number;
-  factionUprisings: number;
-  factionsDissolved: number;
 }
 
 function emptyTally(): Tally {
-  return { founded: 0, collapsed: 0, transcended: 0, rebellions: 0, warsDeclared: 0, coups: 0, monstersSpawned: 0, monstersSlain: 0, conversions: 0, newFaiths: 0, crises: 0, artifacts: 0, mergers: 0, questsLaunched: 0, questsCompleted: 0, factionsFormed: 0, factionsEngaged: 0, factionUprisings: 0, factionsDissolved: 0 };
+  return { founded: 0, collapsed: 0, transcended: 0, rebellions: 0, warsDeclared: 0, coups: 0, monstersSpawned: 0, monstersSlain: 0, conversions: 0, newFaiths: 0, crises: 0, artifacts: 0, mergers: 0 };
 }
 
 const TALLY_OF: Partial<Record<EventType, keyof Tally>> = {
@@ -45,12 +39,6 @@ const TALLY_OF: Partial<Record<EventType, keyof Tally>> = {
   "galactic-crisis": "crises",
   "artifact-discovered": "artifacts",
   "empire-merged": "mergers",
-  "quest-launched": "questsLaunched",
-  "quest-completed": "questsCompleted",
-  "faction-formed": "factionsFormed",
-  "faction-engaged": "factionsEngaged",
-  "faction-uprising": "factionUprisings",
-  "faction-dissolved": "factionsDissolved",
 };
 
 function graphMetrics(state: GalaxyState) {
@@ -109,8 +97,6 @@ function snapshotMetrics(state: GalaxyState, originalIds: Set<Id>) {
     oddities: Object.keys(state.oddities ?? {}).length,
     faiths: Object.keys(state.religions).length,
     alliances: Object.keys(state.alliances ?? {}).length,
-    factions: Object.keys(state.factions ?? {}).length,
-    factionWorlds: Object.values(state.factions ?? {}).reduce((sum, f) => sum + f.systemIds.length, 0),
     tradeRoutes: Object.keys(state.tradeRoutes ?? {}).length,
     artifacts: Object.keys(state.artifacts ?? {}).length,
     markers: systems.reduce((sum, s) => sum + (s.markers?.length ?? 0), 0),
@@ -168,7 +154,6 @@ export function runHeadlessReport(settings: SimSettings, milestones: number[] = 
         `- Largest power: ${m.largest ? `${m.largest.name} (${m.largest.ownedSystemIds.length} systems, ${(m.largestShare * 100).toFixed(1)}% of map)` : "none"}`,
         `- Active wars now: ${m.wars} · cumulative wars declared: ${cumulative.warsDeclared}`,
         `- Alliances: ${m.alliances} blocs · Trade routes: ${m.tradeRoutes}`,
-        `- Factions: ${m.factions} active · ${m.factionWorlds} worlds pressured · ${cumulative.factionsFormed} formed · ${cumulative.factionsEngaged} engagements · ${cumulative.factionUprisings} uprisings · ${cumulative.factionsDissolved} dissolved`,
         `- Artifacts: ${m.artifacts} · Markers/scars: ${m.markers}`,
         `- Dynasties: ${m.dynasties} (${m.livingDynasties} living) · People: ${m.people} · Deepest ruler chain: ${m.deepestChain}${m.deepestName ? ` — ${m.deepestName}` : ""}`,
         `- Graph now: avg degree ${m.graph.avgDegree.toFixed(2)} · max degree ${m.graph.maxDegree} · avg lane length ${m.graph.avgPathProxy.toFixed(1)}`,
@@ -176,7 +161,6 @@ export function runHeadlessReport(settings: SimSettings, milestones: number[] = 
         `- Cumulative: ${cumulative.founded} founded, ${cumulative.collapsed} collapsed, ${cumulative.mergers} merged, ${cumulative.rebellions} rebellions, ${cumulative.coups} coups, ${cumulative.transcended} transcended`,
         `- Religion: ${m.faiths} faiths · ${cumulative.newFaiths} founded · ${cumulative.conversions} state conversions`,
         `  - Spread: ${m.topFaiths.map(f => `${f.name} (${f.worlds})`).join(", ") || "none"}`,
-        `- Quests: ${cumulative.questsLaunched} launched · ${cumulative.questsCompleted} completed`,
         `- Monsters: ${m.monsters} at large · ${cumulative.monstersSpawned} spawned · ${cumulative.monstersSlain} slain · Oddities roaming: ${m.oddities} · Crises/oddity events: ${cumulative.crises}`,
         ``,
       );
