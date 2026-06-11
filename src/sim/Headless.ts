@@ -78,6 +78,7 @@ function snapshotMetrics(state: GalaxyState, originalIds: Set<Id>) {
     wars: wars.size,
     fleets: Object.keys(state.fleets).length,
     monsters: Object.keys(state.monsters).length,
+    oddities: Object.keys(state.oddities ?? {}).length,
     faiths: Object.keys(state.religions).length,
     alliances: Object.keys(state.alliances ?? {}).length,
     tradeRoutes: Object.keys(state.tradeRoutes ?? {}).length,
@@ -99,7 +100,7 @@ export function runHeadlessReport(settings: SimSettings, milestones: number[] = 
   const sorted = [...milestones].sort((a, b) => a - b);
   const maxTick = sorted[sorted.length - 1];
   const rng = new SeededRandom(settings.seed);
-  const state = generateGalaxy(settings.seed, settings.numStars, settings.numEmpires, rng, settings.galaxyShape, settings.starlaneMode, settings.empireLayout);
+  const state = generateGalaxy(settings.seed, settings.numStars, settings.numEmpires, rng, settings.galaxyShape, settings.starlaneMode, settings.empireLayout, settings.gridAlignment);
   ensureArtifactObjects(state, rng);
   const originalIds = new Set(Object.keys(state.empires));
   const startCount = originalIds.size;
@@ -143,7 +144,7 @@ export function runHeadlessReport(settings: SimSettings, milestones: number[] = 
         `- Cumulative: ${cumulative.founded} founded, ${cumulative.collapsed} collapsed, ${cumulative.rebellions} rebellions, ${cumulative.coups} coups, ${cumulative.transcended} transcended`,
         `- Religion: ${m.faiths} faiths · ${cumulative.newFaiths} founded · ${cumulative.conversions} state conversions`,
         `  - Spread: ${m.topFaiths.map(f => `${f.name} (${f.worlds})`).join(", ") || "none"}`,
-        `- Monsters: ${m.monsters} at large · ${cumulative.monstersSpawned} spawned · ${cumulative.monstersSlain} slain · Crises/oddities: ${cumulative.crises}`,
+        `- Monsters: ${m.monsters} at large · ${cumulative.monstersSpawned} spawned · ${cumulative.monstersSlain} slain · Oddities roaming: ${m.oddities} · Crises/oddity events: ${cumulative.crises}`,
         ``,
       );
       lastFounded = cumulative.founded;
@@ -160,9 +161,11 @@ export function runPresetSweep(base: SimSettings): string {
     ["Classic Spiral", { galaxyShape: "spiral", starlaneMode: "standard", empireLayout: "classic" }],
     ["Ring War", { galaxyShape: "hollow-disc", starlaneMode: "webbed", empireLayout: "random-blobs" }],
     ["Clustered Civilizations", { galaxyShape: "clustered", starlaneMode: "sparse", empireLayout: "few-big-blobs" }],
-    ["Trade Web", { galaxyShape: "disc", starlaneMode: "webbed", empireLayout: "scattered" }],
-    ["Death Chain", { galaxyShape: "string", starlaneMode: "sparse", empireLayout: "many-one-star" }],
+    ["Trade Web", { galaxyShape: "web", starlaneMode: "webbed", empireLayout: "scattered" }],
+    ["Death Chain", { galaxyShape: "string", starlaneMode: "string", empireLayout: "many-one-star" }],
     ["Toybox Chaos", { galaxyShape: "chaos", starlaneMode: "dense", empireLayout: "random-blobs" }],
+    ["Empire Archipelago", { galaxyShape: "continents", starlaneMode: "standard", empireLayout: "few-big-blobs" }],
+    ["Core and Frontier", { galaxyShape: "hub", starlaneMode: "standard", empireLayout: "classic" }],
   ];
   return presets.map(([name, patch]) => {
     const settings = { ...base, ...patch };

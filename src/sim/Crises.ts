@@ -1,4 +1,4 @@
-import type { GalaxyState, StarSystem, Monster, MonsterKind, PRNG, SystemMarker, MarkerKind } from "../types/sim";
+import type { GalaxyState, StarSystem, Empire, Monster, MonsterKind, Oddity, OddityKind, PRNG, SystemMarker, MarkerKind } from "../types/sim";
 import { createEvent } from "./Events";
 import { findPath, advanceAlongPath, dist } from "./Pathing";
 import { makeName } from "./Galaxy";
@@ -15,8 +15,16 @@ export function discoverArtifact(state: GalaxyState, sys: StarSystem): void {
   if (!sys.artifactName || !sys.ownerEmpireId) return;
   const owner = state.empires[sys.ownerEmpireId];
   if (!owner) return;
+  // The buried structure becomes a known, persistent artifact: a one-time
+  // discovery windfall, then ongoing kind-specific effects via stepArtifacts.
+  const artifact = sys.artifactId ? state.artifacts?.[sys.artifactId] : undefined;
+  if (artifact) {
+    if (artifact.discoveredTick !== undefined) return; // already unearthed
+    artifact.discoveredTick = state.tick;
+    artifact.ownerEmpireId = owner.id;
+  }
   const name = sys.artifactName;
-  sys.artifactName = null;
+  if (!artifact) sys.artifactName = null; // no backing object: one-shot reward only
   owner.techLevel = Math.min(3, owner.techLevel + 0.25);
   owner.wealth += 250;
   sys.techLevel = Math.min(3, sys.techLevel + 0.5);
@@ -122,7 +130,7 @@ export function stepMonsters(state: GalaxyState, rng: PRNG): void {
   }
 }
 
-const ODDITY_NAMES: Record<string, string[]> = {
+const ODDITY_NAMES: Record<OddityKind, string[]> = {
   "star-eater": ["The Hungering Void", "Entropy's Maw", "The Great Consuming"],
   "puppet-mind": ["Xenomorphic Puppeteer", "The Hive Whisper", "Psychic Dominator"],
   "sloth-cloud": ["Torpor Nebula", "The Dreaming Density", "Lethic Cloud"],
@@ -130,101 +138,240 @@ const ODDITY_NAMES: Record<string, string[]> = {
   "void-gate": ["The Null Gate", "Void Aperture", "Tear in Space"],
 };
 
-export function stepOddities(state: GalaxyState, rng: PRNG): void {
-  if (rng.next() > 0.00025) return;
+const MAX_ODDITIES = 3;
+
+function spawnOddity(state: GalaxyState, rng: PRNG, forcedKind?: OddityKind): void {
+  state.oddities ??= {};
   const systems = Object.values(state.systems);
   if (systems.length === 0) return;
-  const center = rng.pick(systems);
-  const roll = rng.next();
+  const kinds: OddityKind[] = ["star-eater", "puppet-mind", "sloth-cloud", "replicator", "void-gate"];
+  const kind = forcedKind ?? rng.pick(kinds);
+  const origin = rng.pick(systems.filter(s => !s.ownerEmpireId).length > 0
+    ? systems.filter(s => !s.ownerEmpireId)
+    : systems);
+  const id = `oddity-${state.tick}-${Object.keys(state.oddities).length}`;
+  const name = rng.pick(ODDITY_NAMES[kind]);
+  const oddity: Oddity = {
+    id, kind, name,
+    x: origin.x, y: origin.y,
+    systemId: origin.id,
+    speed: kind === "star-eater" ? rng.range(0.5, 0.9) : kind === "sloth-cloud" ? rng.range(0.25, 0.5) : 0,
+    strength: rng.range(30, 80),
+    spawnedTick: state.tick,
+    expiresTick: state.tick + (kind === "void-gate" ? 3000 : kind === "replicator" ? 1400 : 2200),
+    state: {},
+  };
+  if (kind === "star-eater") {
+    const target = pickMonsterTarget(state, rng, origin.id);
+    oddity.path = target ? findPath(state, origin.id, target.id) : [origin.id];
+    oddity.legIndex = 0; oddity.legProgress = 0;
+    oddity.state.consumed = 0;
+  }
+  if (kind === "sloth-cloud" || kind === "puppet-mind") {
+    const angle = rng.next() * Math.PI * 2;
+    oddity.vx = Math.cos(angle) * oddity.speed || Math.cos(angle) * 0.3;
+    oddity.vy = Math.sin(angle) * oddity.speed || Math.sin(angle) * 0.3;
+  }
+  if (kind === "replicator") oddity.state.generation = 0;
+  state.oddities[id] = oddity;
+  createEvent(state, state.tick, "galactic-crisis", `${name} sighted near ${origin.name}`,
+    `A strange presence — ${name} — has appeared near ${origin.name}. Astronomers cannot agree on what it wants.`,
+    4, [], [origin.id]);
+}
 
-  if (roll < 0.2) {
-    // Star-eater: devastates a rich sector
-    const name = rng.pick(ODDITY_NAMES["star-eater"]);
-    const struck = systems.filter(s => dist(s, center) < 200 && s.population > 0.1);
-    for (const s of struck) {
-      s.population = Math.max(0.02, s.population * rng.range(0.4, 0.7));
-      s.resources = Math.max(0.05, s.resources * rng.range(0.6, 0.85));
-      s.stability = Math.max(0.05, s.stability - 0.2);
-      addMarker(s, "ruin", state.tick, `Consumed by ${name}`);
+function nearestSystem(state: GalaxyState, x: number, y: number): StarSystem | null {
+  let best: StarSystem | null = null, bestD = Infinity;
+  for (const s of Object.values(state.systems)) {
+    const d = (s.x - x) ** 2 + (s.y - y) ** 2;
+    if (d < bestD) { bestD = d; best = s; }
+  }
+  return best;
+}
+
+function stepStarEater(state: GalaxyState, oddity: Oddity, rng: PRNG): void {
+  if (!oddity.path || oddity.path.length <= 1) {
+    const here = nearestSystem(state, oddity.x, oddity.y);
+    const target = here ? pickMonsterTarget(state, rng, here.id) : null;
+    if (here && target && target.id !== here.id) {
+      oddity.path = findPath(state, here.id, target.id);
+      oddity.legIndex = 0; oddity.legProgress = 0;
     }
-    if (struck.length > 0) createEvent(state, state.tick, "galactic-crisis",
-      `${name} manifested`,
-      `${name} swept through ${struck.length} star systems near ${center.name}, consuming life and resources.`,
-      5, [], struck.slice(0, 8).map(s => s.id));
-  } else if (roll < 0.4) {
-    // Puppet-mind: forces mood shifts on nearby empires
-    const name = rng.pick(ODDITY_NAMES["puppet-mind"]);
-    const affected: string[] = [];
-    for (const emp of Object.values(state.empires)) {
-      const cap = state.systems[emp.capitalSystemId];
-      if (!cap || dist(cap, center) > 350) continue;
-      const old = emp.mood;
-      const forcedMoods = ["rioting", "crusading", "degenerating"] as const;
-      emp.mood = rng.pick(forcedMoods);
-      emp.moodSince = state.tick;
-      emp.cohesion = Math.max(0.1, emp.cohesion - 0.1);
-      affected.push(emp.id);
-      createEvent(state, state.tick, "mood-shift",
-        `${emp.name} gripped by psychic influence`,
-        `${name} influenced ${emp.name}, shifting its mood from ${old} to ${emp.mood}.`,
-        3, [emp.id], cap ? [cap.id] : []);
-    }
-    if (affected.length > 0) createEvent(state, state.tick, "galactic-crisis",
-      `${name} detected`,
-      `A xenopsychic entity — ${name} — manifested near ${center.name}, destabilizing ${affected.length} nearby civilizations.`,
-      5, affected, [center.id]);
-  } else if (roll < 0.6) {
-    // Sloth-cloud: destroys all non-merchant fleets in a wide region
-    const name = rng.pick(ODDITY_NAMES["sloth-cloud"]);
-    const trapped = Object.values(state.fleets).filter(f =>
-      Math.hypot(f.x - center.x, f.y - center.y) < 250 && f.kind !== "merchant"
-    );
-    for (const f of trapped) delete state.fleets[f.id];
-    for (const s of systems) if (dist(s, center) < 250) s.stability = Math.max(0.05, s.stability - 0.04);
-    createEvent(state, state.tick, "galactic-crisis",
-      `${name} engulfs region near ${center.name}`,
-      `A ${name} manifested near ${center.name}, consuming ${trapped.length} fleet${trapped.length === 1 ? "" : "s"} in stasis.`,
-      4, [], [center.id]);
-  } else if (roll < 0.8) {
-    // Replicator: gives tech boosts to nearby empires
-    const name = rng.pick(ODDITY_NAMES["replicator"]);
-    const lucky: string[] = [];
-    for (const emp of Object.values(state.empires)) {
-      const cap = state.systems[emp.capitalSystemId];
-      if (!cap || dist(cap, center) > 280) continue;
-      emp.techLevel = Math.min(3, emp.techLevel + rng.range(0.15, 0.4));
-      for (const sysId of emp.ownedSystemIds.slice(0, 10)) {
-        const s = state.systems[sysId];
-        if (s) s.techLevel = Math.max(s.techLevel, emp.techLevel * 0.85);
+    return;
+  }
+  oddity.legIndex ??= 0;
+  oddity.legProgress ??= 0;
+  const arrived = advanceAlongPath(state, oddity as Oddity & { path: string[]; legIndex: number; legProgress: number });
+  if (!arrived) return;
+  const here = state.systems[oddity.path[oddity.path.length - 1]];
+  if (!here) { oddity.path = undefined; return; }
+  oddity.systemId = here.id;
+
+  // sentinel stations and strong defenders can drive the eater off for good
+  const owner = here.ownerEmpireId ? state.empires[here.ownerEmpireId] : null;
+  const sentinel = here.artifactId && state.artifacts?.[here.artifactId]?.kind === "sentinel-station";
+  if (owner && (sentinel || owner.militaryStrength * rng.next() > oddity.strength * 6)) {
+    delete state.oddities![oddity.id];
+    owner.cohesion = Math.min(1, owner.cohesion + 0.05);
+    createEvent(state, state.tick, "monster-slain", `${oddity.name} repelled at ${here.name}`,
+      `${sentinel ? "The sentinel station at" : "The fleets of"} ${here.name} drove off ${oddity.name}. The stars are safe — for now.`,
+      5, [owner.id], [here.id]);
+    return;
+  }
+
+  // consume the world: drained, scarred, remembered
+  here.population = Math.max(0.02, here.population * rng.range(0.35, 0.6));
+  here.resources = Math.max(0.05, here.resources * rng.range(0.55, 0.8));
+  here.stability = Math.max(0.05, here.stability - 0.25);
+  addMarker(here, "ruin", state.tick, `Consumed by ${oddity.name}`);
+  oddity.state.consumed = (oddity.state.consumed ?? 0) + 1;
+  createEvent(state, state.tick, "monster-attack", `${oddity.name} consumed ${here.name}`,
+    `${oddity.name} fed on ${here.name}, draining its people and resources.`,
+    4, owner ? [owner.id] : [], [here.id]);
+
+  if (oddity.state.consumed >= 4) {
+    delete state.oddities![oddity.id];
+    createEvent(state, state.tick, "galactic-crisis", `${oddity.name} sated`,
+      `Having consumed ${oddity.state.consumed} worlds, ${oddity.name} drifted back into the deep void.`,
+      4, [], [here.id]);
+    return;
+  }
+  const next = pickMonsterTarget(state, rng, here.id);
+  if (next && next.id !== here.id) {
+    oddity.path = findPath(state, here.id, next.id);
+    oddity.legIndex = 0; oddity.legProgress = 0;
+  }
+}
+
+function driftAndBounce(oddity: Oddity): void {
+  oddity.x += oddity.vx ?? 0;
+  oddity.y += oddity.vy ?? 0;
+  if (oddity.x < 0 || oddity.x > 1200) oddity.vx = -(oddity.vx ?? 0);
+  if (oddity.y < 0 || oddity.y > 900) oddity.vy = -(oddity.vy ?? 0);
+}
+
+function stepSlothCloud(state: GalaxyState, oddity: Oddity, rng: PRNG): void {
+  driftAndBounce(oddity);
+  // ships caught in the cloud fall into torpor; nearby worlds grow listless
+  for (const f of Object.values(state.fleets)) {
+    if (f.kind === "merchant" || f.kind === "flagship") continue;
+    if (Math.hypot(f.x - oddity.x, f.y - oddity.y) > 90) continue;
+    if (rng.next() < 0.04) {
+      delete state.fleets[f.id];
+      if (rng.next() < 0.3) {
+        const owner = state.empires[f.ownerEmpireId];
+        createEvent(state, state.tick, "galactic-crisis", `${f.name} lost to ${oddity.name}`,
+          `${f.name} drifted into ${oddity.name} and fell silent.`, 3, owner ? [owner.id] : [], []);
       }
-      lucky.push(emp.id);
+    } else {
+      f.speed = Math.max(0.2, f.speed * 0.97);
     }
-    if (lucky.length > 0) createEvent(state, state.tick, "galactic-crisis",
-      `${name} seeded near ${center.name}`,
-      `${name} emerged near ${center.name}, replicating advanced technologies for ${lucky.length} nearby civilizations.`,
-      4, lucky, [center.id]);
-  } else {
-    // Void-gate: shunts nearby fleets to distant systems
-    const name = rng.pick(ODDITY_NAMES["void-gate"]);
-    const fleetList = Object.values(state.fleets).filter(f =>
-      Math.hypot(f.x - center.x, f.y - center.y) < 150 && f.kind === "war"
-    );
-    const distant = systems.filter(s => dist(s, center) > 400);
-    let shunted = 0;
-    for (const fleet of fleetList.slice(0, 3)) {
-      if (distant.length === 0) break;
-      const dest = rng.pick(distant);
-      fleet.x = dest.x; fleet.y = dest.y;
-      fleet.targetSystemId = dest.id; fleet.originSystemId = dest.id;
-      fleet.path = [dest.id]; fleet.legIndex = 0; fleet.legProgress = 0;
-      shunted++;
+  }
+  if (state.tick % 25 === 0) {
+    for (const s of Object.values(state.systems)) {
+      if (Math.hypot(s.x - oddity.x, s.y - oddity.y) < 110) s.stability = Math.max(0.05, s.stability - 0.004);
     }
-    if (shunted > 0) {
-      addMarker(center, "ruin", state.tick, `Site of ${name}`);
-      createEvent(state, state.tick, "galactic-crisis",
-        `${name} tears space near ${center.name}`,
-        `${name} opened a void aperture near ${center.name}, shunting ${shunted} fleet${shunted === 1 ? "" : "s"} to distant corners of the galaxy.`,
-        4, [], [center.id]);
+  }
+}
+
+function stepPuppetMind(state: GalaxyState, oddity: Oddity, rng: PRNG): void {
+  driftAndBounce(oddity);
+  if (rng.next() > 0.004) return;
+  // whisper into the nearest court: forced mood lurch
+  let victim: Empire | null = null;
+  let bestD = 300 * 300;
+  for (const emp of Object.values(state.empires)) {
+    const cap = state.systems[emp.capitalSystemId];
+    if (!cap) continue;
+    const d = (cap.x - oddity.x) ** 2 + (cap.y - oddity.y) ** 2;
+    if (d < bestD) { bestD = d; victim = emp; }
+  }
+  if (!victim) return;
+  const old = victim.mood;
+  const forcedMoods = ["rioting", "crusading", "degenerating"] as const;
+  victim.mood = rng.pick(forcedMoods);
+  victim.moodSince = state.tick;
+  victim.cohesion = Math.max(0.1, victim.cohesion - 0.08);
+  const cap = state.systems[victim.capitalSystemId];
+  createEvent(state, state.tick, "mood-shift", `${victim.name} gripped by psychic influence`,
+    `${oddity.name} whispered into the court of ${victim.name}, twisting its mood from ${old} to ${victim.mood}.`,
+    3, [victim.id], cap ? [cap.id] : []);
+}
+
+function stepReplicator(state: GalaxyState, oddity: Oddity, rng: PRNG): void {
+  const here = oddity.systemId ? state.systems[oddity.systemId] : null;
+  if (!here) { delete state.oddities![oddity.id]; return; }
+  // gifts strange technology to whoever holds the world it roosts on
+  if (here.ownerEmpireId && state.tick % 40 === 0) {
+    const owner = state.empires[here.ownerEmpireId];
+    if (owner) {
+      owner.techLevel = Math.min(3, owner.techLevel + 0.004);
+      here.techLevel = Math.min(3, here.techLevel + 0.008);
+    }
+  }
+  // copies itself onto a neighboring world once, then both burn out on schedule
+  const generation = oddity.state.generation ?? 0;
+  if (generation < 2 && !oddity.state.replicated && rng.next() < 0.0012) {
+    const neighbors = here.connectedSystemIds.map(id => state.systems[id]).filter(Boolean) as StarSystem[];
+    if (neighbors.length > 0) {
+      const dest = rng.pick(neighbors);
+      const childId = `oddity-${state.tick}-${Object.keys(state.oddities ?? {}).length}`;
+      state.oddities![childId] = {
+        ...oddity, id: childId, x: dest.x, y: dest.y, systemId: dest.id,
+        spawnedTick: state.tick, expiresTick: state.tick + 1400,
+        state: { generation: generation + 1 },
+      };
+      oddity.state.replicated = 1;
+      createEvent(state, state.tick, "galactic-crisis", `${oddity.name} replicated at ${dest.name}`,
+        `A copy of ${oddity.name} unfolded itself above ${dest.name}.`, 3,
+        dest.ownerEmpireId ? [dest.ownerEmpireId] : [], [dest.id]);
+    }
+  }
+}
+
+function stepVoidGate(state: GalaxyState, oddity: Oddity, rng: PRNG): void {
+  // a stationary tear that flings passing warships across the galaxy
+  for (const f of Object.values(state.fleets)) {
+    if (f.kind !== "war") continue;
+    if (Math.hypot(f.x - oddity.x, f.y - oddity.y) > 60) continue;
+    if (rng.next() > 0.05) continue;
+    const distant = Object.values(state.systems).filter(s => dist(s, { x: oddity.x, y: oddity.y } as StarSystem) > 400);
+    if (distant.length === 0) return;
+    const dest = rng.pick(distant);
+    f.x = dest.x; f.y = dest.y;
+    f.targetSystemId = dest.id; f.originSystemId = dest.id;
+    f.path = [dest.id]; f.legIndex = 0; f.legProgress = 0;
+    const owner = state.empires[f.ownerEmpireId];
+    createEvent(state, state.tick, "galactic-crisis", `${f.name} swallowed by ${oddity.name}`,
+      `${oddity.name} seized ${f.name} and cast it out near ${dest.name}.`, 3, owner ? [owner.id] : [], [dest.id]);
+    return;
+  }
+}
+
+/** Persistent space oddities: bespoke weird actors that live on the map and
+ *  follow one memorable rule each, distinct from generic monsters. */
+export function stepOddities(state: GalaxyState, rng: PRNG): void {
+  state.oddities ??= {};
+  const active = Object.values(state.oddities);
+
+  if (active.length < MAX_ODDITIES && Object.keys(state.empires).length > 2 && rng.next() < 0.00045) {
+    spawnOddity(state, rng);
+  }
+
+  for (const oddity of Object.values(state.oddities)) {
+    if (oddity.expiresTick !== undefined && state.tick >= oddity.expiresTick) {
+      delete state.oddities[oddity.id];
+      const near = nearestSystem(state, oddity.x, oddity.y);
+      createEvent(state, state.tick, "galactic-crisis", `${oddity.name} fades`,
+        `${oddity.name} dissolved back into whatever strange place it came from.`,
+        3, [], near ? [near.id] : []);
+      continue;
+    }
+    switch (oddity.kind) {
+      case "star-eater": stepStarEater(state, oddity, rng); break;
+      case "sloth-cloud": stepSlothCloud(state, oddity, rng); break;
+      case "puppet-mind": stepPuppetMind(state, oddity, rng); break;
+      case "replicator": stepReplicator(state, oddity, rng); break;
+      case "void-gate": stepVoidGate(state, oddity, rng); break;
     }
   }
 }
