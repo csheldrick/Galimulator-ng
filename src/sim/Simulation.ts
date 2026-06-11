@@ -16,6 +16,11 @@ import type { RelationModifier, RelationModifierKind } from "../types/sim";
 
 const SAVE_VERSION = 8;
 
+// "God Empire" scenario tuning: how many neighboring worlds the blessed empire
+// annexes at the start, and how long its (and its worlds') divine boost lasts.
+const GOD_EMPIRE_EXTRA_SYSTEMS = 6;
+const GOD_EMPIRE_BOOST_TICKS = 1200;
+
 function defaultPlayerControl() {
   return { controlledEmpireId: null, mode: "observer" as const, authority: 100, legitimacy: 75, commandCooldowns: {}, flagshipFleetId: null, corruption: 0 };
 }
@@ -432,6 +437,88 @@ export class Simulation {
     }
     createEvent(this.state, this.state.tick, "border-conflict", "The galaxy is rebalanced", "A divine reckoning scoured half the stars and fleets from existence.", 5, [], []);
     this._touch();
+  }
+
+  /**
+   * "God Empire" sandbox scenario: regenerate an ordinary galaxy of rival empires,
+   * then single out one empire as a god-blessed great power — a perfected capital
+   * world, a ring of annexed neighbors, and overwhelming economic/military/tech
+   * standing — and hand the player direct control of it from the first tick.
+   * Returns the controlled empire's id, or null if no empires were generated.
+   */
+  startGodEmpireScenario(): Id | null {
+    // Start from a fresh, fair galaxy — the rivals are seeded normally.
+    this.reset();
+
+    const empires = Object.values(this.state.empires);
+    if (empires.length === 0) return null;
+
+    // Anoint the empire whose capital sits on the most habitable world, so the
+    // blessed homeworld is a genuinely prime planet rather than a random rock.
+    let god = empires[0];
+    let bestHab = -Infinity;
+    for (const emp of empires) {
+      const home = this.state.systems[emp.capitalSystemId];
+      const hab = home?.habitability ?? 0;
+      if (hab > bestHab) { bestHab = hab; god = emp; }
+    }
+
+    // Bless the capital into a perfect, fortified garden world with a lasting totem.
+    const cap = this.state.systems[god.capitalSystemId];
+    if (cap) {
+      cap.habitability = 1;
+      cap.resources = 1.5;
+      cap.population = 3;
+      cap.stability = 1;
+      cap.techLevel = Math.max(cap.techLevel, 1.5);
+      cap.localWealth = Math.max(cap.localWealth ?? 0, 250);
+      cap.godBoostTicks = GOD_EMPIRE_BOOST_TICKS;
+      cap.totem = "prosperity";
+      cap.markers = (cap.markers ?? []).filter(m => m.kind !== "totem");
+      cap.markers.push({ kind: "totem", since: this.state.tick, label: "prosperity totem" });
+      cap.planets = ["garden", "fortress", "ancient"];
+
+      // Annex a ring of the nearest unclaimed worlds so the god empire opens as a
+      // great power, boosting each so the heartland is strong from tick one.
+      const nearby = Object.values(this.state.systems)
+        .filter(s => s.id !== cap.id && s.ownerEmpireId === null)
+        .sort((a, b) => ((a.x - cap.x) ** 2 + (a.y - cap.y) ** 2) - ((b.x - cap.x) ** 2 + (b.y - cap.y) ** 2))
+        .slice(0, GOD_EMPIRE_EXTRA_SYSTEMS);
+      for (const s of nearby) {
+        s.ownerEmpireId = god.id;
+        s.cultureId = god.cultureId;
+        s.population = Math.max(s.population, 1.2);
+        s.stability = Math.max(s.stability, 0.85);
+        s.habitability = Math.min(1, s.habitability + 0.3);
+        s.resources = Math.min(1.5, s.resources + 0.3);
+        s.godBoostTicks = GOD_EMPIRE_BOOST_TICKS;
+        god.ownedSystemIds.push(s.id);
+      }
+    }
+
+    // Empower the empire itself: unshakeable cohesion, deep coffers, runaway tech, a
+    // standing army no rival can match, and a long divine grace period that blocks
+    // collapse. militaryStrength/population are recomputed every tick by stepGrowth;
+    // we set them here too so the inspector reads true from the very first frame.
+    god.mood = "expanding";
+    god.moodSince = this.state.tick;
+    god.cohesion = 1;
+    god.wealth = Math.max(god.wealth, 5000);
+    god.techLevel = Math.max(god.techLevel, 1.8);
+    god.expansionism = Math.max(god.expansionism, 0.7);
+    god.militaryBonus = (god.militaryBonus ?? 0) + 1000;
+    god.godBoostTicks = GOD_EMPIRE_BOOST_TICKS;
+    god.population = god.ownedSystemIds.reduce((sum, id) => sum + (this.state.systems[id]?.population ?? 0) * 1000, 0);
+    god.militaryStrength = god.ownedSystemIds.length * 10 + god.techLevel * 50 + god.wealth * 0.05 + god.militaryBonus;
+
+    createEvent(this.state, this.state.tick, "golden-age", `${god.name} ascends as a god empire`,
+      `${god.ruler.title} ${god.ruler.name} leads ${god.name}, a realm blessed beyond all rivals, with ${cap?.name ?? "its capital"} as its perfected heart.`,
+      5, [god.id], cap ? [cap.id] : []);
+
+    // Hand the player direct control from the outset. startEmpireControl spawns the
+    // flagship, emits its own "accepts direct rule" event, and notifies listeners.
+    this.startEmpireControl(god.id);
+    return god.id;
   }
 
   /** Ship builder: spawn a military patrol ship of the chosen class at a star, for its owner. */

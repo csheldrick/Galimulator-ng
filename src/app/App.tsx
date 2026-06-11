@@ -157,6 +157,12 @@ export default function App() {
   }, [snapshot]);
   const handleCancelFleet = useCallback((fleetId: Id) => { withRefresh(() => sim.cancelFleet(fleetId)); setSelectedFleetId(null); }, [sim, withRefresh]);
 
+  const handleGodEmpire = useCallback(() => {
+    const empireId = sim.startGodEmpireScenario();
+    setRunning(false); setSelectedSystemId(null); setSelectedFleetId(null); setSelectedEventId(null);
+    setSelectedEmpireId(empireId); setFollowEmpireId(empireId); setBottomTab("empire");
+    setResetCameraToken(t => t + 1); refreshSnapshot();
+  }, [sim, refreshSnapshot]);
   const handleStartControl = useCallback((empireId: Id) => { sim.startEmpireControl(empireId); setSelectedEmpireId(empireId); setFollowEmpireId(empireId); setBottomTab("empire"); refreshSnapshot(); }, [sim, refreshSnapshot]);
   const handleStopControl = useCallback(() => { sim.stopEmpireControl(); setFollowEmpireId(null); refreshSnapshot(); }, [sim, refreshSnapshot]);
   const handleSetPriority = useCallback((p: EmpirePriority) => { withRefresh(() => sim.setEmpirePriority(p)); }, [sim, withRefresh]);
@@ -227,7 +233,7 @@ export default function App() {
           </div>
           <div className="bottom-tab-body">
             {bottomTab === "control" ? (
-              <ControlPanel snapshot={snapshot} selectedEmpireId={selectedEmpireId} followEmpireId={followEmpireId} running={running} onStart={handleStart} onPause={handlePause} onStep={handleStep} onRunTicks={handleRunTicks} onReset={handleReset} onNewSeed={handleNewSeed} onResetCamera={() => setResetCameraToken(t => t + 1)} onExportJson={handleExportJson} onExportReport={handleExportReport} onHeadlessReport={handleHeadlessReport} onPresetSweep={handlePresetSweep} onRiotGalaxy={() => withRefresh(() => sim.riotGalaxy())} onBalanceGalaxy={() => withRefresh(() => sim.balanceGalaxy())} onImportSave={handleImportSave} onSelectEmpire={handleSelectEmpire} onToggleFollow={handleToggleFollow} settings={settings} onSettingsChange={handleSettingsChange} viewOptions={viewOptions} onViewOptionsChange={setViewOptions} />
+              <ControlPanel snapshot={snapshot} selectedEmpireId={selectedEmpireId} followEmpireId={followEmpireId} running={running} onStart={handleStart} onPause={handlePause} onStep={handleStep} onRunTicks={handleRunTicks} onReset={handleReset} onNewSeed={handleNewSeed} onResetCamera={() => setResetCameraToken(t => t + 1)} onExportJson={handleExportJson} onExportReport={handleExportReport} onHeadlessReport={handleHeadlessReport} onPresetSweep={handlePresetSweep} onRiotGalaxy={() => withRefresh(() => sim.riotGalaxy())} onBalanceGalaxy={() => withRefresh(() => sim.balanceGalaxy())} onGodEmpire={handleGodEmpire} onImportSave={handleImportSave} onSelectEmpire={handleSelectEmpire} onToggleFollow={handleToggleFollow} settings={settings} onSettingsChange={handleSettingsChange} viewOptions={viewOptions} onViewOptionsChange={setViewOptions} />
             ) : empireControl}
           </div>
         </div>

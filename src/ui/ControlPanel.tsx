@@ -24,6 +24,7 @@ interface Props {
   onPresetSweep: () => void;
   onRiotGalaxy: () => void;
   onBalanceGalaxy: () => void;
+  onGodEmpire: () => void;
   onImportSave: (text: string) => void;
   onSelectEmpire: (id: Id) => void;
   onToggleFollow: (id: Id) => void;
@@ -53,6 +54,7 @@ export function ControlPanel({
   onPresetSweep,
   onRiotGalaxy,
   onBalanceGalaxy,
+  onGodEmpire,
   onImportSave,
   onSelectEmpire,
   onToggleFollow,
@@ -144,6 +146,11 @@ export function ControlPanel({
           <button onClick={onReset}>Reset</button>
           <button onClick={onNewSeed}>New Seed</button>
           <button onClick={onResetCamera}>Camera</button>
+        </div>
+
+        <div className="section-title">Scenarios</div>
+        <div className="btn-row">
+          <button onClick={onGodEmpire} title="Regenerate the galaxy with one god-blessed empire and homeworld, and take direct control of it">⚡ God Empire</button>
         </div>
 
         <div className="section-title">Galaxy God Controls</div>
