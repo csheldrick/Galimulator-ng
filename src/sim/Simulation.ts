@@ -7,6 +7,7 @@ import { IDEOLOGIES } from "./Moods";
 import { makeCourt } from "./Characters";
 import { addRelationModifier } from "./Relations";
 import { createArtifact, ensureArtifactObjects, pickArtifactKind, ARTIFACT_LABEL } from "./Artifacts";
+import { findPath, pathLength } from "./Pathing";
 
 const SAVE_VERSION = 6;
 
@@ -263,15 +264,30 @@ export class Simulation {
 
   weakenEmpire(empireId: Id): void { const emp = this.state.empires[empireId]; if (!emp) return; emp.wealth = Math.max(0, emp.wealth * 0.4); emp.cohesion = Math.max(0.05, emp.cohesion - 0.35); emp.militaryStrength = Math.max(1, emp.militaryStrength * 0.45); for (const sysId of emp.ownedSystemIds) { const sys = this.state.systems[sysId]; if (sys) sys.stability = Math.max(0.05, sys.stability - 0.15); } createEvent(this.state, this.state.tick, "empire-collapsed", `${emp.name} destabilized`, `${emp.name} was weakened by outside forces.`, 3, [emp.id], emp.ownedSystemIds.slice(0, 8)); this._touch(); }
 
-  forceWar(attackerId: Id, defenderId: Id): void {
-    if (attackerId === defenderId) return;
-    const attacker = this.state.empires[attackerId]; const defender = this.state.empires[defenderId]; if (!attacker || !defender) return;
-    const rel = this._relationship(attacker, defenderId); const relBack = this._relationship(defender, attackerId);
+  // Relationship/war mutations shared by god controls and empire-control commands.
+  // These helpers ONLY mutate state — the caller owns the event + _touch so empire-control
+  // commands can emit a single player-facing event instead of a duplicate god-control one.
+  private _applyWar(attacker: Empire, defender: Empire): void {
+    const rel = this._relationship(attacker, defender.id); const relBack = this._relationship(defender, attacker.id);
     rel.atWar = true; relBack.atWar = true; rel.tension = 100; relBack.tension = 100; rel.opinion = Math.min(rel.opinion, 5); relBack.opinion = Math.min(relBack.opinion, 5);
     const forcedWar = { label: "Forced into war", opinionDelta: -25, tensionDelta: 20, expiresAtTick: this.state.tick + 700 };
     addRelationModifier(rel, forcedWar); addRelationModifier(relBack, { ...forcedWar });
-    if (!attacker.activeWarEmpireIds.includes(defenderId)) attacker.activeWarEmpireIds.push(defenderId);
-    if (!defender.activeWarEmpireIds.includes(attackerId)) defender.activeWarEmpireIds.push(attackerId);
+    if (!attacker.activeWarEmpireIds.includes(defender.id)) attacker.activeWarEmpireIds.push(defender.id);
+    if (!defender.activeWarEmpireIds.includes(attacker.id)) defender.activeWarEmpireIds.push(attacker.id);
+  }
+
+  private _applyPeace(empire: Empire, other: Empire): void {
+    const rel = this._relationship(empire, other.id); const relBack = this._relationship(other, empire.id);
+    rel.atWar = false; relBack.atWar = false; rel.tension = Math.min(rel.tension, 20); relBack.tension = Math.min(relBack.tension, 20); rel.opinion = Math.max(rel.opinion, 45); relBack.opinion = Math.max(relBack.opinion, 45);
+    const forcedPeace = { label: "Forced into peace", opinionDelta: -8, tensionDelta: -15, expiresAtTick: this.state.tick + 500 };
+    addRelationModifier(rel, forcedPeace); addRelationModifier(relBack, { ...forcedPeace });
+    empire.activeWarEmpireIds = empire.activeWarEmpireIds.filter(id => id !== other.id); other.activeWarEmpireIds = other.activeWarEmpireIds.filter(id => id !== empire.id);
+  }
+
+  forceWar(attackerId: Id, defenderId: Id): void {
+    if (attackerId === defenderId) return;
+    const attacker = this.state.empires[attackerId]; const defender = this.state.empires[defenderId]; if (!attacker || !defender) return;
+    this._applyWar(attacker, defender);
     createEvent(this.state, this.state.tick, "war-declared", `War: ${attacker.name} vs ${defender.name}`, `${attacker.name} and ${defender.name} were forced into war.`, 4, [attackerId, defenderId], []);
     this._touch();
   }
@@ -279,11 +295,7 @@ export class Simulation {
   forcePeace(empireId: Id, otherId: Id): void {
     if (empireId === otherId) return;
     const empire = this.state.empires[empireId]; const other = this.state.empires[otherId]; if (!empire || !other) return;
-    const rel = this._relationship(empire, otherId); const relBack = this._relationship(other, empireId);
-    rel.atWar = false; relBack.atWar = false; rel.tension = Math.min(rel.tension, 20); relBack.tension = Math.min(relBack.tension, 20); rel.opinion = Math.max(rel.opinion, 45); relBack.opinion = Math.max(relBack.opinion, 45);
-    const forcedPeace = { label: "Forced into peace", opinionDelta: -8, tensionDelta: -15, expiresAtTick: this.state.tick + 500 };
-    addRelationModifier(rel, forcedPeace); addRelationModifier(relBack, { ...forcedPeace });
-    empire.activeWarEmpireIds = empire.activeWarEmpireIds.filter(id => id !== otherId); other.activeWarEmpireIds = other.activeWarEmpireIds.filter(id => id !== empireId);
+    this._applyPeace(empire, other);
     createEvent(this.state, this.state.tick, "peace-signed", `Peace: ${empire.name} & ${other.name}`, `${empire.name} and ${other.name} were forced into peace.`, 3, [empireId, otherId], []);
     this._touch();
   }
@@ -350,16 +362,29 @@ export class Simulation {
     this._touch();
   }
 
-  private _checkCommand(commandKey: string, cooldown: number, authCost: number): boolean {
+  // Command invariant — each command method MUST follow this order:
+  //   1. validate   (_canCommand + target/owner checks; returns false WITHOUT touching playerControl)
+  //   2. spend       (_spendCommand: authority, cooldown, corruption)
+  //   3. mutate      (state changes)
+  //   4. event       (createEvent — exactly one player-facing event)
+  //   5. _touch once (after all mutations + events)
+
+  /** Validate a command is allowed right now. Pure check — does NOT mutate playerControl. */
+  private _canCommand(commandKey: string, cooldown: number, authCost: number): boolean {
     const pc = this.state.playerControl;
     if (pc.mode !== "empire" || !pc.controlledEmpireId) return false;
     if (pc.authority < authCost) return false;
     const last = pc.commandCooldowns[commandKey] ?? 0;
     if (this.state.tick - last < cooldown) return false;
+    return true;
+  }
+
+  /** Consume authority/cooldown/corruption. Call ONLY after validation (incl. target) has passed. */
+  private _spendCommand(commandKey: string, authCost: number): void {
+    const pc = this.state.playerControl;
     pc.commandCooldowns[commandKey] = this.state.tick;
     pc.authority = Math.max(0, pc.authority - authCost);
     pc.corruption = Math.min(100, (pc.corruption ?? 0) + Math.max(1, authCost * 0.08));
-    return true;
   }
 
   private _nearestOwned(emp: Empire, target: StarSystem): StarSystem | null {
@@ -373,115 +398,157 @@ export class Simulation {
   }
 
   commandRallyFleet(targetSystemId: Id): boolean {
-    if (!this._checkCommand("rally", 15, 20)) return false;
+    // 1. validate
+    if (!this._canCommand("rally", 15, 20)) return false;
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
     const target = this.state.systems[targetSystemId];
     if (!target) return false;
     const origin = this._nearestOwned(emp, target);
     if (!origin) return false;
+    // 2. spend
+    this._spendCommand("rally", 20);
+    // 3. mutate
     const kind = target.ownerEmpireId && target.ownerEmpireId !== emp.id ? "war" : "colonizer";
     const strength = Math.max(15, emp.militaryStrength * 0.12);
+    const path = findPath(this.state, origin.id, targetSystemId);
     const id = `fleet-cmd-${this.state.tick}-${Object.keys(this.state.fleets).length}`;
     this.state.fleets[id] = {
       id, name: `Imperial Rally Fleet to ${target.name}`, kind, shipClass: kind === "war" ? "armada" : "settler",
       ownerEmpireId: emp.id, originSystemId: origin.id, targetSystemId,
-      path: [origin.id, targetSystemId], legIndex: 0, legProgress: 0,
-      totalDist: Math.max(1, Math.hypot(origin.x - target.x, origin.y - target.y)),
+      path, legIndex: 0, legProgress: 0,
+      totalDist: Math.max(1, pathLength(this.state, path)),
       x: origin.x, y: origin.y, progress: 0, speed: 2.5, strength, createdTick: this.state.tick,
     };
+    // 4. event
     createEvent(this.state, this.state.tick, "border-conflict", `${emp.name}: Imperial fleet rallied`, `${emp.ruler.title} ${emp.ruler.name} ordered a fleet toward ${target.name}.`, 3, [emp.id], [target.id]);
+    // 5. _touch once
     this._touch();
     return true;
   }
 
   commandMoveFlagship(systemId: Id): boolean {
-    if (!this._checkCommand("flagship", 8, 8)) return false;
+    // 1. validate
+    if (!this._canCommand("flagship", 8, 8)) return false;
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
     const dest = this.state.systems[systemId];
     if (!dest) return false;
-    let fleet = pc.flagshipFleetId ? this.state.fleets[pc.flagshipFleetId] : null;
+    const existing = pc.flagshipFleetId ? this.state.fleets[pc.flagshipFleetId] : null;
+    // Resolve the origin used for validation: the flagship's current station, else the capital.
+    const originId = existing ? existing.targetSystemId : emp.capitalSystemId;
+    const origin = this.state.systems[originId] ?? this.state.systems[emp.capitalSystemId];
+    if (!origin) return false;
+    // 2. spend
+    this._spendCommand("flagship", 8);
+    // 3. mutate — spawn the flagship lazily now that the command is committed.
+    let fleet = existing;
     if (!fleet) {
       const id = this._spawnFlagship(emp);
       fleet = id ? this.state.fleets[id] : null;
       pc.flagshipFleetId = id;
     }
     if (!fleet) return false;
-    const origin = this.state.systems[fleet.targetSystemId] ?? this.state.systems[emp.capitalSystemId];
-    if (!origin) return false;
+    const path = findPath(this.state, origin.id, dest.id);
     fleet.originSystemId = origin.id;
     fleet.targetSystemId = dest.id;
-    fleet.path = [origin.id, dest.id];
+    fleet.path = path;
     fleet.legIndex = 0;
     fleet.legProgress = 0;
-    fleet.totalDist = Math.max(1, Math.hypot(origin.x - dest.x, origin.y - dest.y));
+    fleet.totalDist = Math.max(1, pathLength(this.state, path));
     fleet.progress = 0;
+    // 4. event
     createEvent(this.state, this.state.tick, "border-conflict", `${emp.name} flagship dispatched`, `${fleet.name} was ordered to ${dest.name}.`, 3, [emp.id], [dest.id]);
+    // 5. _touch once
     this._touch();
     return true;
   }
 
   commandFortifySystem(systemId: Id): boolean {
-    if (!this._checkCommand("fortify", 20, 15)) return false;
+    // 1. validate
+    if (!this._canCommand("fortify", 20, 15)) return false;
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
     const sys = this.state.systems[systemId];
     if (!sys || sys.ownerEmpireId !== emp.id) return false;
+    // 2. spend
+    this._spendCommand("fortify", 15);
+    // 3. mutate
     sys.stability = Math.min(1, sys.stability + 0.2);
     sys.markers ??= [];
     const existing = sys.markers.findIndex(m => m.kind === "shipyard");
     const marker = { kind: "shipyard" as const, since: this.state.tick, label: "Fortified by imperial decree" };
     if (existing >= 0) sys.markers[existing] = marker; else sys.markers.push(marker);
+    // 4. event / 5. _touch once
     createEvent(this.state, this.state.tick, "golden-age", `${emp.name} fortified ${sys.name}`, `${emp.ruler.title} ${emp.ruler.name} ordered the fortification of ${sys.name}.`, 2, [emp.id], [systemId]);
     this._touch();
     return true;
   }
 
   commandStabilizeSystem(systemId: Id): boolean {
-    if (!this._checkCommand("stabilize", 10, 10)) return false;
+    // 1. validate
+    if (!this._canCommand("stabilize", 10, 10)) return false;
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
     const sys = this.state.systems[systemId];
     if (!sys || sys.ownerEmpireId !== emp.id) return false;
+    // 2. spend
+    this._spendCommand("stabilize", 10);
+    // 3. mutate
     sys.stability = Math.min(1, sys.stability + 0.25);
     emp.cohesion = Math.min(1, emp.cohesion + 0.02);
+    // 4. event / 5. _touch once
     createEvent(this.state, this.state.tick, "golden-age", `${emp.name} stabilized ${sys.name}`, `Imperial policy brought calm to ${sys.name}.`, 2, [emp.id], [systemId]);
     this._touch();
     return true;
   }
 
   commandProposePeace(targetEmpireId: Id): boolean {
-    if (!this._checkCommand("peace", 30, 25)) return false;
+    // 1. validate
+    if (!this._canCommand("peace", 30, 25)) return false;
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
+    if (targetEmpireId === emp.id) return false;
     const target = this.state.empires[targetEmpireId];
     if (!target) return false;
     const rel = emp.relationshipByEmpireId[targetEmpireId];
     if (!rel?.atWar) return false;
+    // 2. spend
+    this._spendCommand("peace", 25);
+    // 3. mutate (shared helper; the player-facing event below replaces the god-control one)
     pc.legitimacy = Math.max(0, pc.legitimacy - 5);
-    this.forcePeace(emp.id, targetEmpireId);
+    this._applyPeace(emp, target);
+    // 4. event / 5. _touch once
     createEvent(this.state, this.state.tick, "peace-signed", `${emp.name} proposed peace to ${target.name}`, `${emp.ruler.title} ${emp.ruler.name} personally negotiated an end to hostilities with ${target.name}.`, 3, [emp.id, targetEmpireId], []);
+    this._touch();
     return true;
   }
 
   commandProvokeWar(targetEmpireId: Id): boolean {
-    if (!this._checkCommand("war", 40, 30)) return false;
+    // 1. validate
+    if (!this._canCommand("war", 40, 30)) return false;
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
+    if (targetEmpireId === emp.id) return false;
     const target = this.state.empires[targetEmpireId];
     if (!target) return false;
-    this.forceWar(emp.id, targetEmpireId);
+    // 2. spend
+    this._spendCommand("war", 30);
+    // 3. mutate (shared helper; the player-facing event below replaces the god-control one)
+    this._applyWar(emp, target);
     const admiral = emp.court.find(c => c.role === "admiral");
     const minister = emp.court.find(c => c.role === "minister");
     if (admiral) admiral.loyalty = Math.min(1, admiral.loyalty + 0.08);
     if (minister) minister.loyalty = Math.max(0, minister.loyalty - 0.1);
+    // 4. event / 5. _touch once
     createEvent(this.state, this.state.tick, "war-declared", `${emp.name}: Imperial war declaration`, `${emp.ruler.title} ${emp.ruler.name} personally declared war on ${target.name}.${admiral ? ` ${admiral.title} ${admiral.name} rallied behind the throne.` : ""}`, 4, [emp.id, targetEmpireId], []);
+    this._touch();
     return true;
   }
 
   commandSponsorColonization(systemId: Id): boolean {
-    if (!this._checkCommand("colonize", 25, 18)) return false;
+    // 1. validate
+    if (!this._canCommand("colonize", 25, 18)) return false;
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
     const target = this.state.systems[systemId];
@@ -492,41 +559,55 @@ export class Simulation {
       if (s?.ownerEmpireId === emp.id) { origin = s; break; }
     }
     if (!origin) return false;
+    // 2. spend
+    this._spendCommand("colonize", 18);
+    // 3. mutate
+    const path = findPath(this.state, origin.id, systemId);
     const id = `fleet-col-${this.state.tick}-${Object.keys(this.state.fleets).length}`;
     this.state.fleets[id] = {
       id, name: `Imperial Colonization to ${target.name}`, kind: "colonizer", shipClass: "settler",
       ownerEmpireId: emp.id, originSystemId: origin.id, targetSystemId: systemId,
-      path: [origin.id, systemId], legIndex: 0, legProgress: 0,
-      totalDist: Math.max(1, Math.hypot(origin.x - target.x, origin.y - target.y)),
+      path, legIndex: 0, legProgress: 0,
+      totalDist: Math.max(1, pathLength(this.state, path)),
       x: origin.x, y: origin.y, progress: 0, speed: 2.8, strength: 10, createdTick: this.state.tick,
     };
-    createEvent(this.state, this.state.tick, "system-colonized", `${emp.name} sponsored colonization of ${target.name}`, `By imperial decree, a colony fleet was dispatched to ${target.name}.`, 2, [emp.id], [systemId]);
     emp.wealth = Math.max(0, emp.wealth - 15);
+    // 4. event / 5. _touch once
+    createEvent(this.state, this.state.tick, "system-colonized", `${emp.name} sponsored colonization of ${target.name}`, `By imperial decree, a colony fleet was dispatched to ${target.name}.`, 2, [emp.id], [systemId]);
     this._touch();
     return true;
   }
 
   commandBuildArtifact(systemId: Id, kind?: ArtifactKind): boolean {
-    if (!this._checkCommand("artifact", 120, 45)) return false;
+    // 1. validate
+    if (!this._canCommand("artifact", 120, 45)) return false;
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
     const sys = this.state.systems[systemId];
     if (!sys || sys.ownerEmpireId !== emp.id || sys.artifactId) return false;
     if (emp.wealth < 450) return false;
+    // 2. spend
+    this._spendCommand("artifact", 45);
+    // 3. mutate
     const artifact = createArtifact(this.state, sys, this.rng, kind ?? pickArtifactKind(this.rng), "built", emp.id);
     emp.wealth -= 450;
     pc.legitimacy = Math.max(0, pc.legitimacy - 4);
+    // 4. event / 5. _touch once
     createEvent(this.state, this.state.tick, "artifact-discovered", `${emp.name} built ${artifact.name}`, `${emp.ruler.title} ${emp.ruler.name} commissioned ${artifact.name}, a ${ARTIFACT_LABEL[artifact.kind].toLowerCase()}, at ${sys.name}.`, 4, [emp.id], [sys.id]);
     this._touch();
     return true;
   }
 
   commandSpyMission(targetEmpireId: Id, mission: SpyMission): boolean {
-    if (!this._checkCommand(`spy-${mission}`, 70, 25)) return false;
+    // 1. validate
+    if (!this._canCommand(`spy-${mission}`, 70, 25)) return false;
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
     const target = this.state.empires[targetEmpireId];
     if (!target || target.id === emp.id) return false;
+    // 2. spend
+    this._spendCommand(`spy-${mission}`, 25);
+    // 3. mutate
     const success = this.rng.next() < Math.max(0.25, Math.min(0.85, 0.55 + emp.techLevel * 0.08 - target.cohesion * 0.25));
     const rel = this._relationship(target, emp.id);
     if (!success) {
@@ -584,11 +665,15 @@ export class Simulation {
   }
 
   commandAdoptReligion(religionId: Id): boolean {
-    if (!this._checkCommand("religion", 90, 35)) return false;
+    // 1. validate
+    if (!this._canCommand("religion", 90, 35)) return false;
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
     const religion = this.state.religions[religionId];
     if (!religion) return false;
+    // 2. spend
+    this._spendCommand("religion", 35);
+    // 3. mutate
     const old = emp.stateReligionId;
     emp.stateReligionId = religionId;
     pc.legitimacy = Math.max(0, pc.legitimacy - (old && old !== religionId ? 12 : 4));
@@ -600,9 +685,13 @@ export class Simulation {
   }
 
   commandReformGovernment(): boolean {
-    if (!this._checkCommand("reform", 140, 35)) return false;
+    // 1. validate (no target — playerControl eligibility only)
+    if (!this._canCommand("reform", 140, 35)) return false;
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
+    // 2. spend
+    this._spendCommand("reform", 35);
+    // 3. mutate
     pc.corruption = Math.max(0, (pc.corruption ?? 0) - 35);
     pc.legitimacy = Math.max(0, pc.legitimacy - 6);
     emp.cohesion = Math.max(0.05, emp.cohesion - 0.04);
