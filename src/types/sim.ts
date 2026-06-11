@@ -615,6 +615,8 @@ export interface GalaxyState {
   people?: Record<Id, Person>;
   /** Ruling houses keyed by id. */
   dynasties?: Record<Id, Dynasty>;
+  /** When false, empires cannot enter or trigger transcendence and will never leave the galaxy. Defaults to true. */
+  transcendenceEnabled?: boolean;
 }
 
 export interface SimSettings {

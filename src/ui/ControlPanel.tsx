@@ -25,6 +25,8 @@ interface Props {
   onRiotGalaxy: () => void;
   onBalanceGalaxy: () => void;
   onGodEmpire: () => void;
+  transcendenceEnabled: boolean;
+  onSetTranscendenceEnabled: (value: boolean) => void;
   onImportSave: (text: string) => void;
   onSelectEmpire: (id: Id) => void;
   onToggleFollow: (id: Id) => void;
@@ -55,6 +57,8 @@ export function ControlPanel({
   onRiotGalaxy,
   onBalanceGalaxy,
   onGodEmpire,
+  transcendenceEnabled,
+  onSetTranscendenceEnabled,
   onImportSave,
   onSelectEmpire,
   onToggleFollow,
@@ -151,6 +155,9 @@ export function ControlPanel({
         <div className="section-title">Scenarios</div>
         <div className="btn-row">
           <button onClick={onGodEmpire} title="Regenerate the galaxy with one god-blessed empire and homeworld, and take direct control of it">⚡ God Empire</button>
+        </div>
+        <div className="toggle-grid">
+          <label title="When off, empires cannot transcend and leave the galaxy"><input type="checkbox" checked={transcendenceEnabled} onChange={e => onSetTranscendenceEnabled(e.target.checked)} /> Transcendence</label>
         </div>
 
         <div className="section-title">Galaxy God Controls</div>
