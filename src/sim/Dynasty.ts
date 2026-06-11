@@ -8,7 +8,7 @@ import { addRelationModifier } from "./Relations";
 // so ids keep incrementing without collisions across a load.
 let _personSeq = 0;
 let _dynastySeq = 0;
-export function resetDynastyCounters(): void { _personSeq = 0; _dynastySeq = 0; }
+export function resetDynastyCounters(): void { _personSeq = 0; _dynastySeq = 0; _sinceGc = 0; }
 export function getPersonCounter(): number { return _personSeq; }
 export function getDynastyCounter(): number { return _dynastySeq; }
 export function setPersonCounter(v: number): void { _personSeq = Math.max(0, Math.floor(v)); }
@@ -237,6 +237,116 @@ export function lineageChain(state: GalaxyState, emp: Empire, limit = 6): Person
     cur = cur.predecessorPersonId ? state.people[cur.predecessorPersonId] : undefined;
   }
   return chain;
+}
+
+// ── Garbage collection ───────────────────────────────────────────────────────
+// state.people and state.dynasties only ever grow. Two distinct leaks compound:
+//
+//  1. Dead people are merely flagged alive=false and extinct dynasties tagged with
+//     extinctTick — nothing is ever deleted, so orphaned ancestors and dead houses
+//     pile up forever.
+//  2. The *living* population also grows without bound: births outpace heir deaths
+//     several to one, and unchosen heirs, surplus relatives, and exiled remnants of
+//     fallen empires stay alive indefinitely, never culled.
+//
+// Because getSnapshot() structuredClones the entire people/dynasty graph every
+// 250 ms for the React UI, this unbounded growth makes each snapshot bigger and
+// slower until the tab OOM-crashes. Succession and pretender logic only ever query
+// *alive* people, so we can prune freely as long as we keep each empire's ruling
+// family and a bounded recent pool of claimants intact.
+
+// How deep the inspector's lineage chain can walk (limit 6) plus headroom.
+const LINEAGE_RETAIN = 10;
+// Baseline of non-essential living claimants (surplus relatives, nobles, exiles) to
+// retain, plus this many per empire. Bounds the living population to roughly
+// rulers + consorts + this pool, which keeps snapshots cheap while leaving plenty
+// of pretenders and stray nobles for succession drama.
+const LIVING_POOL_BASE = 40;
+const LIVING_POOL_PER_EMPIRE = 8;
+// Run a sweep this often (in stepDynasties calls ≈ ticks).
+const GC_INTERVAL = 200;
+let _sinceGc = 0;
+
+// Higher score = more worth keeping. Favours strong, renowned, young claimants who
+// still belong to a living empire, so culling sheds the stalest hangers-on first.
+function claimantScore(p: Person): number {
+  return (p.empireId ? 1 : 0) * 2 + p.claimStrength * 1.5 + p.renown + p.bornTick * 1e-9;
+}
+
+// Bound both the living and dead genealogy graphs, and drop dynasties nothing
+// references any more. Deterministic (uses no rng), so replays stay identical.
+export function gcDynasties(state: GalaxyState): void {
+  if (!state.people) return;
+  const people = state.people;
+
+  // Essential living people that must never be culled: every empire's current ruler
+  // and that ruler's consort(s). These anchor active reigns and the lineage display.
+  const essential = new Set<Id>();
+  for (const emp of Object.values(state.empires)) {
+    if (!emp.rulerPersonId) continue;
+    essential.add(emp.rulerPersonId);
+    const ruler = people[emp.rulerPersonId];
+    if (ruler) for (const sid of ruler.spouseIds) if (people[sid]?.alive) essential.add(sid);
+  }
+
+  // 1. Cap the living pool: keep all essentials plus the top-scoring extra claimants,
+  //    deleting the surplus (stale relatives, nobles, and exiled remnants).
+  const extras: Person[] = [];
+  for (const p of Object.values(people)) {
+    if (p.alive && !essential.has(p.id)) extras.push(p);
+  }
+  const livingCap = LIVING_POOL_BASE + Object.keys(state.empires).length * LIVING_POOL_PER_EMPIRE;
+  if (extras.length > livingCap) {
+    // Deterministic order: score desc, id asc to break ties.
+    extras.sort((a, b) => claimantScore(b) - claimantScore(a) || (a.id < b.id ? -1 : 1));
+    for (const p of extras.slice(livingCap)) delete people[p.id];
+  }
+
+  // 2. Retain dead people only where a display still reaches them.
+  const keep = new Set<Id>();
+  for (const p of Object.values(people)) if (p.alive) keep.add(p.id);
+  // Immediate family the inspector renders for each living person.
+  for (const id of [...keep]) {
+    const p = people[id];
+    if (!p) continue;
+    if (p.predecessorPersonId) keep.add(p.predecessorPersonId);
+    for (const pid of p.parentIds) keep.add(pid);
+    for (const sid of p.spouseIds) keep.add(sid);
+  }
+  // Each current ruler's predecessor chain, for the lineage-chain panel.
+  for (const emp of Object.values(state.empires)) {
+    let cur: Person | undefined = emp.rulerPersonId ? people[emp.rulerPersonId] : undefined;
+    let depth = 0;
+    const seen = new Set<Id>();
+    while (cur && !seen.has(cur.id) && depth < LINEAGE_RETAIN) {
+      keep.add(cur.id);
+      seen.add(cur.id);
+      cur = cur.predecessorPersonId ? people[cur.predecessorPersonId] : undefined;
+      depth++;
+    }
+  }
+  for (const id of Object.keys(people)) {
+    if (!keep.has(id)) delete people[id];
+  }
+
+  // 3. Scrub references in survivors that now point at deleted people.
+  for (const p of Object.values(people)) {
+    if (p.predecessorPersonId && !people[p.predecessorPersonId]) p.predecessorPersonId = undefined;
+    p.parentIds = p.parentIds.filter(id => people[id]);
+    p.childIds = p.childIds.filter(id => people[id]);
+    p.spouseIds = p.spouseIds.filter(id => people[id]);
+  }
+
+  // 4. Drop dynasties no surviving person belongs to and no empire still rules under.
+  //    Built in one pass to avoid an O(houses × people) scan.
+  if (state.dynasties) {
+    const liveDynastyIds = new Set<Id>();
+    for (const p of Object.values(people)) liveDynastyIds.add(p.dynastyId);
+    for (const emp of Object.values(state.empires)) if (emp.dynastyId) liveDynastyIds.add(emp.dynastyId);
+    for (const id of Object.keys(state.dynasties)) {
+      if (!liveDynastyIds.has(id)) delete state.dynasties[id];
+    }
+  }
 }
 
 // ── Relationship prose ──────────────────────────────────────────────────────────
@@ -504,6 +614,9 @@ export function stepDynasties(state: GalaxyState, rng: PRNG): void {
     if (rng.next() > deathChance) continue;
     handleSuccession(state, emp, reign, rng);
   }
+
+  // Amortized cleanup so the genealogy graph stays bounded over long runs.
+  if (++_sinceGc >= GC_INTERVAL) { _sinceGc = 0; gcDynasties(state); }
 }
 
 function handleSuccession(state: GalaxyState, emp: Empire, reign: number, rng: PRNG): void {

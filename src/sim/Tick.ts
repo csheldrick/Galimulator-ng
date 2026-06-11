@@ -1371,8 +1371,10 @@ function removeEmpireFromGalaxy(state: GalaxyState, empire: Empire): void {
         p.empireId = null; // exiled remnant of a fallen house
       }
     }
+    const livingHouses = new Set<string>();
+    for (const p of Object.values(state.people)) if (p.alive) livingHouses.add(p.dynastyId);
     for (const dyn of Object.values(state.dynasties ?? {})) {
-      if (dyn.extinctTick === undefined && !Object.values(state.people).some(p => p.dynastyId === dyn.id && p.alive)) {
+      if (dyn.extinctTick === undefined && !livingHouses.has(dyn.id)) {
         dyn.extinctTick = state.tick;
       }
     }
