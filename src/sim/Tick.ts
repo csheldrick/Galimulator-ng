@@ -4,7 +4,7 @@ import { createEvent } from "./Events";
 import { updateRelationships, getNeighboringEmpires, tryDeclareWar, tryMakePeace } from "./Diplomacy";
 import { pruneExpiredModifiers, effectiveOpinion, effectiveTension, addRelationModifier } from "./Relations";
 import type { WarFocus, RelationModifierInput } from "../types/sim";
-import { makeName, makeRuler, makeEmpireName } from "./Galaxy";
+import { makeRuler, makeEmpireName } from "./Galaxy";
 import { MOOD_LABEL, MOOD_FLAVOR, IDEOLOGY_LABEL, IDEOLOGY_MODS, IDEOLOGIES, rulerDisplayName } from "./Moods";
 import { dist, findPath, pathLength, advanceAlongPath } from "./Pathing";
 import { stepReligion } from "./Religion";
@@ -12,6 +12,7 @@ import { stepTrade, severEmpireRoutes } from "./Trade";
 import { stepMonsters, stepCrises, stepOddities, discoverArtifact } from "./Crises";
 import { stepArtifacts } from "./Artifacts";
 import { makeCourt, stepCharacters, topByRole, findCharacter } from "./Characters";
+import { stepDynasties, foundDynasty, installPretender, dynastyMembers } from "./Dynasty";
 
 const SHIP_CLASS_MODS: Record<ShipClass, { speed: number; strength: number }> = {
   settler: { speed: 1, strength: 1 },
@@ -488,15 +489,15 @@ function stepPlayerControl(state: GalaxyState, rng: PRNG): void {
   if (pc.legitimacy < 20 && !flagshipAtCapital && rng.next() < 0.001) {
     const pretender = emp.court.find(c => c.role === "pretender");
     if (pretender && pretender.loyalty < 0.35) {
-      // Force a coup that ends player control
-      emp.ruler = makeRuler(rng, state.tick);
+      // Force a coup that ends player control — installing a real pretender claimant.
+      const { person, reason } = installPretender(state, emp, rng);
       emp.cohesion = Math.max(0.1, emp.cohesion - 0.15);
       pc.mode = "observer";
       pc.controlledEmpireId = null;
       if (cap) cap.stability = Math.max(0.1, cap.stability - 0.2);
       createEvent(state, state.tick, "coup",
         `Player-ruler overthrown in ${emp.name}`,
-        `${pretender.title} ${pretender.name} exploited imperial weakness and seized the throne. You return to observer mode.`,
+        `${person.title} ${person.name}, ${reason}, exploited imperial weakness and seized the throne. You return to observer mode.`,
         5, [emp.id], cap ? [cap.id] : []);
     }
   }
@@ -880,6 +881,7 @@ function spawnRebellion(state: GalaxyState, empire: Empire, rng: PRNG): void {
   const newEmpire: Empire = { id: newId, name: `${rng.pick(["Broken","Free","New","Rogue","Rising","Lost"])} ${rng.pick(rebelNames)}`, color: `hsl(${rng.nextInt(0, 360)},${rng.nextInt(50, 90)}%,${rng.nextInt(35, 65)}%)`, mood: "expanding", moodSince: state.tick, ideology: rng.pick(IDEOLOGIES), ruler: makeRuler(rng, state.tick), court: makeCourt(rng, state.tick, rebelReligion !== null), capitalSystemId: defecting[0], ownedSystemIds: [], population: 0, wealth: 50, militaryStrength: 30, cohesion: rng.range(0.4, 0.8), aggression: rng.range(0.3, 0.8), expansionism: rng.range(0.3, 0.7), techLevel: empire.techLevel * 0.8, cultureId: `culture-rebel-${newId}`, stateReligionId: rebelReligion, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [], allianceIds: [] };
   for (const sysId of defecting) { const sys = state.systems[sysId]; if (!sys) continue; empire.ownedSystemIds = empire.ownedSystemIds.filter(id => id !== sysId); sys.ownerEmpireId = newId; sys.cultureId = newEmpire.cultureId; newEmpire.ownedSystemIds.push(sysId); }
   state.empires[newId] = newEmpire; empire.cohesion = Math.max(0.1, empire.cohesion - 0.2);
+  foundDynasty(state, newEmpire, state.tick, rng);
 
   // Spawn refugee ships from the most destabilized defecting systems
   if (defecting.length > 0 && rng.next() < 0.6) {
@@ -914,6 +916,28 @@ function removeEmpireFromGalaxy(state: GalaxyState, empire: Empire): void {
     if (alliance) {
       alliance.memberEmpireIds = alliance.memberEmpireIds.filter(id => id !== empire.id);
       if (alliance.memberEmpireIds.length < 2) delete state.alliances[allianceId];
+    }
+  }
+  // Dynastic bookkeeping: the house no longer rules here; its members on this throne
+  // become stateless remnants (potential future pretenders/restorers), and a house with
+  // no living members anywhere is recorded as extinct.
+  if (empire.dynastyId && state.dynasties?.[empire.dynastyId]) {
+    const dyn = state.dynasties[empire.dynastyId];
+    dyn.rulingEmpireIds = dyn.rulingEmpireIds.filter(id => id !== empire.id);
+  }
+  if (state.people) {
+    for (const p of Object.values(state.people)) {
+      if (p.empireId !== empire.id) continue;
+      if (p.alive && (p.role === "ruler" || p.role === "consort")) {
+        p.alive = false; p.diedTick = state.tick; p.deathReason = "perished with their realm";
+      } else {
+        p.empireId = null; // exiled remnant of a fallen house
+      }
+    }
+    for (const dyn of Object.values(state.dynasties ?? {})) {
+      if (dyn.extinctTick === undefined && !Object.values(state.people).some(p => p.dynastyId === dyn.id && p.alive)) {
+        dyn.extinctTick = state.tick;
+      }
     }
   }
   delete state.empires[empire.id];
@@ -967,9 +991,30 @@ function collapseEmpire(state: GalaxyState, empire: Empire, rng: PRNG): void {
       };
       successorSys.ownerEmpireId = sucId;
       state.empires[sucId] = sucEmpire;
+      // Dynastic continuity: if a surviving member of the fallen house can be found, the
+      // dynasty branches into the successor state instead of a brand-new house arising.
+      const oldDyn = empire.dynastyId ? state.dynasties?.[empire.dynastyId] : null;
+      const survivor = oldDyn
+        ? dynastyMembers(state, oldDyn.id, { aliveOnly: true }).find(p => p.role !== "consort" && p.empireId === empire.id)
+        : null;
+      let continuity = false;
+      if (oldDyn && survivor) {
+        survivor.empireId = sucId;
+        survivor.role = "ruler";
+        survivor.title = sucEmpire.ruler.title;
+        sucEmpire.dynastyId = oldDyn.id;
+        sucEmpire.rulerPersonId = survivor.id;
+        sucEmpire.ruler = { name: survivor.name, title: survivor.title, dynasty: oldDyn.name, ordinal: 1, accessionTick: state.tick, personId: survivor.id };
+        if (!oldDyn.rulingEmpireIds.includes(sucId)) oldDyn.rulingEmpireIds.push(sucId);
+        continuity = true;
+      } else {
+        foundDynasty(state, sucEmpire, state.tick, rng);
+      }
       createEvent(state, state.tick, "empire-founded",
         `${sucEmpire.name} rose from ${empire.name}'s ashes`,
-        `As ${empire.name} crumbled, ${sucEmpire.name} claimed continuity at ${successorSys.name}.`,
+        continuity
+          ? `As ${empire.name} crumbled, ${sucEmpire.ruler.title} ${sucEmpire.ruler.name} carried the House of ${sucEmpire.ruler.dynasty} into a successor state at ${successorSys.name}.`
+          : `As ${empire.name} crumbled, ${sucEmpire.name} claimed continuity at ${successorSys.name}.`,
         4, [sucId], [successorSysId]);
     }
   }
@@ -1068,34 +1113,6 @@ function stepMoods(state: GalaxyState, rng: PRNG): void {
   }
 }
 
-function stepRulers(state: GalaxyState, rng: PRNG): void {
-  for (const emp of Object.values(state.empires)) {
-    const reign = state.tick - emp.ruler.accessionTick;
-    const deathChance = Math.min(0.008, 0.0006 + reign * 0.000003);
-    if (rng.next() > deathChance) continue;
-    const old = emp.ruler;
-    const oldDisplay = rulerDisplayName(emp);
-    const sameDynasty = rng.next() < 0.65;
-    if (sameDynasty) {
-      const sameName = rng.next() < 0.5;
-      emp.ruler = {
-        name: sameName ? old.name : makeName(rng),
-        title: rng.next() < 0.85 ? old.title : makeRuler(rng, state.tick).title,
-        dynasty: old.dynasty,
-        ordinal: sameName ? old.ordinal + 1 : 1,
-        accessionTick: state.tick,
-      };
-    } else {
-      emp.ruler = makeRuler(rng, state.tick);
-    }
-    emp.aggression = Math.min(1, Math.max(0.05, emp.aggression + rng.range(-0.2, 0.2)));
-    emp.expansionism = Math.min(1, Math.max(0.05, emp.expansionism + rng.range(-0.2, 0.2)));
-    const cap = state.systems[emp.capitalSystemId];
-    const dynastyNote = sameDynasty ? "" : ` The ${old.dynasty} dynasty has fallen; the ${emp.ruler.dynasty} dynasty rises.`;
-    createEvent(state, state.tick, "succession", `${oldDisplay} of ${emp.name} has died`, `After a reign of ${reign} ticks, ${rulerDisplayName(emp)} ascended the throne of ${emp.name}.${dynastyNote}`, sameDynasty ? 2 : 3, [emp.id], cap ? [cap.id] : []);
-  }
-}
-
 function stepPolitics(state: GalaxyState, rng: PRNG): void {
   for (const emp of Object.values(state.empires)) {
     const unrest = (1 - emp.cohesion) * (emp.mood === "rioting" ? 3 : emp.mood === "degenerating" ? 1.6 : 1);
@@ -1103,15 +1120,18 @@ function stepPolitics(state: GalaxyState, rng: PRNG): void {
     if (rng.next() > unrest * 0.0009 + warPressure) continue;
     const oldRuler = rulerDisplayName(emp);
     const oldIdeology = emp.ideology;
-    emp.ruler = makeRuler(rng, state.tick);
+    // The throne is seized by a pretender with a real identity and grievance, not a random stranger.
+    const { person, reason, oldDynastyName } = installPretender(state, emp, rng);
     const flips = IDEOLOGIES.filter(i => i !== oldIdeology);
     emp.ideology = warPressure > 0 ? "militarist" : rng.pick(flips);
     emp.cohesion = Math.max(0.1, emp.cohesion - 0.12);
     emp.aggression = Math.min(1, Math.max(0.05, emp.aggression + rng.range(-0.15, 0.3)));
     const cap = state.systems[emp.capitalSystemId];
     if (cap) cap.stability = Math.max(0.05, cap.stability - 0.15);
+    const houseNote = person.dynastyId && state.dynasties?.[person.dynastyId]?.name !== oldDynastyName
+      ? ` The House of ${oldDynastyName} gave way to the House of ${state.dynasties?.[person.dynastyId]?.name ?? "a new line"}.` : "";
     createEvent(state, state.tick, "coup", `Coup in ${emp.name}`,
-      `${oldRuler} was overthrown; ${rulerDisplayName(emp)} seized power and steered ${emp.name} from ${IDEOLOGY_LABEL[oldIdeology].toLowerCase()} rule toward ${IDEOLOGY_LABEL[emp.ideology].toLowerCase()} rule.`,
+      `${oldRuler} was overthrown; ${rulerDisplayName(emp)}, ${reason}, seized power and steered ${emp.name} from ${IDEOLOGY_LABEL[oldIdeology].toLowerCase()} rule toward ${IDEOLOGY_LABEL[emp.ideology].toLowerCase()} rule.${houseNote}`,
       4, [emp.id], cap ? [cap.id] : []);
   }
 }
@@ -1253,6 +1273,7 @@ function stepEmergence(state: GalaxyState, rng: PRNG): void {
   sys.population = Math.max(sys.population, candidate.kind === "native" ? 0.45 : 0.5);
   sys.stability = Math.max(sys.stability, candidate.kind === "pretender" ? 0.5 : 0.6);
   state.empires[empire.id] = empire;
+  foundDynasty(state, empire, state.tick, rng);
 
   createEvent(state, state.tick, "empire-founded", `${empire.name} has risen`, emergenceDescription(candidate.kind, empire, sys), 4, [empire.id], [sys.id]);
 }
@@ -1390,7 +1411,7 @@ function stepLocalStarWeirdness(state: GalaxyState, rng: PRNG): void {
 }
 
 export function executeTick(state: GalaxyState, rng: PRNG): void {
-  stepGrowth(state, rng); stepProgress(state, rng); stepReligion(state, rng); stepCharacters(state, rng); stepMoods(state, rng); stepRulers(state, rng); stepPolitics(state, rng);
+  stepGrowth(state, rng); stepProgress(state, rng); stepReligion(state, rng); stepCharacters(state, rng); stepMoods(state, rng); stepDynasties(state, rng); stepPolitics(state, rng);
   stepFleets(state, rng); stepExpansion(state, rng); stepConflict(state, rng); stepTrade(state, rng); stepMonsters(state, rng); stepCrises(state, rng); stepOddities(state, rng);
   stepCollapse(state, rng); stepEmergence(state, rng);
   stepLocalWealth(state); stepArtifacts(state); stepAmbientShips(state, rng); stepAlliances(state, rng); stepPlayerControl(state, rng);

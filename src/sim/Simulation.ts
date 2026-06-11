@@ -5,12 +5,13 @@ import { executeTick } from "./Tick";
 import { createEvent, getEventCounter, setEventCounter } from "./Events";
 import { IDEOLOGIES } from "./Moods";
 import { makeCourt } from "./Characters";
+import { foundDynasty, ensureDynasty, getPersonCounter, getDynastyCounter, setPersonCounter, setDynastyCounter } from "./Dynasty";
 import { addRelationModifier, getModifierSeq, setModifierSeq } from "./Relations";
 import { createArtifact, ensureArtifactObjects, pickArtifactKind, ARTIFACT_LABEL } from "./Artifacts";
 import { findPath, pathLength } from "./Pathing";
 import type { RelationModifier, RelationModifierKind } from "../types/sim";
 
-const SAVE_VERSION = 7;
+const SAVE_VERSION = 8;
 
 function defaultPlayerControl() {
   return { controlledEmpireId: null, mode: "observer" as const, authority: 100, legitimacy: 75, commandCooldowns: {}, flagshipFleetId: null, corruption: 0 };
@@ -50,6 +51,8 @@ function upgradeState(state: GalaxyState): GalaxyState {
   state.alliances ??= {};
   state.artifacts ??= {};
   state.oddities ??= {};
+  state.people ??= {};
+  state.dynasties ??= {};
   state.playerControl ??= defaultPlayerControl();
   state.playerControl.commandCooldowns ??= {};
   state.playerControl.flagshipFleetId ??= null;
@@ -180,6 +183,8 @@ export class Simulation {
       rngState: this.rng.getState(),
       eventCounter: getEventCounter(),
       modifierCounter: getModifierSeq(),
+      personCounter: getPersonCounter(),
+      dynastyCounter: getDynastyCounter(),
       state: this.state,
     };
     return JSON.stringify(save, null, 2);
@@ -202,6 +207,11 @@ export class Simulation {
     ensureArtifactObjects(this.state, this.rng);
     setEventCounter(isSave && typeof obj.eventCounter === "number" ? obj.eventCounter : state.eventLog.length + Object.keys(state.events).length);
     setModifierSeq(isSave && typeof obj.modifierCounter === "number" ? obj.modifierCounter : 0);
+    // Restore person/dynasty id sequences before generating any wrappers so ids never collide.
+    setPersonCounter(isSave && typeof obj.personCounter === "number" ? obj.personCounter : Object.keys(this.state.people ?? {}).length);
+    setDynastyCounter(isSave && typeof obj.dynastyCounter === "number" ? obj.dynastyCounter : Object.keys(this.state.dynasties ?? {}).length);
+    // Wrap legacy rulers in a person/dynasty so old saves gain genealogy going forward.
+    for (const emp of Object.values(this.state.empires)) ensureDynasty(this.state, emp, this.rng);
     this._notify();
     return null;
   }
@@ -277,6 +287,7 @@ export class Simulation {
     sys.population = Math.max(sys.population, 0.8);
     sys.godBoostTicks = 400;
     this.state.empires[id] = empire;
+    foundDynasty(this.state, empire, this.state.tick, this.rng);
     createEvent(this.state, this.state.tick, "empire-founded", `${empire.name} founded`, `${empire.name} rose at ${sys.name}.`, 4, [id], [sys.id]);
     this._touch();
     return id;

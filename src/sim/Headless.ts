@@ -3,6 +3,7 @@ import { SeededRandom } from "./Random";
 import { generateGalaxy } from "./Galaxy";
 import { executeTick } from "./Tick";
 import { ensureArtifactObjects } from "./Artifacts";
+import { lineageChain } from "./Dynasty";
 
 interface Tally {
   founded: number;
@@ -71,7 +72,20 @@ function snapshotMetrics(state: GalaxyState, originalIds: Set<Id>) {
     .sort((a, b) => b.worlds - a.worlds).slice(0, 3);
   const largest = [...empires].sort((a, b) => b.ownedSystemIds.length - a.ownedSystemIds.length)[0];
   const largestShare = largest && systems.length ? largest.ownedSystemIds.length / systems.length : 0;
+  // Lineage health: how deep a chain of rulers the longest-reigning house has accumulated.
+  const dynasties = state.dynasties ?? {};
+  const livingDynasties = Object.values(dynasties).filter(d => d.extinctTick === undefined).length;
+  let deepestChain = 0; let deepestName = "";
+  for (const e of empires) {
+    const len = lineageChain(state, e, 999).length;
+    if (len > deepestChain) { deepestChain = len; deepestName = `${e.name} (House of ${state.dynasties?.[e.dynastyId ?? ""]?.name ?? "?"})`; }
+  }
   return {
+    people: Object.keys(state.people ?? {}).length,
+    dynasties: Object.keys(dynasties).length,
+    livingDynasties,
+    deepestChain,
+    deepestName,
     empires: empires.length,
     survivors,
     ownedSystems: systems.filter(s => s.ownerEmpireId).length,
@@ -139,6 +153,7 @@ export function runHeadlessReport(settings: SimSettings, milestones: number[] = 
         `- Active wars now: ${m.wars} · cumulative wars declared: ${cumulative.warsDeclared}`,
         `- Alliances: ${m.alliances} blocs · Trade routes: ${m.tradeRoutes}`,
         `- Artifacts: ${m.artifacts} · Markers/scars: ${m.markers}`,
+        `- Dynasties: ${m.dynasties} (${m.livingDynasties} living) · People: ${m.people} · Deepest ruler chain: ${m.deepestChain}${m.deepestName ? ` — ${m.deepestName}` : ""}`,
         `- Graph now: avg degree ${m.graph.avgDegree.toFixed(2)} · max degree ${m.graph.maxDegree} · avg lane length ${m.graph.avgPathProxy.toFixed(1)}`,
         `- Churn since last milestone: ${churn} empire births+deaths`,
         `- Cumulative: ${cumulative.founded} founded, ${cumulative.collapsed} collapsed, ${cumulative.rebellions} rebellions, ${cumulative.coups} coups, ${cumulative.transcended} transcended`,
