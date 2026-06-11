@@ -62,6 +62,7 @@ function upgradeState(state: GalaxyState): GalaxyState {
   state.factions ??= {};
   state.people ??= {};
   state.dynasties ??= {};
+  state.transcendenceEnabled ??= true;
   state.playerControl ??= defaultPlayerControl();
   state.playerControl.commandCooldowns ??= {};
   state.playerControl.flagshipFleetId ??= null;
@@ -232,6 +233,11 @@ export class Simulation {
     for (const emp of Object.values(this.state.empires)) ensureDynasty(this.state, emp, this.rng);
     this._notify();
     return null;
+  }
+
+  setTranscendenceEnabled(value: boolean): void {
+    this.state.transcendenceEnabled = value;
+    this._touch();
   }
 
   cancelFleet(fleetId: Id): void {

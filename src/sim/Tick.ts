@@ -1512,7 +1512,7 @@ function pickMood(state: GalaxyState, emp: Empire, rng: PRNG): EmpireMood {
     ["degenerating", 0.15 + (1 - emp.cohesion) * 1.3 + emp.ownedSystemIds.length / 50],
     ["rioting", (avgStability < 0.45 ? 1.2 : 0.05) + (1 - emp.cohesion) * 0.6],
     ["crusading", emp.aggression * 1.1 + (atWar ? 0.7 : 0)],
-    ["transcending", emp.techLevel > 2.2 && emp.wealth > 800 ? 1.2 : 0],
+    ["transcending", state.transcendenceEnabled !== false && emp.techLevel > 2.2 && emp.wealth > 800 ? 1.2 : 0],
   ];
   const total = weights.reduce((s, [, w]) => s + w, 0);
   let roll = rng.next() * total;
@@ -1539,11 +1539,13 @@ function stepMoods(state: GalaxyState, rng: PRNG): void {
         break;
       case "transcending":
         emp.techLevel = Math.min(3, emp.techLevel + 0.0025);
-        if (emp.techLevel >= 3 && state.tick - emp.moodSince > 250) { transcendEmpire(state, emp); continue; }
+        if (emp.techLevel >= 3 && state.tick - emp.moodSince > 250) {
+          if (state.transcendenceEnabled !== false) { transcendEmpire(state, emp); continue; }
+        }
         break;
     }
     if (rng.next() > MOOD_CHECK_CHANCE) continue;
-    if (emp.mood === "transcending") continue;
+    if (emp.mood === "transcending" && state.transcendenceEnabled !== false) continue;
     const next = pickMood(state, emp, rng);
     if (next === emp.mood) continue;
     emp.mood = next;
