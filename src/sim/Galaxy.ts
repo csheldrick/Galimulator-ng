@@ -1,5 +1,5 @@
 import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler, Religion } from "../types/sim";
-import type { GalaxyShape, StarlaneMode, EmpireLayout, PlanetTag, GovernmentType } from "../types/sim";
+import type { GalaxyShape, StarlaneMode, EmpireLayout, GridAlignment, PlanetTag, GovernmentType } from "../types/sim";
 import { resetEventCounter } from "./Events";
 import { makeReligion } from "./Religion";
 import { IDEOLOGIES } from "./Moods";
@@ -119,24 +119,163 @@ function stringPoint(rng: PRNG, width: number, height: number): [number, number]
   return [bx + rng.range(-18, 18), by + rng.range(-18, 18)];
 }
 
+function barredSpiralPoint(rng: PRNG, width: number, height: number): [number, number] {
+  const cx = width / 2, cy = height / 2;
+  const scale = Math.min(width, height);
+  // a third of stars form the dense central bar; the rest trail off its ends
+  if (rng.next() < 0.34) {
+    const t = rng.range(-1, 1);
+    return [cx + t * scale * 0.22 + rng.range(-15, 15), cy + t * scale * 0.05 + rng.range(-25, 25)];
+  }
+  const end = rng.next() < 0.5 ? 1 : -1;
+  const t = rng.range(0.05, 1.0);
+  const angle = (end > 0 ? 0 : Math.PI) + t * 2.4 * end + rng.range(-0.3, 0.3);
+  const r = scale * 0.2 + t * scale * 0.26 + rng.range(-18, 18);
+  return [cx + Math.cos(angle) * r, cy + Math.sin(angle) * r];
+}
+
+function ellipticalPoint(rng: PRNG, width: number, height: number): [number, number] {
+  const cx = width / 2, cy = height / 2;
+  const r = Math.sqrt(rng.next());
+  const angle = rng.next() * Math.PI * 2;
+  // stretched dense oval: many close neighbors, diplomacy-heavy early game
+  return [
+    cx + Math.cos(angle) * r * Math.min(width, height) * 0.46 + rng.range(-8, 8),
+    cy + Math.sin(angle) * r * Math.min(width, height) * 0.24 + rng.range(-8, 8),
+  ];
+}
+
+function irregularPoint(rng: PRNG, width: number, height: number): [number, number] {
+  // lopsided cloud: three weighted lobes of different density and size
+  const lobes: Array<[number, number, number, number]> = [
+    [width * 0.36, height * 0.42, Math.min(width, height) * 0.3, 0.55],
+    [width * 0.68, height * 0.6, Math.min(width, height) * 0.18, 0.3],
+    [width * 0.58, height * 0.26, Math.min(width, height) * 0.1, 0.15],
+  ];
+  let roll = rng.next();
+  let lobe = lobes[0];
+  for (const l of lobes) { roll -= l[3]; if (roll <= 0) { lobe = l; break; } }
+  const angle = rng.next() * Math.PI * 2;
+  const r = Math.pow(rng.next(), 0.7) * lobe[2];
+  return [lobe[0] + Math.cos(angle) * r, lobe[1] + Math.sin(angle) * r];
+}
+
+function hubPoint(rng: PRNG, width: number, height: number): [number, number] {
+  const cx = width / 2, cy = height / 2;
+  const scale = Math.min(width, height);
+  // half the stars form a large central cluster, the rest split into satellite clusters
+  if (rng.next() < 0.5) {
+    const angle = rng.next() * Math.PI * 2;
+    const r = Math.sqrt(rng.next()) * scale * 0.18;
+    return [cx + Math.cos(angle) * r, cy + Math.sin(angle) * r];
+  }
+  const SATELLITES = 5;
+  const idx = rng.nextInt(0, SATELLITES - 1);
+  const satAngle = (idx / SATELLITES) * Math.PI * 2 + 0.4;
+  const sx = cx + Math.cos(satAngle) * scale * 0.4;
+  const sy = cy + Math.sin(satAngle) * scale * 0.4;
+  const angle = rng.next() * Math.PI * 2;
+  const r = Math.sqrt(rng.next()) * scale * 0.09;
+  return [sx + Math.cos(angle) * r, sy + Math.sin(angle) * r];
+}
+
+function webPoint(rng: PRNG, width: number, height: number): [number, number] {
+  const cx = width / 2, cy = height / 2;
+  const scale = Math.min(width, height);
+  const NODES = 6;
+  const nodeAt = (i: number): [number, number] => [
+    cx + Math.cos((i / NODES) * Math.PI * 2) * scale * 0.36,
+    cy + Math.sin((i / NODES) * Math.PI * 2) * scale * 0.36,
+  ];
+  const roll = rng.next();
+  if (roll < 0.3) {
+    // hub nodes of the web
+    const [nx, ny] = rng.next() < 0.25 ? [cx, cy] : nodeAt(rng.nextInt(0, NODES - 1));
+    const angle = rng.next() * Math.PI * 2;
+    const r = Math.sqrt(rng.next()) * scale * 0.07;
+    return [nx + Math.cos(angle) * r, ny + Math.sin(angle) * r];
+  }
+  // filament stars strung between two hubs (rim chord or spoke to center)
+  const a = rng.nextInt(0, NODES - 1);
+  const spoke = rng.next() < 0.45;
+  const [ax, ay] = nodeAt(a);
+  const [bx, by] = spoke ? [cx, cy] : nodeAt((a + 1) % NODES);
+  const t = rng.range(0.1, 0.9);
+  return [ax + (bx - ax) * t + rng.range(-14, 14), ay + (by - ay) * t + rng.range(-14, 14)];
+}
+
+function continentsPoint(rng: PRNG, width: number, height: number): [number, number] {
+  // landmass-like blobs separated by voids; thin bridge chains connect them
+  const masses: Array<[number, number, number]> = [
+    [width * 0.28, height * 0.32, Math.min(width, height) * 0.2],
+    [width * 0.72, height * 0.3, Math.min(width, height) * 0.16],
+    [width * 0.5, height * 0.72, Math.min(width, height) * 0.18],
+  ];
+  if (rng.next() < 0.08) {
+    // bridge worlds between two random landmasses
+    const i = rng.nextInt(0, masses.length - 1);
+    const j = (i + 1 + rng.nextInt(0, masses.length - 2)) % masses.length;
+    const t = rng.range(0.25, 0.75);
+    return [
+      masses[i][0] + (masses[j][0] - masses[i][0]) * t + rng.range(-12, 12),
+      masses[i][1] + (masses[j][1] - masses[i][1]) * t + rng.range(-12, 12),
+    ];
+  }
+  const m = masses[rng.nextInt(0, masses.length - 1)];
+  const angle = rng.next() * Math.PI * 2;
+  const r = Math.pow(rng.next(), 0.6) * m[2];
+  return [m[0] + Math.cos(angle) * r, m[1] + Math.sin(angle) * r];
+}
+
 function getShapePoint(shape: GalaxyShape, rng: PRNG, width: number, height: number, index: number, total: number): [number, number] {
   switch (shape) {
+    case "barred-spiral": return barredSpiralPoint(rng, width, height);
     case "disc": return discPoint(rng, width, height);
     case "hollow-disc": return hollowDiscPoint(rng, width, height);
+    case "elliptical": return ellipticalPoint(rng, width, height);
+    case "irregular": return irregularPoint(rng, width, height);
     case "clustered": return clusteredPoint(rng, width, height);
+    case "hub": return hubPoint(rng, width, height);
     case "chaos": return chaosPoint(rng, width, height);
     case "grid": return gridPoint(rng, width, height, index, total);
+    case "web": return webPoint(rng, width, height);
     case "string": return stringPoint(rng, width, height);
+    case "continents": return continentsPoint(rng, width, height);
     case "spiral":
     default: return spiralPoint(rng, width, height);
   }
 }
 
+// ── Grid alignment ────────────────────────────────────────────────────────────
+
+const GRID_CELL = 34;
+
+function applyGridAlignment(x: number, y: number, alignment: GridAlignment, rng: PRNG): [number, number] {
+  if (alignment === "square") {
+    return [
+      Math.round(x / GRID_CELL) * GRID_CELL + rng.range(-3, 3),
+      Math.round(y / GRID_CELL) * GRID_CELL + rng.range(-3, 3),
+    ];
+  }
+  if (alignment === "hex") {
+    const rowH = GRID_CELL * 0.866;
+    const row = Math.round(y / rowH);
+    const offset = row % 2 === 0 ? 0 : GRID_CELL / 2;
+    return [
+      Math.round((x - offset) / GRID_CELL) * GRID_CELL + offset + rng.range(-3, 3),
+      row * rowH + rng.range(-3, 3),
+    ];
+  }
+  return [x, y];
+}
+
 // ── Starlane builder ──────────────────────────────────────────────────────────
 
 function buildStarlanes(systemList: StarSystem[], mode: StarlaneMode = "standard"): void {
-  const neighborLinks = mode === "webbed" ? 5 : mode === "dense" ? 4 : mode === "sparse" ? 2 : 3;
+  const neighborLinks = mode === "webbed" ? 5 : mode === "dense" ? 4 : mode === "sparse" ? 2 : mode === "string" ? 1 : 3;
   const maxLane = mode === "dense" ? 160 : mode === "sparse" ? 100 : 130;
+  // string lanes suppress high-degree junctions so the map reads as chains and front lines
+  const maxDegree = mode === "string" ? 2 : Infinity;
   const n = systemList.length;
   const linked = new Set<string>();
 
@@ -150,16 +289,22 @@ function buildStarlanes(systemList: StarSystem[], mode: StarlaneMode = "standard
 
   for (let i = 0; i < n; i++) {
     const a = systemList[i];
+    if (a.connectedSystemIds.length >= maxDegree) continue;
     const candidates: Array<{ s: StarSystem; d: number }> = [];
     for (let j = 0; j < n; j++) {
       if (i === j) continue;
       const b = systemList[j];
+      if (b.connectedSystemIds.length >= maxDegree) continue;
       const dx = a.x - b.x, dy = a.y - b.y;
       const d = Math.sqrt(dx * dx + dy * dy);
       if (d <= maxLane) candidates.push({ s: b, d });
     }
     candidates.sort((p, q) => p.d - q.d);
-    for (const { s } of candidates.slice(0, neighborLinks)) link(a, s);
+    for (const { s } of candidates.slice(0, neighborLinks)) {
+      if (a.connectedSystemIds.length >= maxDegree) break;
+      if (s.connectedSystemIds.length >= maxDegree) continue;
+      link(a, s);
+    }
   }
 
   // merge components until the whole graph is connected
@@ -296,6 +441,30 @@ function applyShapeBias(sys: StarSystem, shape: GalaxyShape, cx: number, cy: num
       // string nodes: high tech/resources at connection hubs
       sys.techLevel = Math.min(0.9, sys.techLevel * 1.2);
       break;
+    case "barred-spiral":
+      // the central bar is richer; the arms are contested frontier
+      if (r < 220) sys.resources = Math.min(1.5, sys.resources * 1.25);
+      break;
+    case "disc":
+      // wealth and tech bias toward the dense center
+      if (r < 180) { sys.resources = Math.min(1.5, sys.resources * 1.2); sys.techLevel = Math.min(0.9, sys.techLevel * 1.15); }
+      break;
+    case "hub":
+      // the core cluster is the seat of trade and dominance pressure
+      if (r < 170) sys.resources = Math.min(1.5, sys.resources * 1.2);
+      break;
+    case "web":
+      // chokepoint/filament worlds carry the galaxy's commerce
+      sys.resources = Math.min(1.5, sys.resources * 1.05);
+      break;
+    case "irregular":
+      // uneven gifts: some regions blessed, others starved
+      sys.resources = Math.min(1.5, sys.resources * (sys.x < cx ? 1.2 : 0.8));
+      break;
+    case "continents":
+      // bridge/strait worlds between landmasses become trade magnets
+      sys.localWealth = (sys.localWealth ?? 0) + 5;
+      break;
     default:
       break;
   }
@@ -303,7 +472,34 @@ function applyShapeBias(sys: StarSystem, shape: GalaxyShape, cx: number, cy: num
 
 // ── Empire layout modes ───────────────────────────────────────────────────────
 
-function pickEmpireCapitals(sorted: StarSystem[], numEmpires: number, layout: EmpireLayout, rng: PRNG): StarSystem[] {
+/** Shapes with separated regions seed at least one power per angular sector so
+ *  isolated civilizations develop apart and collide later. */
+function pickCapitalsBySector(sorted: StarSystem[], numEmpires: number, cx: number, cy: number): StarSystem[] | null {
+  const sectors = Math.max(2, Math.min(numEmpires, 8));
+  const bySector: StarSystem[][] = Array.from({ length: sectors }, () => []);
+  for (const s of sorted) {
+    const angle = Math.atan2(s.y - cy, s.x - cx) + Math.PI;
+    const idx = Math.min(sectors - 1, Math.floor((angle / (Math.PI * 2)) * sectors));
+    bySector[idx].push(s);
+  }
+  const result: StarSystem[] = [];
+  const used = new Set<Id>();
+  for (let i = 0; result.length < numEmpires && i < numEmpires * sectors; i++) {
+    const bucket = bySector[i % sectors];
+    const candidate = bucket.find(s => !used.has(s.id));
+    if (candidate) { used.add(candidate.id); result.push(candidate); }
+  }
+  return result.length === numEmpires ? result : null;
+}
+
+function pickEmpireCapitals(sorted: StarSystem[], numEmpires: number, layout: EmpireLayout, rng: PRNG, shape: GalaxyShape = "spiral"): StarSystem[] {
+  // region-aware shapes distribute classic starts across clusters/ring/landmasses
+  if (layout === "classic" || layout === "random-blobs") {
+    if (shape === "clustered" || shape === "hollow-disc" || shape === "continents" || shape === "hub" || shape === "web") {
+      const bySector = pickCapitalsBySector(sorted, numEmpires, 600, 450);
+      if (bySector) return bySector;
+    }
+  }
   const used = new Set<Id>();
   const result: StarSystem[] = [];
   switch (layout) {
@@ -376,7 +572,8 @@ export function generateGalaxy(
   rng: PRNG,
   galaxyShape: GalaxyShape = "spiral",
   starlaneMode: StarlaneMode = "standard",
-  empireLayout: EmpireLayout = "classic"
+  empireLayout: EmpireLayout = "classic",
+  gridAlignment: GridAlignment = "none"
 ): GalaxyState {
   resetEventCounter();
   resetCharacterCounter();
@@ -388,7 +585,8 @@ export function generateGalaxy(
   const CX = WIDTH / 2, CY = HEIGHT / 2;
   for (let i = 0; i < numStars; i++) {
     const id = `sys-${i}`;
-    const [x, y] = getShapePoint(galaxyShape, rng, WIDTH, HEIGHT, i, numStars);
+    const [rawX, rawY] = getShapePoint(galaxyShape, rng, WIDTH, HEIGHT, i, numStars);
+    const [x, y] = applyGridAlignment(rawX, rawY, gridAlignment, rng);
     const hasArtifact = rng.next() < 0.04;
     const habitability = rng.range(0.1, 1.0);
     const resources = rng.range(0.1, 1.0);
@@ -436,7 +634,7 @@ export function generateGalaxy(
   const religions = stateForReligions.religions;
 
   const sorted = [...systemList].sort((a, b) => b.habitability - a.habitability);
-  const capitals = pickEmpireCapitals(sorted, numEmpires, empireLayout, rng);
+  const capitals = pickEmpireCapitals(sorted, numEmpires, empireLayout, rng, galaxyShape);
 
   const empires: Record<Id, Empire> = {};
   const colors = [...EMPIRE_COLORS];
@@ -488,7 +686,7 @@ export function generateGalaxy(
 
   return {
     tick: 0, seed, systems, empires, fleets: {}, religions, tradeRoutes: {},
-    monsters: {}, events: {}, eventLog: [], alliances: {},
+    monsters: {}, events: {}, eventLog: [], alliances: {}, oddities: {},
     playerControl: { controlledEmpireId: null, mode: "observer", authority: 100, legitimacy: 75, commandCooldowns: {} },
   };
 }

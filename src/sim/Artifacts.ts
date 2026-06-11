@@ -87,6 +87,8 @@ export function stepArtifacts(state: GalaxyState): void {
   syncArtifactOwnership(state);
   for (const artifact of Object.values(state.artifacts)) {
     if (!artifact.active || !artifact.ownerEmpireId) continue;
+    // buried precursor structures do nothing until someone unearths them
+    if (artifact.origin === "precursor" && artifact.discoveredTick === undefined) continue;
     const sys = state.systems[artifact.systemId];
     const emp = state.empires[artifact.ownerEmpireId];
     if (!sys || !emp) continue;

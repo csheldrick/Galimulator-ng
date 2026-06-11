@@ -1,4 +1,4 @@
-import type { ArtifactKind, GalaxyState, SimSettings, SaveFile, Id, Empire, EmpireRelationship, EmpirePriority, StarSystem, SpyMission } from "../types/sim";
+import type { ArtifactKind, GalaxyState, SimSettings, SaveFile, Id, Empire, EmpireRelationship, EmpirePriority, StarSystem, SpyMission, WarFocus } from "../types/sim";
 import { SeededRandom } from "./Random";
 import { generateGalaxy, makeRuler } from "./Galaxy";
 import { executeTick } from "./Tick";
@@ -8,7 +8,7 @@ import { makeCourt } from "./Characters";
 import { addRelationModifier } from "./Relations";
 import { createArtifact, ensureArtifactObjects, pickArtifactKind, ARTIFACT_LABEL } from "./Artifacts";
 
-const SAVE_VERSION = 5;
+const SAVE_VERSION = 6;
 
 function defaultPlayerControl() {
   return { controlledEmpireId: null, mode: "observer" as const, authority: 100, legitimacy: 75, commandCooldowns: {}, flagshipFleetId: null, corruption: 0 };
@@ -20,12 +20,14 @@ function upgradeState(state: GalaxyState): GalaxyState {
   state.monsters ??= {};
   state.alliances ??= {};
   state.artifacts ??= {};
+  state.oddities ??= {};
   state.playerControl ??= defaultPlayerControl();
   state.playerControl.commandCooldowns ??= {};
   state.playerControl.flagshipFleetId ??= null;
   state.playerControl.corruption ??= 0;
   for (const sys of Object.values(state.systems)) {
     sys.religionId ??= null;
+    sys.minorityReligionId ??= null;
     sys.artifactName ??= null;
     sys.artifactId ??= null;
     sys.godBoostTicks ??= 0;
@@ -39,6 +41,7 @@ function upgradeState(state: GalaxyState): GalaxyState {
     emp.court ??= [];
     emp.godBoostTicks ??= 0;
     emp.allianceIds ??= [];
+    emp.warDirectives ??= {};
   }
   for (const fleet of Object.values(state.fleets)) {
     fleet.shipClass ??= fleet.kind === "war" || fleet.kind === "flagship" ? "strike" : "settler";
@@ -67,7 +70,7 @@ export class Simulation {
   constructor(settings: SimSettings) {
     this.settings = settings;
     this.rng = new SeededRandom(settings.seed);
-    this.state = generateGalaxy(settings.seed, settings.numStars, settings.numEmpires, this.rng, settings.galaxyShape, settings.starlaneMode, settings.empireLayout);
+    this.state = generateGalaxy(settings.seed, settings.numStars, settings.numEmpires, this.rng, settings.galaxyShape, settings.starlaneMode, settings.empireLayout, settings.gridAlignment);
     ensureArtifactObjects(this.state, this.rng);
     this._fireFoundedEvents();
     this._snapshot = this._buildSnapshot();
@@ -133,7 +136,7 @@ export class Simulation {
     this.pause();
     if (newSettings) this.settings = { ...this.settings, ...newSettings };
     this.rng = new SeededRandom(this.settings.seed);
-    this.state = generateGalaxy(this.settings.seed, this.settings.numStars, this.settings.numEmpires, this.rng, this.settings.galaxyShape, this.settings.starlaneMode, this.settings.empireLayout);
+    this.state = generateGalaxy(this.settings.seed, this.settings.numStars, this.settings.numEmpires, this.rng, this.settings.galaxyShape, this.settings.starlaneMode, this.settings.empireLayout, this.settings.gridAlignment);
     ensureArtifactObjects(this.state, this.rng);
     this._fireFoundedEvents();
     this._notify();
@@ -333,6 +336,7 @@ export class Simulation {
       const emp = this.state.empires[pc.controlledEmpireId];
       if (emp) emp.playerPriority = undefined;
     }
+    if (pc.flagshipFleetId && this.state.fleets[pc.flagshipFleetId]) delete this.state.fleets[pc.flagshipFleetId];
     this.state.playerControl = defaultPlayerControl();
     this._touch();
   }
@@ -556,6 +560,25 @@ export class Simulation {
       }
     }
     createEvent(this.state, this.state.tick, "border-conflict", `${emp.name} spy mission succeeded`, `${emp.name}'s agents completed a ${mission.replace("-", " ")} operation against ${target.name}.`, 3, [emp.id, target.id], []);
+    this._touch();
+    return true;
+  }
+
+  commandSetWarDirective(targetEmpireId: Id, focus: WarFocus): boolean {
+    const pc = this.state.playerControl;
+    if (pc.mode !== "empire" || !pc.controlledEmpireId) return false;
+    const emp = this.state.empires[pc.controlledEmpireId];
+    const target = this.state.empires[targetEmpireId];
+    if (!emp || !target || !emp.activeWarEmpireIds.includes(targetEmpireId)) return false;
+    if (pc.authority < 10) return false;
+    pc.authority = Math.max(0, pc.authority - 10);
+    emp.warDirectives ??= {};
+    emp.warDirectives[targetEmpireId] = { targetEmpireId, focus, createdTick: this.state.tick };
+    const admiral = emp.court.find(c => c.role === "admiral");
+    if (admiral && (focus === "attack" || focus === "raid")) admiral.loyalty = Math.min(1, admiral.loyalty + 0.04);
+    createEvent(this.state, this.state.tick, "war-declared", `${emp.name} war room: ${focus} ${target.name}`,
+      `${emp.ruler.title} ${emp.ruler.name} ordered the war against ${target.name} fought with a doctrine of ${focus}.`,
+      2, [emp.id, targetEmpireId], []);
     this._touch();
     return true;
   }

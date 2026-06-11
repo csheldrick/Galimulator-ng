@@ -60,7 +60,35 @@ export function stepReligion(state: GalaxyState, rng: PRNG): void {
       if (!from?.religionId || from.religionId === sys.religionId) continue;
       const pressure = from.population * 0.0015 * spiritual;
       const resist = sys.religionId ? 0.25 : 1; // conversion is slower than evangelization
-      if (rng.next() < pressure * resist) { sys.religionId = from.religionId; break; }
+      if (rng.next() < pressure * resist) {
+        // the displaced faith survives as a restless minority
+        if (sys.religionId) sys.minorityReligionId = sys.religionId;
+        sys.religionId = from.religionId;
+        break;
+      }
+    }
+  }
+
+  // minority faiths simmer: slow erosion of stability, slow fading, rare resurgence
+  for (const sys of Object.values(state.systems)) {
+    if (!sys.minorityReligionId) continue;
+    if (sys.minorityReligionId === sys.religionId || !state.religions[sys.minorityReligionId]) {
+      sys.minorityReligionId = null;
+      continue;
+    }
+    sys.stability = Math.max(0.05, sys.stability - 0.0002);
+    const roll = rng.next();
+    if (roll < 0.0008) {
+      sys.minorityReligionId = null; // the old creed quietly dies out
+    } else if (roll < 0.0011 && sys.stability < 0.4) {
+      // unrest hands the world back to the old faith
+      const reborn = state.religions[sys.minorityReligionId];
+      const displaced = sys.religionId;
+      sys.religionId = sys.minorityReligionId;
+      sys.minorityReligionId = displaced;
+      createEvent(state, state.tick, "religion-adopted", `The ${reborn.name} reclaims ${sys.name}`,
+        `Amid unrest, the suppressed ${reborn.name} swept back to prominence on ${sys.name}.`,
+        2, sys.ownerEmpireId ? [sys.ownerEmpireId] : [], [sys.id]);
     }
   }
 

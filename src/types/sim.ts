@@ -144,6 +144,8 @@ export interface StarSystem {
   ownerEmpireId: Id | null;
   cultureId: Id;
   religionId: Id | null;
+  /** A dissenting faith held by part of the population after a conversion swept through. */
+  minorityReligionId?: Id | null;
   /** Name of a precursor artifact buried here, if any. */
   artifactName: string | null;
   /** First-class artifact hosted here, if any. */
@@ -311,6 +313,8 @@ export interface Empire {
   allianceIds?: Id[];
   /** Player-set strategic bias. Only meaningful when this empire is player-controlled. */
   playerPriority?: EmpirePriority;
+  /** War-room stances toward specific enemies, keyed by target empire id. */
+  warDirectives?: Record<Id, WarDirective>;
   /** Constitutional / cultural government flavor. Affects court titles and event text. */
   governmentType?: GovernmentType;
 }
@@ -347,6 +351,15 @@ export type EmpirePriority =
 
 export type SpyMission = "steal-tech" | "incite-riots" | "improve-relations" | "sabotage-fleet";
 
+/** War-room stance toward one enemy. Biases autonomous war behavior; it does not micromanage fleets. */
+export type WarFocus = "attack" | "defend" | "raid" | "exhaust";
+
+export interface WarDirective {
+  targetEmpireId: Id;
+  focus: WarFocus;
+  createdTick: number;
+}
+
 export interface PlayerControlState {
   controlledEmpireId: Id | null;
   mode: "observer" | "empire";
@@ -360,14 +373,23 @@ export interface PlayerControlState {
 
 export type GalaxyShape =
   | "spiral"
+  | "barred-spiral"
   | "disc"
   | "hollow-disc"
+  | "elliptical"
+  | "irregular"
   | "clustered"
+  | "hub"
   | "chaos"
   | "grid"
-  | "string";
+  | "web"
+  | "string"
+  | "continents";
 
-export type StarlaneMode = "standard" | "webbed" | "dense" | "sparse";
+export type StarlaneMode = "standard" | "webbed" | "dense" | "sparse" | "string";
+
+/** Optional post-generation snap of star positions onto a board-like lattice. */
+export type GridAlignment = "none" | "square" | "hex";
 
 export type EmpireLayout =
   | "classic"
@@ -379,6 +401,31 @@ export type EmpireLayout =
 
 /** Bespoke weird actors that are not standard monsters. */
 export type OddityKind = "star-eater" | "puppet-mind" | "sloth-cloud" | "replicator" | "void-gate";
+
+/** A persistent space oddity: a strange object or entity that lives on the map,
+ *  wanders or roosts, and interacts with the galaxy by one memorable rule. */
+export interface Oddity {
+  id: Id;
+  kind: OddityKind;
+  name: string;
+  x: number;
+  y: number;
+  /** System currently occupied/targeted, when the oddity is system-bound. */
+  systemId?: Id | null;
+  /** Lane route currently being followed (star-eater walks lanes like a monster). */
+  path?: Id[];
+  legIndex?: number;
+  legProgress?: number;
+  /** Free drift velocity for cloud-like oddities that ignore lanes. */
+  vx?: number;
+  vy?: number;
+  speed: number;
+  strength: number;
+  spawnedTick: number;
+  expiresTick?: number;
+  /** Kind-specific counters: systems consumed, replications left, dwell timers... */
+  state: Record<string, number>;
+}
 
 export interface GalaxyState {
   tick: number;
@@ -394,6 +441,7 @@ export interface GalaxyState {
   alliances: Record<Id, Alliance>;
   playerControl: PlayerControlState;
   artifacts?: Record<Id, Artifact>;
+  oddities?: Record<Id, Oddity>;
 }
 
 export interface SimSettings {
@@ -404,6 +452,7 @@ export interface SimSettings {
   galaxyShape?: GalaxyShape;
   starlaneMode?: StarlaneMode;
   empireLayout?: EmpireLayout;
+  gridAlignment?: GridAlignment;
 }
 
 /** Saved-game envelope; rngState lets a loaded galaxy continue deterministically. */

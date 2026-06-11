@@ -2,6 +2,7 @@ import type { GalaxyState, Id } from "../types/sim";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL } from "../sim/Characters";
 import { GOVERNMENT_LABEL } from "../sim/Galaxy";
+import { ARTIFACT_LABEL } from "../sim/Artifacts";
 import { eventColor } from "../render/colors";
 import { effectiveOpinion, effectiveTension, activeModifiers } from "../sim/Relations";
 
@@ -99,6 +100,14 @@ export function InspectorPanel({
         <div className="info-row"><span>Population</span><span>{fmt(empList.reduce((s, e) => s + e.population, 0) / 1000, 0)}K</span></div>
         <div className="info-row"><span>Trade routes</span><span>{Object.keys(snapshot.tradeRoutes).length}</span></div>
         <div className="info-row"><span>Monsters</span><span>{Object.keys(snapshot.monsters).length}</span></div>
+        {Object.values(snapshot.oddities ?? {}).length > 0 && (
+          <>
+            <h4>Space Oddities</h4>
+            {Object.values(snapshot.oddities ?? {}).map(o => (
+              <div key={o.id} className="info-row"><span>{o.name}</span><span style={{ opacity: 0.7 }}>{o.kind.replace(/-/g, " ")}</span></div>
+            ))}
+          </>
+        )}
         <h4>Faiths</h4>
         {Object.values(snapshot.religions).map(r => {
           const worlds = Object.values(snapshot.systems).filter(s => s.religionId === r.id).length;
@@ -122,8 +131,24 @@ export function InspectorPanel({
           <div className="info-row"><span>Stability</span><span>{fmt(sys.stability)}</span></div>
           <div className="info-row"><span>Tech</span><span>{fmt(sys.techLevel)}</span></div>
           <div className="info-row"><span>Faith</span><span>{sys.religionId ? (snapshot.religions[sys.religionId]?.name ?? "?") : "None"}</span></div>
+          {sys.minorityReligionId && snapshot.religions[sys.minorityReligionId] && (
+            <div className="info-row"><span>Minority faith</span><span style={{ opacity: 0.75 }}>{snapshot.religions[sys.minorityReligionId]?.name}</span></div>
+          )}
           {emp && <div className="info-row"><span>Culture</span><span>{sys.cultureId === emp.cultureId ? "Assimilated" : "Foreign"}</span></div>}
           {sys.artifactName && <div className="info-row"><span>Artifact</span><span>◆ {sys.artifactName}</span></div>}
+          {(() => {
+            const artifact = sys.artifactId ? snapshot.artifacts?.[sys.artifactId] : null;
+            if (!artifact) return null;
+            const ownerName = artifact.ownerEmpireId ? snapshot.empires[artifact.ownerEmpireId]?.name : null;
+            return (
+              <div className="event-mini" style={{ borderLeft: "3px solid rgba(255,224,130,0.6)", paddingLeft: 5, fontSize: 10, marginBottom: 3 }}>
+                {ARTIFACT_LABEL[artifact.kind]} · {artifact.origin}
+                {artifact.discoveredTick === undefined && artifact.origin === "precursor" ? " · undiscovered" : ""}
+                {ownerName ? ` · held by ${ownerName}` : ""}
+                {artifact.capturedTick !== undefined ? ` · captured t${artifact.capturedTick}` : artifact.origin === "built" ? ` · built t${artifact.createdTick}` : ""}
+              </div>
+            );
+          })()}
           {sys.planets && sys.planets.length > 0 && (
             <div className="info-row"><span>Worlds</span><span style={{ fontSize: 10, color: "rgba(200,220,255,0.7)" }}>{sys.planets.join(", ")}</span></div>
           )}

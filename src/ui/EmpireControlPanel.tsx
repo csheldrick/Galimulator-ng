@@ -1,4 +1,4 @@
-import type { ArtifactKind, GalaxyState, Id, EmpirePriority, PlayerControlState, SpyMission } from "../types/sim";
+import type { ArtifactKind, GalaxyState, Id, EmpirePriority, PlayerControlState, SpyMission, WarFocus } from "../types/sim";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL } from "../sim/Characters";
 
@@ -21,6 +21,7 @@ interface Props {
   onSponsorColonization: (systemId: Id) => void;
   onAdoptReligion: (religionId: Id) => void;
   onReformGovernment: () => void;
+  onSetWarDirective: (empireId: Id, focus: WarFocus) => void;
 }
 
 const PRIORITY_LABELS: Record<EmpirePriority, string> = {
@@ -42,6 +43,23 @@ const PRIORITY_DESC: Record<EmpirePriority, string> = {
 
 const ARTIFACT_KINDS: ArtifactKind[] = ["research-lab", "fleet-base", "holy-monument", "financial-center", "sentinel-station", "stellar-forcefield", "mind-control-hub", "lost-archive", "strange-engine"];
 
+function CmdBtn({ label, onClick, disabled, cd = 0 }: {
+  label: string; onClick: () => void; disabled?: boolean; cd?: number;
+}) {
+  const isDisabled = disabled || cd > 0;
+  return (
+    <button
+      className="cmd-btn"
+      onClick={onClick}
+      disabled={isDisabled}
+      title={cd > 0 ? `Cooldown: ${cd} ticks` : undefined}
+      style={{ opacity: isDisabled ? 0.45 : 1 }}
+    >
+      {label}{cd > 0 ? ` (${cd})` : ""}
+    </button>
+  );
+}
+
 function Bar({ value, max = 100, color }: { value: number; max?: number; color: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -57,7 +75,7 @@ export function EmpireControlPanel({
   snapshot, playerControl, selectedSystemId, selectedEmpireId,
   onStartControl, onStopControl, onSetPriority,
   onRallyFleet, onMoveFlagship, onFortify, onStabilize, onBuildArtifact,
-  onProposePeace, onProvokeWar, onSpyMission, onSponsorColonization, onAdoptReligion, onReformGovernment,
+  onProposePeace, onProvokeWar, onSpyMission, onSponsorColonization, onAdoptReligion, onReformGovernment, onSetWarDirective,
 }: Props) {
   const { mode, controlledEmpireId, authority, legitimacy, commandCooldowns, corruption = 0, flagshipFleetId } = playerControl;
   const controlled = controlledEmpireId ? snapshot.empires[controlledEmpireId] : null;
@@ -69,24 +87,6 @@ export function EmpireControlPanel({
     const last = commandCooldowns[key] ?? 0;
     return Math.max(0, cd - (snapshot.tick - last));
   };
-
-  function CmdBtn({ label, onClick, disabled, cooldownKey, cooldown }: {
-    label: string; onClick: () => void; disabled?: boolean; cooldownKey?: string; cooldown?: number;
-  }) {
-    const cd = cooldownKey && cooldown ? cooldownLeft(cooldownKey, cooldown) : 0;
-    const isDisabled = disabled || cd > 0;
-    return (
-      <button
-        className="cmd-btn"
-        onClick={onClick}
-        disabled={isDisabled}
-        title={cd > 0 ? `Cooldown: ${cd} ticks` : undefined}
-        style={{ opacity: isDisabled ? 0.45 : 1 }}
-      >
-        {label}{cd > 0 ? ` (${cd})` : ""}
-      </button>
-    );
-  }
 
   if (mode === "observer") {
     return (
@@ -187,43 +187,68 @@ export function EmpireControlPanel({
       <div className="cmd-grid">
         {ownsSys && (
           <>
-            <CmdBtn label="Fortify" onClick={() => onFortify(selectedSystemId!)} cooldownKey="fortify" cooldown={20} disabled={authority < 15} />
-            <CmdBtn label="Stabilize" onClick={() => onStabilize(selectedSystemId!)} cooldownKey="stabilize" cooldown={10} disabled={authority < 10} />
-            <CmdBtn label="Build Artifact" onClick={() => onBuildArtifact(selectedSystemId!, ARTIFACT_KINDS[0])} cooldownKey="artifact" cooldown={120} disabled={authority < 45 || controlled.wealth < 450 || !!selectedSys?.artifactId} />
+            <CmdBtn label="Fortify" onClick={() => onFortify(selectedSystemId!)} cd={cooldownLeft("fortify", 20)} disabled={authority < 15} />
+            <CmdBtn label="Stabilize" onClick={() => onStabilize(selectedSystemId!)} cd={cooldownLeft("stabilize", 10)} disabled={authority < 10} />
+            <CmdBtn label="Build Artifact" onClick={() => onBuildArtifact(selectedSystemId!, ARTIFACT_KINDS[0])} cd={cooldownLeft("artifact", 120)} disabled={authority < 45 || controlled.wealth < 450 || !!selectedSys?.artifactId} />
           </>
         )}
         {selectedSys && (
-          <CmdBtn label="Move Flagship" onClick={() => onMoveFlagship(selectedSystemId!)} cooldownKey="flagship" cooldown={8} disabled={authority < 8} />
+          <CmdBtn label="Move Flagship" onClick={() => onMoveFlagship(selectedSystemId!)} cd={cooldownLeft("flagship", 8)} disabled={authority < 8} />
         )}
         {(isEnemy || ownsSys) && (
-          <CmdBtn label="Rally Fleet" onClick={() => onRallyFleet(selectedSystemId!)} cooldownKey="rally" cooldown={15} disabled={authority < 20} />
+          <CmdBtn label="Rally Fleet" onClick={() => onRallyFleet(selectedSystemId!)} cd={cooldownLeft("rally", 15)} disabled={authority < 20} />
         )}
         {neutralNeighbor && (
-          <CmdBtn label="Sponsor Colony" onClick={() => onSponsorColonization(selectedSystemId!)} cooldownKey="colonize" cooldown={25} disabled={authority < 18} />
+          <CmdBtn label="Sponsor Colony" onClick={() => onSponsorColonization(selectedSystemId!)} cd={cooldownLeft("colonize", 25)} disabled={authority < 18} />
         )}
         {atWarWith && (
-          <CmdBtn label="Propose Peace" onClick={() => onProposePeace(selectedEmpireId!)} cooldownKey="peace" cooldown={30} disabled={authority < 25} />
+          <CmdBtn label="Propose Peace" onClick={() => onProposePeace(selectedEmpireId!)} cd={cooldownLeft("peace", 30)} disabled={authority < 25} />
         )}
         {notAtWarWith && (
-          <CmdBtn label="Provoke War" onClick={() => onProvokeWar(selectedEmpireId!)} cooldownKey="war" cooldown={40} disabled={authority < 30} />
+          <CmdBtn label="Provoke War" onClick={() => onProvokeWar(selectedEmpireId!)} cd={cooldownLeft("war", 40)} disabled={authority < 30} />
         )}
         {selectedIsEnemy && (
           <>
-            <CmdBtn label="Spy: Steal Tech" onClick={() => onSpyMission(selectedEmpireId!, "steal-tech")} cooldownKey="spy-steal-tech" cooldown={70} disabled={authority < 25} />
-            <CmdBtn label="Spy: Incite Riots" onClick={() => onSpyMission(selectedEmpireId!, "incite-riots")} cooldownKey="spy-incite-riots" cooldown={70} disabled={authority < 25} />
+            <CmdBtn label="Spy: Steal Tech" onClick={() => onSpyMission(selectedEmpireId!, "steal-tech")} cd={cooldownLeft("spy-steal-tech", 70)} disabled={authority < 25} />
+            <CmdBtn label="Spy: Incite Riots" onClick={() => onSpyMission(selectedEmpireId!, "incite-riots")} cd={cooldownLeft("spy-incite-riots", 70)} disabled={authority < 25} />
+            <CmdBtn label="Spy: Improve Ties" onClick={() => onSpyMission(selectedEmpireId!, "improve-relations")} cd={cooldownLeft("spy-improve-relations", 70)} disabled={authority < 25} />
+            <CmdBtn label="Spy: Sabotage Fleet" onClick={() => onSpyMission(selectedEmpireId!, "sabotage-fleet")} cd={cooldownLeft("spy-sabotage-fleet", 70)} disabled={authority < 25} />
           </>
         )}
+        {atWarWith && (() => {
+          const current = controlled.warDirectives?.[selectedEmpireId!]?.focus;
+          return (
+            <div style={{ gridColumn: "1/-1" }}>
+              <div style={{ fontSize: 10, color: "rgba(200,220,255,0.55)", margin: "4px 0 3px" }}>
+                War Room{current ? ` — doctrine: ${current}` : ""}
+              </div>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                {(["attack", "defend", "raid", "exhaust"] as WarFocus[]).map(f => (
+                  <button
+                    key={f}
+                    className="cmd-btn"
+                    style={{ flex: 1, fontSize: 10, opacity: authority < 10 ? 0.45 : current === f ? 1 : 0.8, borderColor: current === f ? "#f4a261" : undefined }}
+                    disabled={authority < 10 || current === f}
+                    onClick={() => onSetWarDirective(selectedEmpireId!, f)}
+                  >
+                    {f[0].toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         {atWar.length > 0 && !atWarWith && !selectedIsEnemy && (
           atWar.slice(0, 2).map(eid => {
             const e = snapshot.empires[eid];
             if (!e) return null;
-            return <CmdBtn key={eid} label={`Peace: ${e.name.split(" ")[0]}`} onClick={() => onProposePeace(eid)} cooldownKey="peace" cooldown={30} disabled={authority < 25} />;
+            return <CmdBtn key={eid} label={`Peace: ${e.name.split(" ")[0]}`} onClick={() => onProposePeace(eid)} cd={cooldownLeft("peace", 30)} disabled={authority < 25} />;
           })
         )}
         {religions.length > 0 && (
-          <CmdBtn label="Adopt Major Faith" onClick={() => onAdoptReligion(religions[0].id)} cooldownKey="religion" cooldown={90} disabled={authority < 35 || controlled.stateReligionId === religions[0].id} />
+          <CmdBtn label="Adopt Major Faith" onClick={() => onAdoptReligion(religions[0].id)} cd={cooldownLeft("religion", 90)} disabled={authority < 35 || controlled.stateReligionId === religions[0].id} />
         )}
-        <CmdBtn label="Reform Gov" onClick={onReformGovernment} cooldownKey="reform" cooldown={140} disabled={authority < 35 || corruption < 10} />
+        <CmdBtn label="Reform Gov" onClick={onReformGovernment} cd={cooldownLeft("reform", 140)} disabled={authority < 35 || corruption < 10} />
         {!selectedSys && !selectedIsEnemy && (
           <div style={{ fontSize: 10, color: "rgba(200,220,255,0.35)", gridColumn: "1/-1" }}>
             Select a system or empire to see contextual commands.
