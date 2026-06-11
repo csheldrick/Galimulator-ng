@@ -11,6 +11,38 @@
   --btn-bg: #1a2535;
   --btn-hover: #243040;
   --input-bg: #0d1520;
+  --scroll-track: #0b111b;
+  --scroll-thumb: #1e2a3a;
+  --scroll-thumb-hover: #2e4057;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) var(--scroll-track);
+}
+
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scroll-track);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #243044, #182335);
+  border: 2px solid var(--scroll-track);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #35506d, #24344a);
+}
+
+*::-webkit-scrollbar-corner {
+  background: var(--scroll-track);
 }
 
 html, body, #root { width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: "Segoe UI", system-ui, sans-serif; font-size: 13px; }
