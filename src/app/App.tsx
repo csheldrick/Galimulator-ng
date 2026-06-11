@@ -90,27 +90,24 @@ export default function App() {
 
   const refreshSnapshot = useCallback(() => { setSnapshot(sim.getSnapshot()); }, [sim]);
   useEffect(() => { const id = window.setInterval(refreshSnapshot, 250); return () => window.clearInterval(id); }, [refreshSnapshot]);
-
-  useEffect(() => {
-    try { localStorage.setItem(LS_VIEW_KEY, JSON.stringify(viewOptions)); } catch { /* quota/unavailable */ }
-  }, [viewOptions]);
-  useEffect(() => {
-    try { localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(settings)); } catch { /* quota/unavailable */ }
-  }, [settings]);
+  useEffect(() => { try { localStorage.setItem(LS_VIEW_KEY, JSON.stringify(viewOptions)); } catch { /* ignore */ } }, [viewOptions]);
+  useEffect(() => { try { localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(settings)); } catch { /* ignore */ } }, [settings]);
 
   const handleStart = useCallback(() => { sim.start(); setRunning(true); }, [sim]);
   const handlePause = useCallback(() => { sim.pause(); setRunning(false); refreshSnapshot(); }, [sim, refreshSnapshot]);
   const handleStep = useCallback(() => { sim.step(); refreshSnapshot(); }, [sim, refreshSnapshot]);
   const handleRunTicks = useCallback((count: number) => { sim.runTicks(count); refreshSnapshot(); }, [sim, refreshSnapshot]);
-
   const handleReset = useCallback(() => {
-    sim.reset(settings); setRunning(false); setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedFleetId(null); setSelectedEventId(null); setFollowEmpireId(null); setResetCameraToken(t => t + 1); refreshSnapshot();
+    sim.reset(settings);
+    setRunning(false); setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedFleetId(null); setSelectedEventId(null); setFollowEmpireId(null);
+    setResetCameraToken(t => t + 1); refreshSnapshot();
   }, [sim, settings, refreshSnapshot]);
-
   const handleNewSeed = useCallback(() => {
     const newSeed = Math.floor(Math.random() * 0xffffff);
     const newSettings = { ...settings, seed: newSeed };
-    setSettings(newSettings); sim.reset(newSettings); setRunning(false); setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedFleetId(null); setSelectedEventId(null); setFollowEmpireId(null); setResetCameraToken(t => t + 1); refreshSnapshot();
+    setSettings(newSettings); sim.reset(newSettings);
+    setRunning(false); setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedFleetId(null); setSelectedEventId(null); setFollowEmpireId(null);
+    setResetCameraToken(t => t + 1); refreshSnapshot();
   }, [sim, settings, refreshSnapshot]);
 
   const handleFollowEmpire = useCallback((id: Id | null) => {
@@ -118,23 +115,19 @@ export default function App() {
     if (id) { setSelectedEmpireId(id); setSelectedSystemId(null); setSelectedFleetId(null); }
   }, []);
   const handleToggleFollow = useCallback((id: Id) => { setFollowEmpireId(prev => (prev === id ? null : id)); }, []);
-
   const handleSettingsChange = useCallback((partial: Partial<SimSettings>) => {
     setSettings(prev => { const next = { ...prev, ...partial }; if (partial.ticksPerSecond !== undefined) sim.setSpeed(partial.ticksPerSecond); return next; });
   }, [sim]);
-
   const handleClearSelection = useCallback(() => { setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedFleetId(null); setSelectedEventId(null); }, []);
   const withRefresh = useCallback((fn: () => void) => { fn(); refreshSnapshot(); }, [refreshSnapshot]);
   const handleSelectEmpire = useCallback((id: Id | null) => { setSelectedSystemId(null); setSelectedFleetId(null); setSelectedEmpireId(id); setSelectedEventId(null); }, []);
   const handleSelectSystem = useCallback((id: Id | null) => { setSelectedSystemId(id); setSelectedFleetId(null); setSelectedEventId(null); }, []);
   const handleSelectFleet = useCallback((id: Id | null) => { setSelectedFleetId(id); setSelectedSystemId(null); setSelectedEventId(null); }, []);
-
   const handleFoundEmpire = useCallback((systemId: Id) => {
     const id = sim.foundEmpireAtSystem(systemId);
     if (id) { setSelectedSystemId(null); setSelectedFleetId(null); setSelectedEmpireId(id); }
     refreshSnapshot();
   }, [sim, refreshSnapshot]);
-
   const handleSelectEvent = useCallback((event: SimEvent) => {
     setSelectedEventId(event.id); setSelectedFleetId(null);
     const systemId = event.relatedSystemIds.find(id => snapshot.systems[id]);
@@ -142,25 +135,10 @@ export default function App() {
     setSelectedSystemId(systemId ?? null);
     setSelectedEmpireId(systemId ? (snapshot.systems[systemId]?.ownerEmpireId ?? empireId ?? null) : (empireId ?? null));
   }, [snapshot]);
+  const handleCancelFleet = useCallback((fleetId: Id) => { withRefresh(() => sim.cancelFleet(fleetId)); setSelectedFleetId(null); }, [sim, withRefresh]);
 
-  const handleCancelFleet = useCallback((fleetId: Id) => {
-    withRefresh(() => sim.cancelFleet(fleetId));
-    setSelectedFleetId(null);
-  }, [sim, withRefresh]);
-
-  const handleStartControl = useCallback((empireId: Id) => {
-    sim.startEmpireControl(empireId);
-    setSelectedEmpireId(empireId);
-    setFollowEmpireId(empireId);
-    refreshSnapshot();
-  }, [sim, refreshSnapshot]);
-
-  const handleStopControl = useCallback(() => {
-    sim.stopEmpireControl();
-    setFollowEmpireId(null);
-    refreshSnapshot();
-  }, [sim, refreshSnapshot]);
-
+  const handleStartControl = useCallback((empireId: Id) => { sim.startEmpireControl(empireId); setSelectedEmpireId(empireId); setFollowEmpireId(empireId); refreshSnapshot(); }, [sim, refreshSnapshot]);
+  const handleStopControl = useCallback(() => { sim.stopEmpireControl(); setFollowEmpireId(null); refreshSnapshot(); }, [sim, refreshSnapshot]);
   const handleSetPriority = useCallback((p: EmpirePriority) => { withRefresh(() => sim.setEmpirePriority(p)); }, [sim, withRefresh]);
   const handleRallyFleet = useCallback((sid: Id) => { withRefresh(() => sim.commandRallyFleet(sid)); }, [sim, withRefresh]);
   const handleMoveFlagship = useCallback((sid: Id) => { withRefresh(() => sim.commandMoveFlagship(sid)); }, [sim, withRefresh]);
@@ -177,48 +155,52 @@ export default function App() {
   const handleExportJson = useCallback(() => { const snap = sim.getSnapshot(); downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.json`, sim.exportSave(), "application/json"); }, [sim]);
   const handleExportReport = useCallback(() => { const snap = sim.getSnapshot(); downloadText(`galimulator-ng-${snap.seed}-tick-${snap.tick}.md`, buildReport(snap), "text/markdown"); }, [sim]);
   const handleHeadlessReport = useCallback(() => { const text = runHeadlessReport(settings); downloadText(`galimulator-ng-${settings.seed}-headless.md`, text, "text/markdown"); }, [settings]);
-
   const handleImportSave = useCallback((text: string) => {
     const error = sim.importSave(text);
     if (error) { window.alert(error); return; }
-    setRunning(false);
-    setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedFleetId(null); setSelectedEventId(null); setFollowEmpireId(null);
-    setSettings(sim.getSettings());
-    setResetCameraToken(t => t + 1);
-    refreshSnapshot();
+    setRunning(false); setSelectedSystemId(null); setSelectedEmpireId(null); setSelectedFleetId(null); setSelectedEventId(null); setFollowEmpireId(null);
+    setSettings(sim.getSettings()); setResetCameraToken(t => t + 1); refreshSnapshot();
   }, [sim, refreshSnapshot]);
+
+  const empireControl = (
+    <EmpireControlPanel
+      snapshot={snapshot}
+      playerControl={snapshot.playerControl}
+      selectedSystemId={selectedSystemId}
+      selectedEmpireId={selectedEmpireId}
+      onStartControl={handleStartControl}
+      onStopControl={handleStopControl}
+      onSetPriority={handleSetPriority}
+      onRallyFleet={handleRallyFleet}
+      onMoveFlagship={handleMoveFlagship}
+      onFortify={handleFortify}
+      onStabilize={handleStabilize}
+      onBuildArtifact={handleBuildArtifact}
+      onProposePeace={handleProposePeace}
+      onProvokeWar={handleProvokeWar}
+      onSpyMission={handleSpyMission}
+      onSponsorColonization={handleSponsorColonization}
+      onAdoptReligion={handleAdoptReligion}
+      onReformGovernment={handleReformGovernment}
+    />
+  );
 
   return (
     <div className="app-layout">
-      <ControlPanel snapshot={snapshot} selectedEmpireId={selectedEmpireId} followEmpireId={followEmpireId} running={running} onStart={handleStart} onPause={handlePause} onStep={handleStep} onRunTicks={handleRunTicks} onReset={handleReset} onNewSeed={handleNewSeed} onResetCamera={() => setResetCameraToken(t => t + 1)} onExportJson={handleExportJson} onExportReport={handleExportReport} onHeadlessReport={handleHeadlessReport} onImportSave={handleImportSave} onSelectEmpire={handleSelectEmpire} onToggleFollow={handleToggleFollow} settings={settings} onSettingsChange={handleSettingsChange} viewOptions={viewOptions} onViewOptionsChange={setViewOptions} />
-      <div className="canvas-area">
-        <GalaxyCanvas simulation={sim} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} followEmpireId={followEmpireId} viewOptions={viewOptions} resetCameraToken={resetCameraToken} onSelectSystem={handleSelectSystem} onSelectEmpire={setSelectedEmpireId} onSelectFleet={handleSelectFleet} onManualPan={() => setFollowEmpireId(null)} />
+      <div className="main-stage">
+        <div className="canvas-area">
+          <GalaxyCanvas simulation={sim} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} followEmpireId={followEmpireId} viewOptions={viewOptions} resetCameraToken={resetCameraToken} onSelectSystem={handleSelectSystem} onSelectEmpire={setSelectedEmpireId} onSelectFleet={handleSelectFleet} onManualPan={() => setFollowEmpireId(null)} />
+        </div>
+        <div className="right-panel">
+          <InspectorPanel snapshot={snapshot} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} followEmpireId={followEmpireId} onSelectEmpire={handleSelectEmpire} onSelectSystem={handleSelectSystem} onSelectFleet={handleSelectFleet} onClearSelection={handleClearSelection} onCancelFleet={handleCancelFleet} onToggleFollow={handleToggleFollow} onBoostSystem={id => withRefresh(() => sim.boostSystem(id))} onDevastateSystem={id => withRefresh(() => sim.devastateSystem(id))} onNeutralizeSystem={id => withRefresh(() => sim.neutralizeSystem(id))} onFoundEmpire={handleFoundEmpire} onBoostEmpire={id => withRefresh(() => sim.boostEmpire(id))} onWeakenEmpire={id => withRefresh(() => sim.weakenEmpire(id))} onInflameEmpire={id => withRefresh(() => sim.inflameEmpire(id))} onPacifyEmpire={id => withRefresh(() => sim.pacifyEmpire(id))} onForceWar={(a, b) => withRefresh(() => sim.forceWar(a, b))} onForcePeace={(a, b) => withRefresh(() => sim.forcePeace(a, b))} />
+          <TopStories snapshot={snapshot} selectedEventId={selectedEventId} onSelectEvent={handleSelectEvent} onFollowEmpire={handleFollowEmpire} />
+          <GalaxyPulse snapshot={snapshot} />
+          <EventLog snapshot={snapshot} minImportance={minImportance} onMinImportanceChange={setMinImportance} selectedEventId={selectedEventId} onSelectEvent={handleSelectEvent} />
+        </div>
       </div>
-      <div className="right-panel">
-        <EmpireControlPanel
-          snapshot={snapshot}
-          playerControl={snapshot.playerControl}
-          selectedSystemId={selectedSystemId}
-          selectedEmpireId={selectedEmpireId}
-          onStartControl={handleStartControl}
-          onStopControl={handleStopControl}
-          onSetPriority={handleSetPriority}
-          onRallyFleet={handleRallyFleet}
-          onMoveFlagship={handleMoveFlagship}
-          onFortify={handleFortify}
-          onStabilize={handleStabilize}
-          onBuildArtifact={handleBuildArtifact}
-          onProposePeace={handleProposePeace}
-          onProvokeWar={handleProvokeWar}
-          onSpyMission={handleSpyMission}
-          onSponsorColonization={handleSponsorColonization}
-          onAdoptReligion={handleAdoptReligion}
-          onReformGovernment={handleReformGovernment}
-        />
-        <InspectorPanel snapshot={snapshot} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} followEmpireId={followEmpireId} onSelectEmpire={handleSelectEmpire} onSelectSystem={handleSelectSystem} onSelectFleet={handleSelectFleet} onClearSelection={handleClearSelection} onCancelFleet={handleCancelFleet} onToggleFollow={handleToggleFollow} onBoostSystem={id => withRefresh(() => sim.boostSystem(id))} onDevastateSystem={id => withRefresh(() => sim.devastateSystem(id))} onNeutralizeSystem={id => withRefresh(() => sim.neutralizeSystem(id))} onFoundEmpire={handleFoundEmpire} onBoostEmpire={id => withRefresh(() => sim.boostEmpire(id))} onWeakenEmpire={id => withRefresh(() => sim.weakenEmpire(id))} onInflameEmpire={id => withRefresh(() => sim.inflameEmpire(id))} onPacifyEmpire={id => withRefresh(() => sim.pacifyEmpire(id))} onForceWar={(a, b) => withRefresh(() => sim.forceWar(a, b))} onForcePeace={(a, b) => withRefresh(() => sim.forcePeace(a, b))} />
-        <TopStories snapshot={snapshot} selectedEventId={selectedEventId} onSelectEvent={handleSelectEvent} onFollowEmpire={handleFollowEmpire} />
-        <GalaxyPulse snapshot={snapshot} />
-        <EventLog snapshot={snapshot} minImportance={minImportance} onMinImportanceChange={setMinImportance} selectedEventId={selectedEventId} onSelectEvent={handleSelectEvent} />
+      <div className="bottom-hud">
+        <ControlPanel snapshot={snapshot} selectedEmpireId={selectedEmpireId} followEmpireId={followEmpireId} running={running} onStart={handleStart} onPause={handlePause} onStep={handleStep} onRunTicks={handleRunTicks} onReset={handleReset} onNewSeed={handleNewSeed} onResetCamera={() => setResetCameraToken(t => t + 1)} onExportJson={handleExportJson} onExportReport={handleExportReport} onHeadlessReport={handleHeadlessReport} onImportSave={handleImportSave} onSelectEmpire={handleSelectEmpire} onToggleFollow={handleToggleFollow} settings={settings} onSettingsChange={handleSettingsChange} viewOptions={viewOptions} onViewOptionsChange={setViewOptions} />
+        {empireControl}
       </div>
     </div>
   );
