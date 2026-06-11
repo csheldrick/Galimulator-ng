@@ -53,6 +53,19 @@ function traitText(traits?: readonly string[]) {
   return traits?.length ? traits.map(t => TRAIT_LABEL[t as keyof typeof TRAIT_LABEL] ?? t).join(", ") : "No traits";
 }
 
+function neighboringEmpireIds(snapshot: Readonly<GalaxyState>, emp: Empire): Set<Id> {
+  const ids = new Set<Id>();
+  for (const sysId of emp.ownedSystemIds) {
+    const sys = snapshot.systems[sysId];
+    if (!sys) continue;
+    for (const neighborId of sys.connectedSystemIds) {
+      const ownerId = snapshot.systems[neighborId]?.ownerEmpireId;
+      if (ownerId && ownerId !== emp.id) ids.add(ownerId);
+    }
+  }
+  return ids;
+}
+
 /** Ruler identity, ruling house, heir, predecessor/parent ties, and a compact lineage chain. */
 function LineageSection({ snapshot, emp }: { snapshot: Readonly<GalaxyState>; emp: Empire }) {
   const people = snapshot.people ?? {};
@@ -105,6 +118,7 @@ export function InspectorPanel({
   const fleet = selectedFleetId ? snapshot.fleets[selectedFleetId] : null;
   const sys = !fleet && selectedSystemId ? snapshot.systems[selectedSystemId] : null;
   const emp = selectedEmpireId ? snapshot.empires[selectedEmpireId] : null;
+  const empNeighborIds = emp ? neighboringEmpireIds(snapshot, emp) : new Set<Id>();
   const sysFaction = sys?.factionId ? snapshot.factions?.[sys.factionId] : null;
   const nearbyOddities = sys
     ? Object.values(snapshot.oddities ?? {}).filter(o => Math.hypot(o.x - sys.x, o.y - sys.y) < 150)
@@ -239,7 +253,7 @@ export function InspectorPanel({
         </>
       )}
 
-      {emp && !sys && (
+      {emp && (
         <>
           <div className="inspector-header"><h3 style={{ color: emp.color }}>{emp.name}</h3><button className="close-btn" onClick={onClearSelection}>✕</button></div>
           <button className={followEmpireId === emp.id ? "follow-btn active" : "follow-btn"} onClick={() => onToggleFollow(emp.id)}>{followEmpireId === emp.id ? "⌖ Following — click to stop" : "⌖ Follow this empire"}</button>
@@ -310,7 +324,15 @@ export function InspectorPanel({
           })()}
           <h4>Relations</h4>
           <div className="relations-list">
-            {Object.values(snapshot.empires).filter(other => other.id !== emp.id).map(other => ({ other, rel: emp.relationshipByEmpireId[other.id] })).sort((a, b) => Number(b.rel?.atWar ?? false) - Number(a.rel?.atWar ?? false) || effectiveTension(b.rel, snapshot.tick) - effectiveTension(a.rel, snapshot.tick)).slice(0, 10).map(({ other, rel }) => {
+            {Object.values(snapshot.empires).filter(other => other.id !== emp.id).map(other => ({ other, rel: emp.relationshipByEmpireId[other.id] })).sort((a, b) => {
+              const aAtWar = a.rel?.atWar ?? emp.activeWarEmpireIds.includes(a.other.id);
+              const bAtWar = b.rel?.atWar ?? emp.activeWarEmpireIds.includes(b.other.id);
+              return Number(bAtWar) - Number(aAtWar)
+                || Number(empNeighborIds.has(b.other.id)) - Number(empNeighborIds.has(a.other.id))
+                || effectiveTension(b.rel, snapshot.tick) - effectiveTension(a.rel, snapshot.tick)
+                || effectiveOpinion(b.rel, snapshot.tick) - effectiveOpinion(a.rel, snapshot.tick)
+                || b.other.ownedSystemIds.length - a.other.ownedSystemIds.length;
+            }).map(({ other, rel }) => {
               const atWar = rel?.atWar ?? emp.activeWarEmpireIds.includes(other.id);
               const tension = effectiveTension(rel, snapshot.tick); const opinion = effectiveOpinion(rel, snapshot.tick);
               const mods = activeModifiers(rel, snapshot.tick);

@@ -408,7 +408,7 @@ export const GOVERNMENT_RULER_TITLE: Record<GovernmentType, string[]> = {
   "merchant-guild": ["Grand Merchant","Trade Master","Guild Lord","Harbor Master","Coin Emperor"],
 };
 
-function pickGovernmentType(rng: PRNG, ideology: import("../types/sim").Ideology): GovernmentType {
+export function pickGovernmentType(rng: PRNG, ideology: import("../types/sim").Ideology): GovernmentType {
   switch (ideology) {
     case "militarist": return rng.pick(["empire","military-junta","empire"]);
     case "spiritualist": return rng.pick(["theocracy","empire","theocracy"]);

@@ -1,4 +1,4 @@
-import type { GalaxyState, Empire, Id, RelationModifierInput } from "../types/sim";
+import type { EmpireRelationship, GalaxyState, Empire, Id, RelationModifierInput } from "../types/sim";
 import { createEvent } from "./Events";
 import {
   addRelationModifier,
@@ -7,19 +7,33 @@ import {
   refreshStructuralModifiers,
 } from "./Relations";
 
-export function updateRelationships(state: GalaxyState): void {
+function defaultRelationship(targetId: Id): EmpireRelationship {
+  return {
+    targetEmpireId: targetId,
+    tension: 0,
+    opinion: 50,
+    atWar: false,
+    modifiers: [],
+  };
+}
+
+export function ensureEmpireRelationships(state: GalaxyState, refreshStandingModifiers = false): void {
   const empireList = Object.values(state.empires);
   for (const emp of empireList) {
     for (const other of empireList) {
       if (other.id === emp.id) continue;
-      if (!emp.relationshipByEmpireId[other.id]) {
-        emp.relationshipByEmpireId[other.id] = {
-          targetEmpireId: other.id,
-          tension: 0,
-          opinion: 50,
-          atWar: false,
-        };
-      }
+      emp.relationshipByEmpireId[other.id] ??= defaultRelationship(other.id);
+      if (refreshStandingModifiers) refreshStructuralModifiers(state, emp.relationshipByEmpireId[other.id], emp.id);
+    }
+  }
+}
+
+export function updateRelationships(state: GalaxyState): void {
+  ensureEmpireRelationships(state);
+  const empireList = Object.values(state.empires);
+  for (const emp of empireList) {
+    for (const other of empireList) {
+      if (other.id === emp.id) continue;
       const rel = emp.relationshipByEmpireId[other.id];
       // base opinion drifts back toward neutral; war erodes it. Standing reasons
       // (faith, alliance, trade, common enemy) live as refreshed modifiers on top.

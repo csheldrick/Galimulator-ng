@@ -1,6 +1,6 @@
 import type { ArtifactKind, GalaxyState, SimSettings, SaveFile, Id, Empire, EmpireRelationship, EmpirePriority, StarSystem, SpyMission, ShipClass, WarFocus } from "../types/sim";
 import { SeededRandom } from "./Random";
-import { generateGalaxy, makeRuler } from "./Galaxy";
+import { generateGalaxy, makeRuler, pickGovernmentType, GOVERNMENT_RULER_TITLE } from "./Galaxy";
 import { executeTick } from "./Tick";
 import { createEvent, getEventCounter, setEventCounter } from "./Events";
 import { IDEOLOGIES } from "./Moods";
@@ -10,6 +10,7 @@ import { addRelationModifier, getModifierSeq, setModifierSeq } from "./Relations
 import { createArtifact, ensureArtifactObjects, pickArtifactKind, ARTIFACT_LABEL } from "./Artifacts";
 import { mergeEmpires } from "./Merge";
 import { findPath, pathLength } from "./Pathing";
+import { ensureEmpireRelationships } from "./Diplomacy";
 import type { RelationModifier, RelationModifierKind } from "../types/sim";
 
 
@@ -282,22 +283,26 @@ export class Simulation {
     }
     const id = `god-emp-${this.state.tick}-${Object.keys(this.state.empires).length}`;
     const cultureId = `culture-${id}`;
+    const ideology = this.rng.pick(IDEOLOGIES);
+    const govType = pickGovernmentType(this.rng, ideology);
     const ruler = makeRuler(this.rng, this.state.tick);
+    ruler.title = this.rng.pick(GOVERNMENT_RULER_TITLE[govType]);
     const empire: Empire = {
       id, name: `${sys.name} Ascendancy`, color: `hsl(${this.rng.nextInt(0, 360)},75%,58%)`,
-      mood: "expanding", moodSince: this.state.tick, ideology: this.rng.pick(IDEOLOGIES), ruler,
+      mood: "expanding", moodSince: this.state.tick, ideology, ruler,
       court: makeCourt(this.rng, this.state.tick, sys.religionId !== null),
       capitalSystemId: sys.id,
       ownedSystemIds: [sys.id], population: Math.max(sys.population * 1000, 500), wealth: 700, militaryStrength: 200,
       cohesion: 0.9, aggression: this.rng.range(0.2, 0.8), expansionism: this.rng.range(0.4, 0.9), techLevel: Math.max(sys.techLevel, 0.8),
       cultureId, stateReligionId: sys.religionId, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [],
-      godBoostTicks: 400, allianceIds: [], builtArtifactIds: [],
+      godBoostTicks: 400, allianceIds: [], governmentType: govType, builtArtifactIds: [], warDirectives: {},
     };
     sys.ownerEmpireId = id;
     sys.cultureId = cultureId;
     sys.population = Math.max(sys.population, 0.8);
     sys.godBoostTicks = 400;
     this.state.empires[id] = empire;
+    ensureEmpireRelationships(this.state, true);
     foundDynasty(this.state, empire, this.state.tick, this.rng);
     createEvent(this.state, this.state.tick, "empire-founded", `${empire.name} founded`, `${empire.name} rose at ${sys.name}.`, 4, [id], [sys.id]);
     this._touch();
