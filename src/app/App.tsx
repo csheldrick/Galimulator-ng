@@ -16,6 +16,9 @@ import "./App.css";
 const DEFAULT_SETTINGS: SimSettings = { seed: 42, numStars: 400, numEmpires: 12, ticksPerSecond: 4 };
 const DEFAULT_VIEW: ViewOptions = { territory: true, lanes: true, labels: true, wars: true, events: true, fleets: true, trade: true, monsters: true, mapMode: "empire" };
 
+type BottomTab = "control" | "empire";
+type RightSection = "inspector" | "stories" | "pulse" | "events";
+
 const LS_VIEW_KEY = "galimng_viewOptions";
 const LS_SETTINGS_KEY = "galimng_settings";
 
@@ -74,6 +77,18 @@ function buildReport(snapshot: Readonly<GalaxyState>): string {
   ].join("\n");
 }
 
+function Section({ id, title, collapsed, onToggle, children }: { id: RightSection; title: string; collapsed: boolean; onToggle: (id: RightSection) => void; children: React.ReactNode }) {
+  return (
+    <section className={collapsed ? "right-section collapsed" : "right-section"}>
+      <button className="right-section-header" onClick={() => onToggle(id)}>
+        <span>{collapsed ? "▸" : "▾"}</span>
+        <b>{title}</b>
+      </button>
+      {!collapsed && <div className="right-section-body">{children}</div>}
+    </section>
+  );
+}
+
 export default function App() {
   const [sim] = useState(() => new Simulation(loadSettings()));
   const [snapshot, setSnapshot] = useState<Readonly<GalaxyState>>(() => sim.getSnapshot());
@@ -87,11 +102,15 @@ export default function App() {
   const [selectedEventId, setSelectedEventId] = useState<Id | null>(null);
   const [followEmpireId, setFollowEmpireId] = useState<Id | null>(null);
   const [minImportance, setMinImportance] = useState(1);
+  const [bottomTab, setBottomTab] = useState<BottomTab>("control");
+  const [collapsedRight, setCollapsedRight] = useState<Record<RightSection, boolean>>({ inspector: false, stories: true, pulse: true, events: false });
 
   const refreshSnapshot = useCallback(() => { setSnapshot(sim.getSnapshot()); }, [sim]);
   useEffect(() => { const id = window.setInterval(refreshSnapshot, 250); return () => window.clearInterval(id); }, [refreshSnapshot]);
   useEffect(() => { try { localStorage.setItem(LS_VIEW_KEY, JSON.stringify(viewOptions)); } catch { /* ignore */ } }, [viewOptions]);
   useEffect(() => { try { localStorage.setItem(LS_SETTINGS_KEY, JSON.stringify(settings)); } catch { /* ignore */ } }, [settings]);
+
+  const toggleRight = useCallback((id: RightSection) => setCollapsedRight(prev => ({ ...prev, [id]: !prev[id] })), []);
 
   const handleStart = useCallback(() => { sim.start(); setRunning(true); }, [sim]);
   const handlePause = useCallback(() => { sim.pause(); setRunning(false); refreshSnapshot(); }, [sim, refreshSnapshot]);
@@ -137,7 +156,7 @@ export default function App() {
   }, [snapshot]);
   const handleCancelFleet = useCallback((fleetId: Id) => { withRefresh(() => sim.cancelFleet(fleetId)); setSelectedFleetId(null); }, [sim, withRefresh]);
 
-  const handleStartControl = useCallback((empireId: Id) => { sim.startEmpireControl(empireId); setSelectedEmpireId(empireId); setFollowEmpireId(empireId); refreshSnapshot(); }, [sim, refreshSnapshot]);
+  const handleStartControl = useCallback((empireId: Id) => { sim.startEmpireControl(empireId); setSelectedEmpireId(empireId); setFollowEmpireId(empireId); setBottomTab("empire"); refreshSnapshot(); }, [sim, refreshSnapshot]);
   const handleStopControl = useCallback(() => { sim.stopEmpireControl(); setFollowEmpireId(null); refreshSnapshot(); }, [sim, refreshSnapshot]);
   const handleSetPriority = useCallback((p: EmpirePriority) => { withRefresh(() => sim.setEmpirePriority(p)); }, [sim, withRefresh]);
   const handleRallyFleet = useCallback((sid: Id) => { withRefresh(() => sim.commandRallyFleet(sid)); }, [sim, withRefresh]);
@@ -193,16 +212,31 @@ export default function App() {
             <GalaxyCanvas simulation={sim} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} followEmpireId={followEmpireId} viewOptions={viewOptions} resetCameraToken={resetCameraToken} onSelectSystem={handleSelectSystem} onSelectEmpire={setSelectedEmpireId} onSelectFleet={handleSelectFleet} onManualPan={() => setFollowEmpireId(null)} />
           </div>
         </div>
-        <div className="bottom-hud">
-          <ControlPanel snapshot={snapshot} selectedEmpireId={selectedEmpireId} followEmpireId={followEmpireId} running={running} onStart={handleStart} onPause={handlePause} onStep={handleStep} onRunTicks={handleRunTicks} onReset={handleReset} onNewSeed={handleNewSeed} onResetCamera={() => setResetCameraToken(t => t + 1)} onExportJson={handleExportJson} onExportReport={handleExportReport} onHeadlessReport={handleHeadlessReport} onImportSave={handleImportSave} onSelectEmpire={handleSelectEmpire} onToggleFollow={handleToggleFollow} settings={settings} onSettingsChange={handleSettingsChange} viewOptions={viewOptions} onViewOptionsChange={setViewOptions} />
-          {empireControl}
+        <div className="bottom-hud tabbed">
+          <div className="bottom-tabs">
+            <button className={bottomTab === "control" ? "active" : ""} onClick={() => setBottomTab("control")}>Controls</button>
+            <button className={bottomTab === "empire" ? "active" : ""} onClick={() => setBottomTab("empire")}>Empire Control</button>
+          </div>
+          <div className="bottom-tab-body">
+            {bottomTab === "control" ? (
+              <ControlPanel snapshot={snapshot} selectedEmpireId={selectedEmpireId} followEmpireId={followEmpireId} running={running} onStart={handleStart} onPause={handlePause} onStep={handleStep} onRunTicks={handleRunTicks} onReset={handleReset} onNewSeed={handleNewSeed} onResetCamera={() => setResetCameraToken(t => t + 1)} onExportJson={handleExportJson} onExportReport={handleExportReport} onHeadlessReport={handleHeadlessReport} onImportSave={handleImportSave} onSelectEmpire={handleSelectEmpire} onToggleFollow={handleToggleFollow} settings={settings} onSettingsChange={handleSettingsChange} viewOptions={viewOptions} onViewOptionsChange={setViewOptions} />
+            ) : empireControl}
+          </div>
         </div>
       </div>
       <div className="right-panel">
-        <InspectorPanel snapshot={snapshot} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} followEmpireId={followEmpireId} onSelectEmpire={handleSelectEmpire} onSelectSystem={handleSelectSystem} onSelectFleet={handleSelectFleet} onClearSelection={handleClearSelection} onCancelFleet={handleCancelFleet} onToggleFollow={handleToggleFollow} onBoostSystem={id => withRefresh(() => sim.boostSystem(id))} onDevastateSystem={id => withRefresh(() => sim.devastateSystem(id))} onNeutralizeSystem={id => withRefresh(() => sim.neutralizeSystem(id))} onFoundEmpire={handleFoundEmpire} onBoostEmpire={id => withRefresh(() => sim.boostEmpire(id))} onWeakenEmpire={id => withRefresh(() => sim.weakenEmpire(id))} onInflameEmpire={id => withRefresh(() => sim.inflameEmpire(id))} onPacifyEmpire={id => withRefresh(() => sim.pacifyEmpire(id))} onForceWar={(a, b) => withRefresh(() => sim.forceWar(a, b))} onForcePeace={(a, b) => withRefresh(() => sim.forcePeace(a, b))} />
-        <TopStories snapshot={snapshot} selectedEventId={selectedEventId} onSelectEvent={handleSelectEvent} onFollowEmpire={handleFollowEmpire} />
-        <GalaxyPulse snapshot={snapshot} />
-        <EventLog snapshot={snapshot} minImportance={minImportance} onMinImportanceChange={setMinImportance} selectedEventId={selectedEventId} onSelectEvent={handleSelectEvent} />
+        <Section id="inspector" title="Inspector" collapsed={collapsedRight.inspector} onToggle={toggleRight}>
+          <InspectorPanel snapshot={snapshot} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} followEmpireId={followEmpireId} onSelectEmpire={handleSelectEmpire} onSelectSystem={handleSelectSystem} onSelectFleet={handleSelectFleet} onClearSelection={handleClearSelection} onCancelFleet={handleCancelFleet} onToggleFollow={handleToggleFollow} onBoostSystem={id => withRefresh(() => sim.boostSystem(id))} onDevastateSystem={id => withRefresh(() => sim.devastateSystem(id))} onNeutralizeSystem={id => withRefresh(() => sim.neutralizeSystem(id))} onFoundEmpire={handleFoundEmpire} onBoostEmpire={id => withRefresh(() => sim.boostEmpire(id))} onWeakenEmpire={id => withRefresh(() => sim.weakenEmpire(id))} onInflameEmpire={id => withRefresh(() => sim.inflameEmpire(id))} onPacifyEmpire={id => withRefresh(() => sim.pacifyEmpire(id))} onForceWar={(a, b) => withRefresh(() => sim.forceWar(a, b))} onForcePeace={(a, b) => withRefresh(() => sim.forcePeace(a, b))} />
+        </Section>
+        <Section id="stories" title="Top Stories" collapsed={collapsedRight.stories} onToggle={toggleRight}>
+          <TopStories snapshot={snapshot} selectedEventId={selectedEventId} onSelectEvent={handleSelectEvent} onFollowEmpire={handleFollowEmpire} />
+        </Section>
+        <Section id="pulse" title="Galaxy Pulse" collapsed={collapsedRight.pulse} onToggle={toggleRight}>
+          <GalaxyPulse snapshot={snapshot} />
+        </Section>
+        <Section id="events" title="Event Log" collapsed={collapsedRight.events} onToggle={toggleRight}>
+          <EventLog snapshot={snapshot} minImportance={minImportance} onMinImportanceChange={setMinImportance} selectedEventId={selectedEventId} onSelectEvent={handleSelectEvent} />
+        </Section>
       </div>
     </div>
   );
