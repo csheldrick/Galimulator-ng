@@ -22,6 +22,8 @@ interface Props {
   onExportReport: () => void;
   onHeadlessReport: () => void;
   onPresetSweep: () => void;
+  onRiotGalaxy: () => void;
+  onBalanceGalaxy: () => void;
   onImportSave: (text: string) => void;
   onSelectEmpire: (id: Id) => void;
   onToggleFollow: (id: Id) => void;
@@ -49,6 +51,8 @@ export function ControlPanel({
   onExportReport,
   onHeadlessReport,
   onPresetSweep,
+  onRiotGalaxy,
+  onBalanceGalaxy,
   onImportSave,
   onSelectEmpire,
   onToggleFollow,
@@ -140,6 +144,12 @@ export function ControlPanel({
           <button onClick={onReset}>Reset</button>
           <button onClick={onNewSeed}>New Seed</button>
           <button onClick={onResetCamera}>Camera</button>
+        </div>
+
+        <div className="section-title">Galaxy God Controls</div>
+        <div className="btn-row">
+          <button onClick={onRiotGalaxy} title="Throw every empire into a riot">Riot All</button>
+          <button onClick={onBalanceGalaxy} title="Destroy roughly half of all stars and fleets">Balance</button>
         </div>
 
         <div className="section-title">Save / Load</div>
