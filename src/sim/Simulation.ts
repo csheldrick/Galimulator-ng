@@ -1,4 +1,4 @@
-import type { ArtifactKind, GalaxyState, SimSettings, SaveFile, Id, Empire, EmpireRelationship, EmpirePriority, StarSystem, SpyMission, ShipClass, WarFocus } from "../types/sim";
+import type { ArtifactKind, GalaxyState, SimSettings, SaveFile, Id, Empire, EmpireRelationship, EmpirePriority, EmpireAdjustableProperty, StarSystem, SpyMission, ShipClass, WarFocus } from "../types/sim";
 import { SeededRandom } from "./Random";
 import { generateGalaxy, makeRuler, pickGovernmentType, GOVERNMENT_RULER_TITLE } from "./Galaxy";
 import { executeTick } from "./Tick";
@@ -82,6 +82,7 @@ function upgradeState(state: GalaxyState): GalaxyState {
       c.traits ??= [];
     }
     emp.godBoostTicks ??= 0;
+    emp.militaryBonus ??= 0;
     emp.allianceIds ??= [];
     emp.builtArtifactIds ??= [];
     emp.warDirectives ??= {};
@@ -292,7 +293,7 @@ export class Simulation {
       mood: "expanding", moodSince: this.state.tick, ideology, ruler,
       court: makeCourt(this.rng, this.state.tick, sys.religionId !== null),
       capitalSystemId: sys.id,
-      ownedSystemIds: [sys.id], population: Math.max(sys.population * 1000, 500), wealth: 700, militaryStrength: 200,
+      ownedSystemIds: [sys.id], population: Math.max(sys.population * 1000, 500), wealth: 700, militaryStrength: 200, militaryBonus: 150,
       cohesion: 0.9, aggression: this.rng.range(0.2, 0.8), expansionism: this.rng.range(0.4, 0.9), techLevel: Math.max(sys.techLevel, 0.8),
       cultureId, stateReligionId: sys.religionId, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [],
       godBoostTicks: 400, allianceIds: [], governmentType: govType, builtArtifactIds: [], warDirectives: {},
@@ -315,12 +316,50 @@ export class Simulation {
     emp.wealth += 1200;
     emp.cohesion = Math.min(1, emp.cohesion + 0.35);
     emp.techLevel = Math.min(3, emp.techLevel + 0.3);
+    // A lasting standing-army bonus so "Strengthen" raises military power, not just wealth.
+    emp.militaryBonus = (emp.militaryBonus ?? 0) + 250;
     emp.godBoostTicks = 600;
     createEvent(this.state, this.state.tick, "golden-age", `${emp.name} strengthened`, `${emp.name} received a divine surge of power.`, 3, [emp.id], []);
     this._touch();
   }
 
-  weakenEmpire(empireId: Id): void { const emp = this.state.empires[empireId]; if (!emp) return; emp.wealth = Math.max(0, emp.wealth * 0.4); emp.cohesion = Math.max(0.05, emp.cohesion - 0.35); emp.militaryStrength = Math.max(1, emp.militaryStrength * 0.45); for (const sysId of emp.ownedSystemIds) { const sys = this.state.systems[sysId]; if (sys) sys.stability = Math.max(0.05, sys.stability - 0.15); } createEvent(this.state, this.state.tick, "empire-collapsed", `${emp.name} destabilized`, `${emp.name} was weakened by outside forces.`, 3, [emp.id], emp.ownedSystemIds.slice(0, 8)); this._touch(); }
+  /** Shore up an empire so it can survive: high cohesion, calmed mood, and stabilized worlds. */
+  stabilizeEmpire(empireId: Id): void {
+    const emp = this.state.empires[empireId];
+    if (!emp) return;
+    emp.cohesion = Math.max(emp.cohesion, 0.85);
+    if (emp.mood === "rioting" || emp.mood === "degenerating") {
+      emp.mood = "fortifying";
+      emp.moodSince = this.state.tick;
+    }
+    // A short grace period that blocks collapse while the worlds settle.
+    emp.godBoostTicks = Math.max(emp.godBoostTicks ?? 0, 300);
+    for (const sysId of emp.ownedSystemIds) {
+      const sys = this.state.systems[sysId];
+      if (sys) sys.stability = Math.max(sys.stability, 0.7);
+    }
+    createEvent(this.state, this.state.tick, "golden-age", `${emp.name} stabilized`, `${emp.name} was steadied by a divine hand; unrest subsided across its worlds.`, 3, [emp.id], emp.ownedSystemIds.slice(0, 8));
+    this._touch();
+  }
+
+  /** Nudge a single empire stat up (dir > 0) or down (dir < 0). Fine-grained sandbox tuning. */
+  adjustEmpireProperty(empireId: Id, prop: EmpireAdjustableProperty, dir: number): void {
+    const emp = this.state.empires[empireId];
+    if (!emp) return;
+    const step = dir >= 0 ? 1 : -1;
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+    switch (prop) {
+      case "wealth": emp.wealth = Math.max(0, emp.wealth + step * 500); break;
+      case "militaryBonus": emp.militaryBonus = Math.max(0, (emp.militaryBonus ?? 0) + step * 150); break;
+      case "cohesion": emp.cohesion = clamp(emp.cohesion + step * 0.1, 0.05, 1); break;
+      case "aggression": emp.aggression = clamp(emp.aggression + step * 0.1, 0, 1); break;
+      case "expansionism": emp.expansionism = clamp(emp.expansionism + step * 0.1, 0, 1); break;
+      case "techLevel": emp.techLevel = clamp(emp.techLevel + step * 0.25, 0, 3); break;
+    }
+    this._touch();
+  }
+
+  weakenEmpire(empireId: Id): void { const emp = this.state.empires[empireId]; if (!emp) return; emp.wealth = Math.max(0, emp.wealth * 0.4); emp.cohesion = Math.max(0.05, emp.cohesion - 0.35); emp.militaryBonus = Math.max(0, (emp.militaryBonus ?? 0) * 0.45); emp.militaryStrength = Math.max(1, emp.militaryStrength * 0.45); for (const sysId of emp.ownedSystemIds) { const sys = this.state.systems[sysId]; if (sys) sys.stability = Math.max(0.05, sys.stability - 0.15); } createEvent(this.state, this.state.tick, "empire-collapsed", `${emp.name} destabilized`, `${emp.name} was weakened by outside forces.`, 3, [emp.id], emp.ownedSystemIds.slice(0, 8)); this._touch(); }
 
   // Relationship/war mutations shared by god controls and empire-control commands.
   // These helpers ONLY mutate state — the caller owns the event + _touch so empire-control

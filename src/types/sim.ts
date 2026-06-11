@@ -421,6 +421,8 @@ export interface Empire {
   population: number;
   wealth: number;
   militaryStrength: number;
+  /** Flat, persistent military bonus from god controls, added on top of the derived strength. 0 = none. */
+  militaryBonus?: number;
   cohesion: number;
   aggression: number;
   expansionism: number;
@@ -443,6 +445,15 @@ export interface Empire {
   /** Artifacts this empire personally commissioned; captured artifacts do not count. */
   builtArtifactIds?: Id[];
 }
+
+/** Empire stats that god controls can nudge up or down directly. */
+export type EmpireAdjustableProperty =
+  | "wealth"
+  | "militaryBonus"
+  | "cohesion"
+  | "aggression"
+  | "expansionism"
+  | "techLevel";
 
 export type AlliancePurpose = "defensive" | "anti-hegemon" | "trade" | "religious" | "survival";
 

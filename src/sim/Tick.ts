@@ -657,7 +657,7 @@ function stepGrowth(state: GalaxyState, rng: PRNG): void {
     if (rulerTraits.includes("corrupt")) emp.cohesion = Math.max(0.05, emp.cohesion - 0.00025);
     if (rulerTraits.includes("warlike")) emp.aggression = Math.min(1, emp.aggression + 0.00008);
     const militaryMood = emp.mood === "fortifying" ? 1.25 : emp.mood === "crusading" ? 1.1 : emp.mood === "rioting" ? 0.75 : 1;
-    emp.militaryStrength = (emp.ownedSystemIds.length * 10 + emp.techLevel * 50 + emp.wealth * 0.05) * militaryMood;
+    emp.militaryStrength = (emp.ownedSystemIds.length * 10 + emp.techLevel * 50 + emp.wealth * 0.05) * militaryMood + (emp.militaryBonus ?? 0);
     if (emp.godBoostTicks && emp.godBoostTicks > 0) {
       emp.militaryStrength *= 3;
       emp.godBoostTicks--;

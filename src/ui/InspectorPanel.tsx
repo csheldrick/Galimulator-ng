@@ -1,4 +1,4 @@
-import type { GalaxyState, Id, Empire, Person } from "../types/sim";
+import type { GalaxyState, Id, Empire, Person, EmpireAdjustableProperty } from "../types/sim";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL, TRAIT_LABEL } from "../sim/Characters";
 import { lineageChain, livingDynastyCount, dynastyMembers, personDisplayName } from "../sim/Dynasty";
@@ -32,9 +32,11 @@ interface Props {
   onNeutralizeSystem: (id: Id) => void;
   onFoundEmpire: (id: Id) => void;
   onBoostEmpire: (id: Id) => void;
+  onStabilizeEmpire: (id: Id) => void;
   onWeakenEmpire: (id: Id) => void;
   onInflameEmpire: (id: Id) => void;
   onPacifyEmpire: (id: Id) => void;
+  onAdjustEmpire: (id: Id, prop: EmpireAdjustableProperty, dir: number) => void;
   onForceWar: (a: Id, b: Id) => void;
   onForcePeace: (a: Id, b: Id) => void;
   onForceMerge: (dominant: Id, absorbed: Id) => void;
@@ -46,6 +48,15 @@ const MARKER_GLYPH: Record<string, string> = {
   "monster-wound": "✗", "trade-hub": "⊕", "plague-world": "☣",
   "transcendent-ruin": "✸",
 };
+
+const EMPIRE_ADJUST_STATS: { prop: EmpireAdjustableProperty; label: string; get: (e: Empire) => number; dec: number }[] = [
+  { prop: "wealth", label: "Wealth", get: e => e.wealth, dec: 0 },
+  { prop: "militaryBonus", label: "Military +", get: e => e.militaryBonus ?? 0, dec: 0 },
+  { prop: "cohesion", label: "Cohesion", get: e => e.cohesion, dec: 2 },
+  { prop: "aggression", label: "Aggression", get: e => e.aggression, dec: 2 },
+  { prop: "expansionism", label: "Expansion", get: e => e.expansionism, dec: 2 },
+  { prop: "techLevel", label: "Tech", get: e => e.techLevel, dec: 2 },
+];
 
 function fmt(n: number, dec = 1) { return n.toFixed(dec); }
 function eta(progress: number, totalDist: number, speed: number) { return Math.max(0, Math.ceil(((1 - progress) * totalDist) / Math.max(0.001, speed))); }
@@ -113,7 +124,7 @@ function LineageSection({ snapshot, emp }: { snapshot: Readonly<GalaxyState>; em
 
 export function InspectorPanel({
   snapshot, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, onSelectEmpire, onSelectSystem, onSelectFleet, onClearSelection, onCancelFleet, onToggleFollow,
-  onBoostSystem, onDevastateSystem, onNeutralizeSystem, onFoundEmpire, onBoostEmpire, onWeakenEmpire, onInflameEmpire, onPacifyEmpire, onForceWar, onForcePeace, onForceMerge,
+  onBoostSystem, onDevastateSystem, onNeutralizeSystem, onFoundEmpire, onBoostEmpire, onStabilizeEmpire, onWeakenEmpire, onInflameEmpire, onPacifyEmpire, onAdjustEmpire, onForceWar, onForcePeace, onForceMerge,
 }: Props) {
   const fleet = selectedFleetId ? snapshot.fleets[selectedFleetId] : null;
   const sys = !fleet && selectedSystemId ? snapshot.systems[selectedSystemId] : null;
@@ -309,7 +320,17 @@ export function InspectorPanel({
           <div className="info-row"><span>Expansion</span><span>{fmt(emp.expansionism)}</span></div>
           <div className="info-row"><span>Tech</span><span>{fmt(emp.techLevel)}</span></div>
           <h4>God Controls</h4>
-          <div className="god-grid"><button onClick={() => onBoostEmpire(emp.id)}>Strengthen</button><button onClick={() => onWeakenEmpire(emp.id)}>Destabilize</button><button onClick={() => onInflameEmpire(emp.id)}>Inflame</button><button onClick={() => onPacifyEmpire(emp.id)}>Pacify</button></div>
+          <div className="god-grid"><button onClick={() => onBoostEmpire(emp.id)}>Strengthen</button><button onClick={() => onStabilizeEmpire(emp.id)}>Stabilize</button><button onClick={() => onWeakenEmpire(emp.id)}>Destabilize</button><button onClick={() => onInflameEmpire(emp.id)}>Inflame</button><button onClick={() => onPacifyEmpire(emp.id)}>Pacify</button></div>
+          <div className="god-stats">
+            {EMPIRE_ADJUST_STATS.map(s => (
+              <div className="god-stat-row" key={s.prop}>
+                <span>{s.label}</span>
+                <button title={`Lower ${s.label}`} onClick={() => onAdjustEmpire(emp.id, s.prop, -1)}>−</button>
+                <b>{fmt(s.get(emp), s.dec)}</b>
+                <button title={`Raise ${s.label}`} onClick={() => onAdjustEmpire(emp.id, s.prop, 1)}>+</button>
+              </div>
+            ))}
+          </div>
           <h4>Active Fleets</h4>
           {(() => {
             const empFleets = Object.values(snapshot.fleets).filter(f => f.ownerEmpireId === emp.id);
