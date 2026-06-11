@@ -54,7 +54,11 @@ export function stepReligion(state: GalaxyState, rng: PRNG): void {
     if (sys.population < 0.05) continue;
     const owner = sys.ownerEmpireId ? state.empires[sys.ownerEmpireId] : null;
     const prophet = owner?.court?.find(c => c.role === "prophet");
-    const spiritual = (owner?.ideology === "spiritualist" ? 2.2 : 1) * (prophet ? 1 + prophet.skill * 0.6 : 1);
+    const prophetTraits = prophet?.traits ?? [];
+    const prophetMul = prophet
+      ? (1 + prophet.skill * 0.6) * (prophetTraits.includes("zealot") ? 1.35 : 1) * (prophetTraits.includes("corrupt") ? 0.85 : 1)
+      : 1;
+    const spiritual = (owner?.ideology === "spiritualist" ? 2.2 : 1) * prophetMul;
     for (const nid of sys.connectedSystemIds) {
       const from = state.systems[nid];
       if (!from?.religionId || from.religionId === sys.religionId) continue;

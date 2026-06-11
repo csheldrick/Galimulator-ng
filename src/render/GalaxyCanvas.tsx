@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import type { Id, Fleet, Monster } from "../types/sim";
+import type { Id, Fleet, Monster, Oddity } from "../types/sim";
 import type { Camera } from "./camera";
 import { worldToScreen, screenToWorld, clampZoom } from "./camera";
 import { colorWithAlpha, eventColor, UNOWNED_COLOR, SELECTION_COLOR, BACKGROUND_COLOR, STAR_COLOR } from "./colors";
@@ -36,6 +36,7 @@ interface Props {
 
 function fleetSize(fleet: Fleet): number {
   if (fleet.kind === "merchant" || fleet.kind === "pilgrim" || fleet.kind === "refugee") return 2.5;
+  if (fleet.kind === "quest") return 3;
   const base = fleet.kind === "war" ? Math.max(3, Math.min(8, fleet.strength / 8)) : 3.5;
   if (fleet.shipClass === "armada") return base * 1.35;
   if (fleet.shipClass === "raider") return base * 0.8;
@@ -60,6 +61,22 @@ const MONSTER_COLOR: Record<Monster["kind"], string> = {
   leviathan: "#b14eea",
   wraith: "#9ff3ff",
   swarm: "#7ded7f",
+};
+
+const ODDITY_GLYPH: Record<Oddity["kind"], string> = {
+  "star-eater": "◉",
+  "puppet-mind": "ψ",
+  "sloth-cloud": "☁",
+  "replicator": "⬡",
+  "void-gate": "◎",
+};
+
+const ODDITY_COLOR: Record<Oddity["kind"], string> = {
+  "star-eater": "#ff5a5a",
+  "puppet-mind": "#c77dff",
+  "sloth-cloud": "#9aa6b8",
+  "replicator": "#8ef0a6",
+  "void-gate": "#6ee7ff",
 };
 
 function drawMonster(ctx: CanvasRenderingContext2D, monster: Monster, sx: number, sy: number, zoom: number, now: number) {
@@ -97,6 +114,41 @@ function drawMonster(ctx: CanvasRenderingContext2D, monster: Monster, sx: number
     ctx.fillText(monster.name, sx, sy + r + 12);
     ctx.textAlign = "left";
   }
+}
+
+function drawOddity(ctx: CanvasRenderingContext2D, oddity: Oddity, sx: number, sy: number, zoom: number, now: number) {
+  const color = ODDITY_COLOR[oddity.kind];
+  const r = Math.max(9, 13 * zoom) * (1 + Math.sin(now / 300 + oddity.spawnedTick) * 0.08);
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.rotate(now / 1600);
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.strokeStyle = colorWithAlpha(color, 0.65);
+  ctx.lineWidth = Math.max(1.5, 2 * zoom);
+  ctx.setLineDash([3 * zoom, 4 * zoom]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+  ctx.font = `700 ${Math.max(13, 16 * zoom)}px "Trebuchet MS", sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.strokeStyle = "rgba(0,0,0,0.85)";
+  ctx.lineWidth = 3;
+  ctx.strokeText(ODDITY_GLYPH[oddity.kind], sx, sy);
+  ctx.fillStyle = color;
+  ctx.fillText(ODDITY_GLYPH[oddity.kind], sx, sy);
+  if (zoom > 0.9) {
+    ctx.font = "10px monospace";
+    ctx.textBaseline = "alphabetic";
+    ctx.strokeStyle = "rgba(0,0,0,0.85)";
+    ctx.lineWidth = 3;
+    ctx.strokeText(oddity.name, sx, sy + r + 12);
+    ctx.fillStyle = colorWithAlpha(color, 0.95);
+    ctx.fillText(oddity.name, sx, sy + r + 12);
+  }
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
 }
 
 export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, viewOptions, resetCameraToken, onSelectSystem, onSelectEmpire, onSelectFleet, onManualPan }: Props) {
@@ -326,6 +378,8 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
             : fleet.kind === "merchant" ? "rgba(255,209,102,0.88)"
             : fleet.kind === "pilgrim" ? "rgba(200,240,200,0.88)"
             : fleet.kind === "refugee" ? "rgba(200,200,255,0.82)"
+            : fleet.kind === "quest" ? "rgba(180,220,255,0.9)"
+            : fleet.kind === "patrol" ? "rgba(180,245,255,0.92)"
             : "rgba(220,245,255,0.9)";
           ctx.fillStyle = fleetFill;
           ctx.strokeStyle = fleet.id === selectedFleetId ? SELECTION_COLOR : owner.color;
@@ -347,6 +401,11 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
           const [sx, sy] = worldToScreen(monster.x, monster.y, cam, w, h);
           if (sx < -60 || sx > w + 60 || sy < -60 || sy > h + 60) continue;
           drawMonster(ctx, monster, sx, sy, cam.zoom, now);
+        }
+        for (const oddity of Object.values(snap.oddities ?? {})) {
+          const [sx, sy] = worldToScreen(oddity.x, oddity.y, cam, w, h);
+          if (sx < -80 || sx > w + 80 || sy < -80 || sy > h + 80) continue;
+          drawOddity(ctx, oddity, sx, sy, cam.zoom, now);
         }
       }
 

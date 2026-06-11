@@ -1,9 +1,10 @@
-import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler, Religion } from "../types/sim";
+import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler, Religion, CharacterTrait } from "../types/sim";
 import type { GalaxyShape, StarlaneMode, EmpireLayout, PlanetTag, GovernmentType } from "../types/sim";
 import { resetEventCounter } from "./Events";
 import { makeReligion } from "./Religion";
 import { IDEOLOGIES } from "./Moods";
 import { makeCourt, resetCharacterCounter } from "./Characters";
+import { initialLineage } from "./Lineage";
 
 const SYLLABLES = [
   "al","ar","an","ax","az","bar","bel","cer","cor","den","dor","el","en",
@@ -25,6 +26,18 @@ const RULER_TITLES = [
   "Autarch","Matriarch","Patriarch","Grand Vizier","Eternal Sage","Warlord","Oracle"
 ];
 
+const RULER_TRAITS: CharacterTrait[] = ["bright", "dull", "warlike", "popular", "corrupt", "merchant", "zealot"];
+
+function makeRulerTraits(rng: PRNG): CharacterTrait[] {
+  const traits: CharacterTrait[] = [];
+  if (rng.next() < 0.75) traits.push(rng.pick(RULER_TRAITS));
+  if (rng.next() < 0.12) {
+    const extra = rng.pick(RULER_TRAITS);
+    if (!traits.includes(extra)) traits.push(extra);
+  }
+  return traits;
+}
+
 const ARTIFACT_FORMS = [
   "Orb of {n}", "{n} Relic", "Beacon of {n}", "The {n} Engine", "Shard of {n}",
   "{n} Monolith", "Crown of {n}", "The {n} Codex",
@@ -41,6 +54,7 @@ export function makeRuler(rng: PRNG, accessionTick: number): Ruler {
     dynasty: makeName(rng),
     ordinal: 1,
     accessionTick,
+    traits: makeRulerTraits(rng),
   };
 }
 
@@ -411,6 +425,7 @@ export function generateGalaxy(
       markers: [],
       localWealth: rng.range(0, 30),
       planets: makePlanets(rng, habitability, resources, hasArtifact),
+      factionId: null,
     };
     applyShapeBias(system, galaxyShape, CX, CY);
     systems[id] = system;
@@ -457,6 +472,7 @@ export function generateGalaxy(
     const govType = pickGovernmentType(rng, ideology);
     const titlePool = GOVERNMENT_RULER_TITLE[govType];
 
+    const ruler = { name: makeName(rng), title: rng.pick(titlePool), dynasty: makeName(rng), ordinal: 1, accessionTick: 0, traits: makeRulerTraits(rng) };
     const empire: Empire = {
       id: empId,
       name: makeEmpireName(rng, capital.name),
@@ -464,7 +480,8 @@ export function generateGalaxy(
       mood: "expanding",
       moodSince: 0,
       ideology,
-      ruler: { name: makeName(rng), title: rng.pick(titlePool), dynasty: makeName(rng), ordinal: 1, accessionTick: 0 },
+      ruler,
+      rulerLineage: initialLineage(empId, ruler, "founder"),
       court: makeCourt(rng, 0, capital.religionId !== null),
       capitalSystemId: capital.id,
       ownedSystemIds: [capital.id],
@@ -482,6 +499,7 @@ export function generateGalaxy(
       historicalEventIds: [],
       allianceIds: [],
       governmentType: govType,
+      builtArtifactIds: [],
     };
     empires[empId] = empire;
   }
@@ -489,6 +507,8 @@ export function generateGalaxy(
   return {
     tick: 0, seed, systems, empires, fleets: {}, religions, tradeRoutes: {},
     monsters: {}, events: {}, eventLog: [], alliances: {},
+    oddities: {},
+    factions: {},
     playerControl: { controlledEmpireId: null, mode: "observer", authority: 100, legitimacy: 75, commandCooldowns: {} },
   };
 }

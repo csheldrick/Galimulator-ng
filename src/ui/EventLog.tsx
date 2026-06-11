@@ -16,6 +16,10 @@ const TYPE_COLORS: Record<string, string> = {
   "peace-signed": "#2a9d8f",
   "empire-collapsed": "#9b2226",
   "rebellion": "#e9c46a",
+  "faction-formed": "#f4a261",
+  "faction-engaged": "#ffd166",
+  "faction-uprising": "#e9c46a",
+  "faction-dissolved": "#b7c3d0",
   "golden-age": "#ffd166",
   "technology-breakthrough": "#6a4c93",
   "succession": "#c8b6ff",
@@ -33,6 +37,9 @@ const TYPE_COLORS: Record<string, string> = {
   "coup": "#f15bb5",
   "character-rose": "#ffe066",
   "character-fell": "#9aa5b8",
+  "empire-merged": "#4d96ff",
+  "quest-launched": "#90e0ef",
+  "quest-completed": "#80ffdb",
 };
 
 export function EventLog({

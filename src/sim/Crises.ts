@@ -1,4 +1,4 @@
-import type { GalaxyState, StarSystem, Monster, MonsterKind, PRNG, SystemMarker, MarkerKind } from "../types/sim";
+import type { GalaxyState, StarSystem, Monster, MonsterKind, PRNG, SystemMarker, MarkerKind, Oddity, OddityKind } from "../types/sim";
 import { createEvent } from "./Events";
 import { findPath, advanceAlongPath, dist } from "./Pathing";
 import { makeName } from "./Galaxy";
@@ -15,11 +15,18 @@ export function discoverArtifact(state: GalaxyState, sys: StarSystem): void {
   if (!sys.artifactName || !sys.ownerEmpireId) return;
   const owner = state.empires[sys.ownerEmpireId];
   if (!owner) return;
-  const name = sys.artifactName;
-  sys.artifactName = null;
+  const artifact = sys.artifactId ? state.artifacts?.[sys.artifactId] : null;
+  if (artifact) {
+    artifact.ownerEmpireId = owner.id;
+    artifact.capturedTick = state.tick;
+    if (artifact.discoveredTick !== undefined) return;
+    artifact.discoveredTick = state.tick;
+  }
+  const name = artifact?.name ?? sys.artifactName;
   owner.techLevel = Math.min(3, owner.techLevel + 0.25);
   owner.wealth += 250;
   sys.techLevel = Math.min(3, sys.techLevel + 0.5);
+  addMarker(sys, "artifact-aura", state.tick, `Aura of ${name}`);
   createEvent(state, state.tick, "artifact-discovered", `${owner.name} unearthed the ${name}`,
     `Excavations on ${sys.name} revealed the ${name}, a precursor artifact of immense value.`,
     4, [owner.id], [sys.id]);
@@ -122,7 +129,7 @@ export function stepMonsters(state: GalaxyState, rng: PRNG): void {
   }
 }
 
-const ODDITY_NAMES: Record<string, string[]> = {
+const ODDITY_NAMES: Record<OddityKind, string[]> = {
   "star-eater": ["The Hungering Void", "Entropy's Maw", "The Great Consuming"],
   "puppet-mind": ["Xenomorphic Puppeteer", "The Hive Whisper", "Psychic Dominator"],
   "sloth-cloud": ["Torpor Nebula", "The Dreaming Density", "Lethic Cloud"],
@@ -130,7 +137,137 @@ const ODDITY_NAMES: Record<string, string[]> = {
   "void-gate": ["The Null Gate", "Void Aperture", "Tear in Space"],
 };
 
+const ODDITY_KINDS: OddityKind[] = ["star-eater", "puppet-mind", "sloth-cloud", "replicator", "void-gate"];
+
+function pickDistantSystem(state: GalaxyState, from: StarSystem, rng: PRNG): StarSystem {
+  const systems = Object.values(state.systems);
+  const distant = systems.filter(s => dist(s, from) > 260);
+  return rng.pick(distant.length ? distant : systems);
+}
+
+function spawnOddity(state: GalaxyState, rng: PRNG): void {
+  state.oddities ??= {};
+  const systems = Object.values(state.systems);
+  if (systems.length === 0) return;
+  const origin = rng.pick(systems);
+  const target = pickDistantSystem(state, origin, rng);
+  const kind = rng.pick(ODDITY_KINDS);
+  const id = `oddity-${state.tick}-${Object.keys(state.oddities).length}-${rng.nextInt(0, 9999)}`;
+  const oddity: Oddity = {
+    id,
+    kind,
+    name: rng.pick(ODDITY_NAMES[kind]),
+    x: origin.x,
+    y: origin.y,
+    targetSystemId: target.id,
+    path: findPath(state, origin.id, target.id),
+    legIndex: 0,
+    legProgress: 0,
+    speed: rng.range(0.35, 0.95),
+    strength: rng.range(0.5, 1.2),
+    spawnedTick: state.tick,
+    lastPulseTick: state.tick,
+  };
+  state.oddities[id] = oddity;
+  addMarker(origin, kind === "replicator" ? "artifact-aura" : "ruin", state.tick, `${oddity.name} manifested`);
+  createEvent(state, state.tick, "galactic-crisis", `${oddity.name} manifested`,
+    `A ${kind.replace("-", " ")} appeared near ${origin.name} and began drifting through the starlanes.`,
+    5, [], [origin.id, target.id]);
+}
+
+function applyOddityPulse(state: GalaxyState, oddity: Oddity, center: StarSystem, rng: PRNG): void {
+  const nearby = Object.values(state.systems).filter(s => dist(s, center) < 140);
+  switch (oddity.kind) {
+    case "star-eater":
+      for (const s of nearby) {
+        s.population = Math.max(0.02, s.population * 0.97);
+        s.resources = Math.max(0.05, s.resources * 0.985);
+        s.stability = Math.max(0.05, s.stability - 0.01);
+        if (rng.next() < 0.08) addMarker(s, "ruin", state.tick, `Scorched by ${oddity.name}`);
+      }
+      break;
+    case "puppet-mind":
+      for (const emp of Object.values(state.empires)) {
+        const cap = state.systems[emp.capitalSystemId];
+        if (!cap || dist(cap, center) > 180) continue;
+        emp.cohesion = Math.max(0.05, emp.cohesion - 0.012);
+        if (rng.next() < 0.16) {
+          const moods = ["rioting", "crusading", "degenerating"] as const;
+          emp.mood = rng.pick(moods);
+          emp.moodSince = state.tick;
+        }
+      }
+      break;
+    case "sloth-cloud":
+      for (const fleet of Object.values(state.fleets)) {
+        if (Math.hypot(fleet.x - oddity.x, fleet.y - oddity.y) < 120) {
+          fleet.speed = Math.max(0.25, fleet.speed * 0.92);
+        }
+      }
+      for (const s of nearby) s.stability = Math.max(0.05, s.stability - 0.004);
+      break;
+    case "replicator":
+      for (const s of nearby) {
+        s.techLevel = Math.min(3, s.techLevel + 0.006);
+        if (s.ownerEmpireId) {
+          const emp = state.empires[s.ownerEmpireId];
+          if (emp) emp.techLevel = Math.min(3, emp.techLevel + 0.002);
+        }
+      }
+      break;
+    case "void-gate": {
+      const warFleets = Object.values(state.fleets).filter(f => Math.hypot(f.x - oddity.x, f.y - oddity.y) < 90 && f.kind === "war");
+      for (const fleet of warFleets.slice(0, 1)) {
+        const dest = pickDistantSystem(state, center, rng);
+        fleet.x = dest.x;
+        fleet.y = dest.y;
+        fleet.originSystemId = dest.id;
+        fleet.targetSystemId = dest.id;
+        fleet.path = [dest.id];
+        fleet.legIndex = 0;
+        fleet.legProgress = 0;
+      }
+      addMarker(center, "ruin", state.tick, `Space warped by ${oddity.name}`);
+      break;
+    }
+  }
+}
+
 export function stepOddities(state: GalaxyState, rng: PRNG): void {
+  state.oddities ??= {};
+  if (Object.keys(state.oddities).length < 3 && rng.next() < 0.00022) spawnOddity(state, rng);
+
+  for (const oddity of Object.values(state.oddities)) {
+    const arrived = advanceAlongPath(state, oddity);
+    const here = state.systems[oddity.path[Math.min(oddity.legIndex, oddity.path.length - 1)] ?? oddity.targetSystemId];
+    if (!here) {
+      delete state.oddities[oddity.id];
+      continue;
+    }
+    if (state.tick - oddity.lastPulseTick > 45) {
+      oddity.lastPulseTick = state.tick;
+      applyOddityPulse(state, oddity, here, rng);
+      if (rng.next() < 0.18) {
+        createEvent(state, state.tick, "galactic-crisis", `${oddity.name} distorts ${here.name}`,
+          `${oddity.name} passed through ${here.name}, leaving ${oddity.kind.replace("-", " ")} effects in its wake.`,
+          3, [], [here.id]);
+      }
+    }
+    if (arrived) {
+      const next = pickDistantSystem(state, here, rng);
+      oddity.targetSystemId = next.id;
+      oddity.path = findPath(state, here.id, next.id);
+      oddity.legIndex = 0;
+      oddity.legProgress = 0;
+    }
+    if (state.tick - oddity.spawnedTick > 2600 && rng.next() < 0.006) {
+      createEvent(state, state.tick, "galactic-crisis", `${oddity.name} faded`,
+        `${oddity.name} dissolved back into deep space near ${here.name}.`,
+        3, [], [here.id]);
+      delete state.oddities[oddity.id];
+    }
+  }
+
   if (rng.next() > 0.00025) return;
   const systems = Object.values(state.systems);
   if (systems.length === 0) return;

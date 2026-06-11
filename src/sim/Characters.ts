@@ -1,13 +1,15 @@
-import type { GalaxyState, Empire, Character, CharacterRole, PRNG, Id } from "../types/sim";
+import type { GalaxyState, Empire, Character, CharacterRole, CharacterTrait, PRNG, Id } from "../types/sim";
 import { createEvent } from "./Events";
 import { makeName } from "./Galaxy";
 import { IDEOLOGIES, rulerDisplayName } from "./Moods";
+import { recordRulerTransition } from "./Lineage";
 
 const ROLE_TITLES: Record<CharacterRole, string[]> = {
   admiral: ["Grand Admiral", "Fleet Marshal", "Star Admiral", "War Marshal", "Lord of Fleets"],
   minister: ["Grand Vizier", "Chancellor", "High Minister", "Lord Treasurer", "Steward"],
   prophet: ["High Prophet", "Hierophant", "Oracle", "Voice of the Faith", "Archpriest"],
   pretender: ["Pretender", "Claimant", "Usurper", "Rival Heir"],
+  "faction-leader": ["Agitator", "Faction Speaker", "Cell Marshal", "Bloc Leader", "People's Voice"],
 };
 
 export const ROLE_LABEL: Record<CharacterRole, string> = {
@@ -15,17 +17,45 @@ export const ROLE_LABEL: Record<CharacterRole, string> = {
   minister: "Minister",
   prophet: "Prophet",
   pretender: "Pretender",
+  "faction-leader": "Faction Leader",
+};
+
+export const TRAIT_LABEL: Record<CharacterTrait, string> = {
+  bright: "Bright",
+  dull: "Dull",
+  mechanic: "Mechanic",
+  mutineer: "Mutineer",
+  zealot: "Zealot",
+  merchant: "Merchant",
+  warlike: "Warlike",
+  popular: "Popular",
+  corrupt: "Corrupt",
+};
+
+const ROLE_TRAITS: Record<CharacterRole, CharacterTrait[]> = {
+  admiral: ["warlike", "mechanic", "mutineer", "popular", "dull"],
+  minister: ["bright", "merchant", "corrupt", "popular", "dull"],
+  prophet: ["zealot", "popular", "bright", "corrupt", "dull"],
+  pretender: ["mutineer", "popular", "warlike", "bright", "corrupt"],
+  "faction-leader": ["popular", "mutineer", "zealot", "bright", "corrupt"],
 };
 
 let _charCounter = 0;
 export function resetCharacterCounter(): void { _charCounter = 0; }
 
 export function makeCharacter(rng: PRNG, role: CharacterRole, tick: number): Character {
+  const traits = [rng.pick(ROLE_TRAITS[role])];
+  if (rng.next() < 0.18) {
+    const extra = rng.pick(ROLE_TRAITS[role]);
+    if (!traits.includes(extra)) traits.push(extra);
+  }
   return {
     id: `char-${tick}-${_charCounter++}`,
     name: makeName(rng),
     role,
     title: rng.pick(ROLE_TITLES[role]),
+    dynasty: makeName(rng),
+    traits,
     skill: rng.range(0.25, 0.95),
     renown: role === "pretender" ? rng.range(0.4, 0.8) : rng.range(0.1, 0.4),
     loyalty: role === "pretender" ? rng.range(0.05, 0.3) : rng.range(0.5, 0.95),
@@ -66,8 +96,11 @@ export function stepCharacters(state: GalaxyState, rng: PRNG): void {
     // Ministers quietly grease the wheels of state every tick.
     const minister = topByRole(emp, "minister");
     if (minister) {
-      emp.wealth += minister.skill * 0.4;
-      emp.cohesion = Math.min(1, emp.cohesion + minister.skill * 0.00015);
+      const merchantMul = minister.traits.includes("merchant") ? 1.8 : 1;
+      const corruptTax = minister.traits.includes("corrupt") ? 0.35 : 0;
+      emp.wealth += minister.skill * 0.4 * merchantMul;
+      emp.cohesion = Math.min(1, emp.cohesion + minister.skill * 0.00015 - corruptTax * 0.0002);
+      if (minister.traits.includes("bright")) emp.techLevel = Math.min(3, emp.techLevel + 0.00008 * minister.skill);
     }
 
     // Make sure the empire keeps a minimal cast as it grows or loses faith.
@@ -78,7 +111,9 @@ export function stepCharacters(state: GalaxyState, rng: PRNG): void {
     // Renown drifts up with tenure; loyalty erodes when the realm is unstable.
     for (const c of emp.court) {
       c.renown = Math.min(1, c.renown + 0.01 * c.skill);
-      c.loyalty = Math.max(0, Math.min(1, c.loyalty + (emp.cohesion - 0.5) * 0.02 - 0.005));
+      const popular = c.traits.includes("popular") ? 0.004 : 0;
+      const corrupt = c.traits.includes("corrupt") ? -0.006 : 0;
+      c.loyalty = Math.max(0, Math.min(1, c.loyalty + (emp.cohesion - 0.5) * 0.02 - 0.005 + popular + corrupt));
     }
 
     // An ambitious, renowned, disloyal officer in a shaky realm makes a play.
@@ -131,13 +166,14 @@ function churnCourt(state: GalaxyState, emp: Empire, rng: PRNG): void {
 // ideology lurches, and the realm is shaken. Mirrors a coup but with a named cause.
 function stageCoup(state: GalaxyState, emp: Empire, usurper: Character, rng: PRNG): void {
   const oldRuler = rulerDisplayName(emp);
-  emp.ruler = {
+  recordRulerTransition(emp, {
     name: usurper.name,
     title: emp.ruler.title,
-    dynasty: usurper.name,
+    dynasty: usurper.dynasty,
     ordinal: 1,
     accessionTick: state.tick,
-  };
+    traits: usurper.traits,
+  }, state.tick, "coup", "deposed");
   const flips = IDEOLOGIES.filter(i => i !== emp.ideology);
   emp.ideology = rng.pick(flips);
   emp.cohesion = Math.max(0.1, emp.cohesion - 0.15);
@@ -146,6 +182,6 @@ function stageCoup(state: GalaxyState, emp: Empire, usurper: Character, rng: PRN
   const cap = state.systems[emp.capitalSystemId];
   if (cap) cap.stability = Math.max(0.05, cap.stability - 0.15);
   createEvent(state, state.tick, "coup", `${usurper.title} ${usurper.name} seizes ${emp.name}`,
-    `${usurper.title} ${usurper.name}, long a power behind the throne, deposed ${oldRuler} and crowned themselves ruler of ${emp.name}.`,
+    `${usurper.title} ${usurper.name} of House ${usurper.dynasty}, long a power behind the throne, deposed ${oldRuler} and crowned themselves ruler of ${emp.name}.`,
     4, [emp.id], cap ? [cap.id] : []);
 }

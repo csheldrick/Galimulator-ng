@@ -25,6 +25,13 @@ const LABELS: Record<string, string> = {
   "coup": "Coups",
   "character-rose": "New Figures",
   "character-fell": "Figures Lost",
+  "empire-merged": "Mergers",
+  "quest-launched": "Quests",
+  "quest-completed": "Returns",
+  "faction-formed": "Factions",
+  "faction-engaged": "Engagements",
+  "faction-uprising": "Uprisings",
+  "faction-dissolved": "Faction Ends",
 };
 
 interface Props { snapshot: Readonly<GalaxyState>; }
@@ -74,7 +81,13 @@ export function GalaxyPulse({ snapshot }: Props) {
         <div><b>{Object.keys(snapshot.tradeRoutes).length}</b><span>trade</span></div>
         <div><b>{Object.keys(snapshot.monsters).length}</b><span>monsters</span></div>
         <div><b>{Object.keys(snapshot.religions).length}</b><span>faiths</span></div>
-        <div><b>{Object.values(snapshot.systems).filter(s => s.artifactName).length}</b><span>relics</span></div>
+        <div><b>{Object.keys(snapshot.oddities ?? {}).length}</b><span>oddities</span></div>
+      </div>
+      <div className="pulse-grid compact">
+        <div><b>{Object.keys(snapshot.factions ?? {}).length}</b><span>factions</span></div>
+        <div><b>{Object.values(snapshot.factions ?? {}).filter(f => f.uprisingProgress >= 0.7).length}</b><span>near revolt</span></div>
+        <div><b>{Object.values(snapshot.factions ?? {}).reduce((sum, f) => sum + f.systemIds.length, 0)}</b><span>faction worlds</span></div>
+        <div><b>{Object.values(snapshot.factions ?? {}).filter(f => f.engagedUntilTick && f.engagedUntilTick > snapshot.tick).length}</b><span>engaged</span></div>
       </div>
       <div className="pulse-bars">
         {topCounts.map(([type, count]) => {

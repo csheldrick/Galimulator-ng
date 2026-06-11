@@ -102,6 +102,7 @@ export function ControlPanel({
           <div><b>{fleets.length}</b><span>fleets</span></div>
           <div><b>{fmt(totalPop / 1000)}K</b><span>pop</span></div>
           <div><b>{Object.keys(snapshot.alliances ?? {}).length}</b><span>alliances</span></div>
+          <div><b>{Object.keys(snapshot.factions ?? {}).length}</b><span>factions</span></div>
         </div>
 
         {selectedEmpire && (

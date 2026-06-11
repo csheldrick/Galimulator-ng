@@ -37,7 +37,14 @@ export type EventType =
   | "character-rose"
   | "character-fell"
   | "alliance-formed"
-  | "alliance-dissolved";
+  | "alliance-dissolved"
+  | "empire-merged"
+  | "quest-launched"
+  | "quest-completed"
+  | "faction-formed"
+  | "faction-engaged"
+  | "faction-uprising"
+  | "faction-dissolved";
 
 export interface SimEvent {
   id: Id;
@@ -159,9 +166,11 @@ export interface StarSystem {
   localWealth?: number;
   /** Surface-level planet flavor. Generated at galaxy creation, may be modified by events. */
   planets?: PlanetTag[];
+  /** Separatist, religious, or court faction currently organizing here. */
+  factionId?: Id | null;
 }
 
-export type FleetKind = "colonizer" | "war" | "patrol" | "merchant" | "pilgrim" | "refugee" | "flagship";
+export type FleetKind = "colonizer" | "war" | "patrol" | "merchant" | "pilgrim" | "refugee" | "flagship" | "quest";
 
 /** Ship class shapes speed/strength tradeoffs and the glyph on the map. */
 export type ShipClass = "settler" | "raider" | "strike" | "armada";
@@ -190,6 +199,10 @@ export interface Fleet {
   speed: number;
   strength: number;
   createdTick: number;
+  hp?: number;
+  maxHp?: number;
+  level?: number;
+  xp?: number;
   /** Named admiral leading a war fleet, if one was assigned from the court. */
   admiralId?: Id;
   admiralName?: string;
@@ -226,16 +239,55 @@ export interface Ruler {
   dynasty: string;
   ordinal: number;
   accessionTick: number;
+  traits?: CharacterTrait[];
+}
+
+export type RulerLineageOrigin =
+  | "founder"
+  | "succession"
+  | "dynastic-succession"
+  | "coup"
+  | "rebellion"
+  | "successor-state"
+  | "emergence"
+  | "appointed";
+
+export interface RulerLineageEntry {
+  id: Id;
+  name: string;
+  title: string;
+  dynasty: string;
+  ordinal: number;
+  accessionTick: number;
+  endTick?: number;
+  endReason?: string;
+  origin: RulerLineageOrigin;
+  predecessorId?: Id | null;
+  parentId?: Id | null;
+  traits?: CharacterTrait[];
 }
 
 /** Named figures who serve below the ruler and give an empire its supporting cast. */
-export type CharacterRole = "admiral" | "minister" | "prophet" | "pretender";
+export type CharacterRole = "admiral" | "minister" | "prophet" | "pretender" | "faction-leader";
+
+export type CharacterTrait =
+  | "bright"
+  | "dull"
+  | "mechanic"
+  | "mutineer"
+  | "zealot"
+  | "merchant"
+  | "warlike"
+  | "popular"
+  | "corrupt";
 
 export interface Character {
   id: Id;
   name: string;
   role: CharacterRole;
   title: string;
+  dynasty: string;
+  traits: CharacterTrait[];
   /** Competence, 0..1 — scales the perk the character provides. */
   skill: number;
   /** Fame, 0..1 — grows with deeds; renowned figures get their own events. */
@@ -289,6 +341,8 @@ export interface Empire {
   moodSince: number;
   ideology: Ideology;
   ruler: Ruler;
+  /** Succession chain for the ruling office. Current ruler is the entry without endTick. */
+  rulerLineage?: RulerLineageEntry[];
   /** Supporting cast: admirals, ministers, prophets, and would-be pretenders. */
   court: Character[];
   capitalSystemId: Id;
@@ -313,6 +367,8 @@ export interface Empire {
   playerPriority?: EmpirePriority;
   /** Constitutional / cultural government flavor. Affects court titles and event text. */
   governmentType?: GovernmentType;
+  /** Artifacts this empire personally commissioned; captured artifacts do not count. */
+  builtArtifactIds?: Id[];
 }
 
 export type AlliancePurpose = "defensive" | "anti-hegemon" | "trade" | "religious" | "survival";
@@ -332,6 +388,27 @@ export interface Alliance {
   /** Single-glyph emblem for labels. */
   emblem?: string;
   historicalEventIds?: Id[];
+}
+
+export type FactionKind = "separatist" | "religious" | "court" | "regional";
+
+/** Internal movement that pressures an empire before becoming an open rebellion. */
+export interface Faction {
+  id: Id;
+  name: string;
+  kind: FactionKind;
+  originEmpireId: Id | null;
+  targetEmpireId: Id | null;
+  leader: Character;
+  homeSystemId: Id;
+  systemIds: Id[];
+  foundedTick: number;
+  uprisingProgress: number;
+  uprisingRate: number;
+  spreadRate: number;
+  engagementScore: number;
+  engagedUntilTick?: number;
+  historicalEventIds: Id[];
 }
 
 export type EmpirePriority =
@@ -380,6 +457,22 @@ export type EmpireLayout =
 /** Bespoke weird actors that are not standard monsters. */
 export type OddityKind = "star-eater" | "puppet-mind" | "sloth-cloud" | "replicator" | "void-gate";
 
+export interface Oddity {
+  id: Id;
+  kind: OddityKind;
+  name: string;
+  x: number;
+  y: number;
+  targetSystemId: Id;
+  path: Id[];
+  legIndex: number;
+  legProgress: number;
+  speed: number;
+  strength: number;
+  spawnedTick: number;
+  lastPulseTick: number;
+}
+
 export interface GalaxyState {
   tick: number;
   seed: number;
@@ -394,6 +487,8 @@ export interface GalaxyState {
   alliances: Record<Id, Alliance>;
   playerControl: PlayerControlState;
   artifacts?: Record<Id, Artifact>;
+  oddities?: Record<Id, Oddity>;
+  factions?: Record<Id, Faction>;
 }
 
 export interface SimSettings {

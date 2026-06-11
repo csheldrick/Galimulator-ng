@@ -1,12 +1,27 @@
-import type { GalaxyState, Id } from "../types/sim";
+import type { GalaxyState, Id, RulerLineageEntry } from "../types/sim";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
-import { ROLE_LABEL } from "../sim/Characters";
+import { ROLE_LABEL, TRAIT_LABEL } from "../sim/Characters";
 import { GOVERNMENT_LABEL } from "../sim/Galaxy";
 import { eventColor } from "../render/colors";
 import { effectiveOpinion, effectiveTension, activeModifiers } from "../sim/Relations";
 
 const ALLIANCE_PURPOSE_LABEL: Record<string, string> = {
   "defensive": "Defensive", "anti-hegemon": "Anti-hegemon", "trade": "Trade", "religious": "Religious", "survival": "Survival",
+};
+
+const FACTION_KIND_LABEL: Record<string, string> = {
+  separatist: "Separatist", religious: "Religious", court: "Court", regional: "Regional",
+};
+
+const LINEAGE_ORIGIN_LABEL: Record<string, string> = {
+  founder: "Founder",
+  succession: "New dynasty",
+  "dynastic-succession": "Dynastic succession",
+  coup: "Coup",
+  rebellion: "Rebellion",
+  "successor-state": "Successor state",
+  emergence: "Emergence",
+  appointed: "Appointed",
 };
 
 interface Props {
@@ -31,6 +46,7 @@ interface Props {
   onPacifyEmpire: (id: Id) => void;
   onForceWar: (a: Id, b: Id) => void;
   onForcePeace: (a: Id, b: Id) => void;
+  onForceMerge: (dominant: Id, absorbed: Id) => void;
 }
 
 const MARKER_GLYPH: Record<string, string> = {
@@ -42,14 +58,27 @@ const MARKER_GLYPH: Record<string, string> = {
 
 function fmt(n: number, dec = 1) { return n.toFixed(dec); }
 function eta(progress: number, totalDist: number, speed: number) { return Math.max(0, Math.ceil(((1 - progress) * totalDist) / Math.max(0.001, speed))); }
+function traitText(traits?: readonly string[]) {
+  return traits?.length ? traits.map(t => TRAIT_LABEL[t as keyof typeof TRAIT_LABEL] ?? t).join(", ") : "No traits";
+}
+function lineageName(ruler: RulerLineageEntry) {
+  return `${ruler.title} ${ruler.name}${ruler.ordinal > 1 ? ` ${ruler.ordinal}` : ""}`;
+}
+function lineageSpan(ruler: RulerLineageEntry) {
+  return ruler.endTick === undefined ? `${ruler.accessionTick}-present` : `${ruler.accessionTick}-${ruler.endTick}`;
+}
 
 export function InspectorPanel({
   snapshot, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, onSelectEmpire, onSelectSystem, onSelectFleet, onClearSelection, onCancelFleet, onToggleFollow,
-  onBoostSystem, onDevastateSystem, onNeutralizeSystem, onFoundEmpire, onBoostEmpire, onWeakenEmpire, onInflameEmpire, onPacifyEmpire, onForceWar, onForcePeace,
+  onBoostSystem, onDevastateSystem, onNeutralizeSystem, onFoundEmpire, onBoostEmpire, onWeakenEmpire, onInflameEmpire, onPacifyEmpire, onForceWar, onForcePeace, onForceMerge,
 }: Props) {
   const fleet = selectedFleetId ? snapshot.fleets[selectedFleetId] : null;
   const sys = !fleet && selectedSystemId ? snapshot.systems[selectedSystemId] : null;
   const emp = selectedEmpireId ? snapshot.empires[selectedEmpireId] : null;
+  const sysFaction = sys?.factionId ? snapshot.factions?.[sys.factionId] : null;
+  const nearbyOddities = sys
+    ? Object.values(snapshot.oddities ?? {}).filter(o => Math.hypot(o.x - sys.x, o.y - sys.y) < 150)
+    : [];
 
   if (fleet) {
     const owner = snapshot.empires[fleet.ownerEmpireId];
@@ -70,6 +99,8 @@ export function InspectorPanel({
         <div className="info-row"><span>Progress</span><span>{fmt(fleet.progress * 100, 0)}%</span></div>
         <div className="info-row"><span>ETA</span><span>{eta(fleet.progress, fleet.totalDist, fleet.speed)} ticks</span></div>
         <div className="info-row"><span>Strength</span><span>{fmt(fleet.strength, 0)}</span></div>
+        {fleet.level !== undefined && <div className="info-row"><span>Level</span><span>{fleet.level} · XP {fleet.xp ?? 0}</span></div>}
+        {fleet.hp !== undefined && fleet.maxHp !== undefined && <div className="info-row"><span>Hull</span><span>{fmt(fleet.hp, 0)}/{fmt(fleet.maxHp, 0)}</span></div>}
         <div className="info-row"><span>Speed</span><span>{fmt(fleet.speed, 3)}</span></div>
         <div className="info-row"><span>Launched</span><span>{fleet.createdTick}</span></div>
         <h4>God Controls</h4>
@@ -99,6 +130,7 @@ export function InspectorPanel({
         <div className="info-row"><span>Population</span><span>{fmt(empList.reduce((s, e) => s + e.population, 0) / 1000, 0)}K</span></div>
         <div className="info-row"><span>Trade routes</span><span>{Object.keys(snapshot.tradeRoutes).length}</span></div>
         <div className="info-row"><span>Monsters</span><span>{Object.keys(snapshot.monsters).length}</span></div>
+        <div className="info-row"><span>Oddities</span><span>{Object.keys(snapshot.oddities ?? {}).length}</span></div>
         <h4>Faiths</h4>
         {Object.values(snapshot.religions).map(r => {
           const worlds = Object.values(snapshot.systems).filter(s => s.religionId === r.id).length;
@@ -123,7 +155,18 @@ export function InspectorPanel({
           <div className="info-row"><span>Tech</span><span>{fmt(sys.techLevel)}</span></div>
           <div className="info-row"><span>Faith</span><span>{sys.religionId ? (snapshot.religions[sys.religionId]?.name ?? "?") : "None"}</span></div>
           {emp && <div className="info-row"><span>Culture</span><span>{sys.cultureId === emp.cultureId ? "Assimilated" : "Foreign"}</span></div>}
+          {sysFaction && <div className="info-row"><span>Faction</span><span>{sysFaction.name} <small style={{ opacity: 0.6 }}>· {Math.round(sysFaction.uprisingProgress * 100)}%</small></span></div>}
           {sys.artifactName && <div className="info-row"><span>Artifact</span><span>◆ {sys.artifactName}</span></div>}
+          {nearbyOddities.length > 0 && (
+            <>
+              <h4>Nearby Oddities</h4>
+              {nearbyOddities.map(o => (
+                <div key={o.id} className="event-mini" style={{ borderLeft: "3px solid rgba(180,120,255,0.7)", paddingLeft: 5, fontSize: 10, marginBottom: 2 }}>
+                  {o.name} <span style={{ opacity: 0.55 }}>{o.kind.replace(/-/g, " ")}</span>
+                </div>
+              ))}
+            </>
+          )}
           {sys.planets && sys.planets.length > 0 && (
             <div className="info-row"><span>Worlds</span><span style={{ fontSize: 10, color: "rgba(200,220,255,0.7)" }}>{sys.planets.join(", ")}</span></div>
           )}
@@ -155,20 +198,43 @@ export function InspectorPanel({
             <div key={al.id} className="info-row"><span>Alliance</span><span style={{ color: al.color ?? "inherit" }}>{al.emblem ?? "◇"} {al.name} <small style={{ opacity: 0.6 }}>· {ALLIANCE_PURPOSE_LABEL[al.purpose ?? "defensive"]} · {al.memberEmpireIds.length} · {snapshot.tick - al.formedTick}t</small></span></div>
           ))}
           <div className="info-row"><span>Trade</span><span>{Object.values(snapshot.tradeRoutes).filter(r => r.empireAId === emp.id || r.empireBId === emp.id).length} routes</span></div>
-          <div className="info-row"><span>Ruler</span><span>{rulerDisplayName(emp)}</span></div>
+          <div className="info-row"><span>Ruler</span><span>{rulerDisplayName(emp)} <small style={{ opacity: 0.62 }}>· {traitText(emp.ruler.traits)}</small></span></div>
           <div className="info-row"><span>Dynasty</span><span>{emp.ruler.dynasty} (since {emp.ruler.accessionTick})</span></div>
+          {(emp.rulerLineage?.length ?? 0) > 0 && (
+            <>
+              <h4>Lineage</h4>
+              {[...(emp.rulerLineage ?? [])].slice(-6).reverse().map(r => {
+                const parent = emp.rulerLineage?.find(p => p.id === r.parentId);
+                return (
+                  <div key={r.id} className="event-mini" style={{ borderLeft: r.endTick === undefined ? `3px solid ${emp.color}` : "3px solid rgba(160,180,220,0.45)", paddingLeft: 5, fontSize: 10, marginBottom: 2 }}>
+                    {lineageName(r)} <span style={{ opacity: 0.55 }}>· House {r.dynasty} · {LINEAGE_ORIGIN_LABEL[r.origin] ?? r.origin} · {lineageSpan(r)}{parent ? ` · child of ${parent.name}` : ""}</span>
+                  </div>
+                );
+              })}
+            </>
+          )}
           {emp.court && emp.court.length > 0 && (
             <>
               <h4>Court</h4>
               <div className="court-list">
                 {emp.court.map(c => (
-                  <div key={c.id} className={`court-row role-${c.role}`} title={`skill ${c.skill.toFixed(2)} · renown ${c.renown.toFixed(2)} · loyalty ${c.loyalty.toFixed(2)}`}>
+                  <div key={c.id} className={`court-row role-${c.role}`} title={`House ${c.dynasty} · ${traitText(c.traits)} · skill ${c.skill.toFixed(2)} · renown ${c.renown.toFixed(2)} · loyalty ${c.loyalty.toFixed(2)}`}>
                     <span className="court-role">{ROLE_LABEL[c.role]}</span>
-                    <span className="court-name">{c.title} {c.name}</span>
+                    <span className="court-name">{c.title} {c.name} <small style={{ opacity: 0.55 }}>· {traitText(c.traits)}</small></span>
                     {c.renown >= 0.6 && <span className="court-star" title="renowned">★</span>}
                   </div>
                 ))}
               </div>
+            </>
+          )}
+          {Object.values(snapshot.factions ?? {}).some(f => f.targetEmpireId === emp.id) && (
+            <>
+              <h4>Factions</h4>
+              {Object.values(snapshot.factions ?? {}).filter(f => f.targetEmpireId === emp.id).slice(0, 6).map(f => (
+                <div key={f.id} className="event-mini" style={{ borderLeft: "3px solid rgba(255,160,30,0.8)", paddingLeft: 5, fontSize: 10, marginBottom: 2 }}>
+                  {f.name} <span style={{ opacity: 0.55 }}>· {FACTION_KIND_LABEL[f.kind]} · {Math.round(f.uprisingProgress * 100)}% · {f.systemIds.length} worlds · {f.leader.title} {f.leader.name}</span>
+                </div>
+              ))}
             </>
           )}
           <div className="info-row">
@@ -213,7 +279,7 @@ export function InspectorPanel({
                 <div key={other.id} className={atWar ? "relation-row at-war" : "relation-row"}>
                   <div className="relation-head" onClick={() => onSelectEmpire(other.id)}><span className="emp-dot" style={{ background: other.color }} /><span>{other.name}</span></div>
                   <div className="relation-stats"><span>T {fmt(tension, 0)}</span><span>O {fmt(opinion, 0)}</span><span>{atWar ? "WAR" : "peace"}</span></div>
-                  <div className="relation-actions"><button onClick={() => onForceWar(emp.id, other.id)} disabled={atWar}>War</button><button onClick={() => onForcePeace(emp.id, other.id)} disabled={!atWar}>Peace</button></div>
+                  <div className="relation-actions"><button onClick={() => onForceWar(emp.id, other.id)} disabled={atWar}>War</button><button onClick={() => onForcePeace(emp.id, other.id)} disabled={!atWar}>Peace</button><button onClick={() => onForceMerge(emp.id, other.id)} disabled={atWar}>Merge</button></div>
                   {mods.length > 0 && <div style={{ fontSize: 9, color: "rgba(180,200,240,0.6)", gridColumn: "1/-1", paddingLeft: 4, paddingBottom: 2 }}>{mods.map(m => `${m.opinionDelta >= 0 ? "+" : ""}${m.opinionDelta} ${m.label}`).join(" · ")}</div>}
                 </div>
               );

@@ -24,6 +24,13 @@ const TYPE_WEIGHT: Partial<Record<EventType, number>> = {
   "peace-signed": 3,
   "character-rose": 2,
   "character-fell": 2,
+  "empire-merged": 7,
+  "quest-launched": 2,
+  "quest-completed": 5,
+  "faction-formed": 4,
+  "faction-engaged": 3,
+  "faction-uprising": 8,
+  "faction-dissolved": 3,
 };
 
 function biggestEmpire(snapshot: Readonly<GalaxyState>, ids: Id[]) {
@@ -44,7 +51,14 @@ function reasonFor(ev: SimEvent, snapshot: Readonly<GalaxyState>): string {
     case "galactic-crisis": return "A galaxy-wide crisis is reshaping the map.";
     case "coup": return "A regime change has flipped an empire's whole direction.";
     case "rebellion": return `A breakaway state is fracturing ${big ? big.name : "an empire"}.`;
+    case "faction-formed": return `${big ? big.name : "An empire"} now has organized internal opposition.`;
+    case "faction-engaged": return `${big ? big.name : "An empire"} is trying to contain organized dissent.`;
+    case "faction-uprising": return `A faction has become a new rebel state${big ? ` around ${big.name}` : ""}.`;
+    case "faction-dissolved": return `${big ? big.name : "An empire"} contained an internal faction.`;
     case "war-declared": return `War has broken out${big ? ` involving ${big.name}` : ""} — borders are about to move.`;
+    case "empire-merged": return `${big ? big.name : "A power"} has absorbed another empire, redrawing the balance of power.`;
+    case "quest-launched": return `${big ? big.name : "An empire"} is gambling resources on a deep-space expedition.`;
+    case "quest-completed": return `${big ? big.name : "An empire"} returned from a quest with consequences.`;
     case "monster-attack":
     case "monster-spawned": return "A monster is bearing down on populous worlds.";
     case "artifact-discovered": return `${big ? big.name : "Someone"} just leapt ahead with a precursor artifact.`;

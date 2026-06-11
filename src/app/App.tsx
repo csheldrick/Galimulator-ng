@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import type { ArtifactKind, GalaxyState, Id, SimSettings, SimEvent, EmpirePriority, SpyMission } from "../types/sim";
+import type { ArtifactKind, GalaxyState, Id, SimSettings, SimEvent, EmpirePriority, SpyMission, ShipClass } from "../types/sim";
 import { EmpireControlPanel } from "../ui/EmpireControlPanel";
 import { Simulation } from "../sim/Simulation";
 import { GalaxyCanvas } from "../render/GalaxyCanvas";
@@ -68,9 +68,13 @@ function buildReport(snapshot: Readonly<GalaxyState>): string {
     `Fleets in transit: ${Object.keys(snapshot.fleets).length}`,
     `Trade routes: ${Object.keys(snapshot.tradeRoutes).length}`,
     `Monsters at large: ${Object.keys(snapshot.monsters).length}`,
+    `Oddities active: ${Object.keys(snapshot.oddities ?? {}).length}`,
+    `Factions active: ${Object.keys(snapshot.factions ?? {}).length}`,
     `Artifacts: ${Object.keys(snapshot.artifacts ?? {}).length}`, ``,
     `## Leading empires`,
     ...empires.slice(0, 12).map((e, i) => `${i + 1}. ${e.name} — ${e.ownedSystemIds.length} systems, ${MOOD_LABEL[e.mood].toLowerCase()}, ${IDEOLOGY_LABEL[e.ideology].toLowerCase()}, ruled by ${rulerDisplayName(e)} of the ${e.ruler.dynasty} dynasty, pop ${Math.round(e.population)}, tech ${e.techLevel.toFixed(2)}, cohesion ${e.cohesion.toFixed(2)}`),
+    ``, `## Factions`,
+    ...Object.values(snapshot.factions ?? {}).map(f => `- ${f.name} — ${f.kind}, ${Math.round(f.uprisingProgress * 100)}% uprising, ${f.systemIds.length} worlds, led by ${f.leader.title} ${f.leader.name}`),
     ``, `## Faiths`,
     ...religions.map(({ r, followers }) => `- ${r.name} — ${followers} worlds (holy world: ${snapshot.systems[r.holySystemId]?.name ?? "lost"})`),
     ``, `## Recent history`, ...events.map(ev => `- [${ev.tick}] ${ev.title}: ${ev.description}`), ``,
@@ -164,9 +168,11 @@ export default function App() {
   const handleFortify = useCallback((sid: Id) => { withRefresh(() => sim.commandFortifySystem(sid)); }, [sim, withRefresh]);
   const handleStabilize = useCallback((sid: Id) => { withRefresh(() => sim.commandStabilizeSystem(sid)); }, [sim, withRefresh]);
   const handleBuildArtifact = useCallback((sid: Id, kind?: ArtifactKind) => { withRefresh(() => sim.commandBuildArtifact(sid, kind)); }, [sim, withRefresh]);
+  const handleBuildShip = useCallback((sid: Id, shipClass: ShipClass) => { withRefresh(() => sim.commandBuildShip(sid, shipClass)); }, [sim, withRefresh]);
   const handleProposePeace = useCallback((eid: Id) => { withRefresh(() => sim.commandProposePeace(eid)); }, [sim, withRefresh]);
   const handleProvokeWar = useCallback((eid: Id) => { withRefresh(() => sim.commandProvokeWar(eid)); }, [sim, withRefresh]);
   const handleSpyMission = useCallback((eid: Id, mission: SpyMission) => { withRefresh(() => sim.commandSpyMission(eid, mission)); }, [sim, withRefresh]);
+  const handleEngageFaction = useCallback((fid: Id) => { withRefresh(() => sim.commandEngageFaction(fid)); }, [sim, withRefresh]);
   const handleSponsorColonization = useCallback((sid: Id) => { withRefresh(() => sim.commandSponsorColonization(sid)); }, [sim, withRefresh]);
   const handleAdoptReligion = useCallback((rid: Id) => { withRefresh(() => sim.commandAdoptReligion(rid)); }, [sim, withRefresh]);
   const handleReformGovernment = useCallback(() => { withRefresh(() => sim.commandReformGovernment()); }, [sim, withRefresh]);
@@ -195,9 +201,11 @@ export default function App() {
       onFortify={handleFortify}
       onStabilize={handleStabilize}
       onBuildArtifact={handleBuildArtifact}
+      onBuildShip={handleBuildShip}
       onProposePeace={handleProposePeace}
       onProvokeWar={handleProvokeWar}
       onSpyMission={handleSpyMission}
+      onEngageFaction={handleEngageFaction}
       onSponsorColonization={handleSponsorColonization}
       onAdoptReligion={handleAdoptReligion}
       onReformGovernment={handleReformGovernment}
@@ -226,7 +234,7 @@ export default function App() {
       </div>
       <div className="right-panel">
         <Section id="inspector" title="Inspector" collapsed={collapsedRight.inspector} onToggle={toggleRight}>
-          <InspectorPanel snapshot={snapshot} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} followEmpireId={followEmpireId} onSelectEmpire={handleSelectEmpire} onSelectSystem={handleSelectSystem} onSelectFleet={handleSelectFleet} onClearSelection={handleClearSelection} onCancelFleet={handleCancelFleet} onToggleFollow={handleToggleFollow} onBoostSystem={id => withRefresh(() => sim.boostSystem(id))} onDevastateSystem={id => withRefresh(() => sim.devastateSystem(id))} onNeutralizeSystem={id => withRefresh(() => sim.neutralizeSystem(id))} onFoundEmpire={handleFoundEmpire} onBoostEmpire={id => withRefresh(() => sim.boostEmpire(id))} onWeakenEmpire={id => withRefresh(() => sim.weakenEmpire(id))} onInflameEmpire={id => withRefresh(() => sim.inflameEmpire(id))} onPacifyEmpire={id => withRefresh(() => sim.pacifyEmpire(id))} onForceWar={(a, b) => withRefresh(() => sim.forceWar(a, b))} onForcePeace={(a, b) => withRefresh(() => sim.forcePeace(a, b))} />
+          <InspectorPanel snapshot={snapshot} selectedSystemId={selectedSystemId} selectedEmpireId={selectedEmpireId} selectedFleetId={selectedFleetId} followEmpireId={followEmpireId} onSelectEmpire={handleSelectEmpire} onSelectSystem={handleSelectSystem} onSelectFleet={handleSelectFleet} onClearSelection={handleClearSelection} onCancelFleet={handleCancelFleet} onToggleFollow={handleToggleFollow} onBoostSystem={id => withRefresh(() => sim.boostSystem(id))} onDevastateSystem={id => withRefresh(() => sim.devastateSystem(id))} onNeutralizeSystem={id => withRefresh(() => sim.neutralizeSystem(id))} onFoundEmpire={handleFoundEmpire} onBoostEmpire={id => withRefresh(() => sim.boostEmpire(id))} onWeakenEmpire={id => withRefresh(() => sim.weakenEmpire(id))} onInflameEmpire={id => withRefresh(() => sim.inflameEmpire(id))} onPacifyEmpire={id => withRefresh(() => sim.pacifyEmpire(id))} onForceWar={(a, b) => withRefresh(() => sim.forceWar(a, b))} onForcePeace={(a, b) => withRefresh(() => sim.forcePeace(a, b))} onForceMerge={(a, b) => withRefresh(() => sim.forceMerge(a, b))} />
         </Section>
         <Section id="stories" title="Top Stories" collapsed={collapsedRight.stories} onToggle={toggleRight}>
           <TopStories snapshot={snapshot} selectedEventId={selectedEventId} onSelectEvent={handleSelectEvent} onFollowEmpire={handleFollowEmpire} />

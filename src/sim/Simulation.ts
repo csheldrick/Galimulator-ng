@@ -1,4 +1,4 @@
-import type { ArtifactKind, GalaxyState, SimSettings, SaveFile, Id, Empire, EmpireRelationship, EmpirePriority, StarSystem, SpyMission } from "../types/sim";
+import type { ArtifactKind, GalaxyState, SimSettings, SaveFile, Id, Empire, EmpireRelationship, EmpirePriority, StarSystem, SpyMission, ShipClass } from "../types/sim";
 import { SeededRandom } from "./Random";
 import { generateGalaxy, makeRuler } from "./Galaxy";
 import { executeTick } from "./Tick";
@@ -7,6 +7,8 @@ import { IDEOLOGIES } from "./Moods";
 import { makeCourt } from "./Characters";
 import { addRelationModifier } from "./Relations";
 import { createArtifact, ensureArtifactObjects, pickArtifactKind, ARTIFACT_LABEL } from "./Artifacts";
+import { mergeEmpires } from "./Merge";
+import { ensureLineage, initialLineage } from "./Lineage";
 
 const SAVE_VERSION = 5;
 
@@ -20,6 +22,8 @@ function upgradeState(state: GalaxyState): GalaxyState {
   state.monsters ??= {};
   state.alliances ??= {};
   state.artifacts ??= {};
+  state.oddities ??= {};
+  state.factions ??= {};
   state.playerControl ??= defaultPlayerControl();
   state.playerControl.commandCooldowns ??= {};
   state.playerControl.flagshipFleetId ??= null;
@@ -32,13 +36,21 @@ function upgradeState(state: GalaxyState): GalaxyState {
     sys.markers ??= [];
     sys.localWealth ??= 0;
     sys.planets ??= [];
+    sys.factionId ??= null;
   }
   for (const emp of Object.values(state.empires)) {
     emp.ideology ??= IDEOLOGIES[0];
     emp.stateReligionId ??= null;
     emp.court ??= [];
+    emp.ruler.traits ??= [];
+    ensureLineage(emp);
+    for (const c of emp.court) {
+      c.dynasty ??= emp.ruler.dynasty;
+      c.traits ??= [];
+    }
     emp.godBoostTicks ??= 0;
     emp.allianceIds ??= [];
+    emp.builtArtifactIds ??= [];
   }
   for (const fleet of Object.values(state.fleets)) {
     fleet.shipClass ??= fleet.kind === "war" || fleet.kind === "flagship" ? "strike" : "settler";
@@ -227,15 +239,17 @@ export class Simulation {
     }
     const id = `god-emp-${this.state.tick}-${Object.keys(this.state.empires).length}`;
     const cultureId = `culture-${id}`;
+    const ruler = makeRuler(this.rng, this.state.tick);
     const empire: Empire = {
       id, name: `${sys.name} Ascendancy`, color: `hsl(${this.rng.nextInt(0, 360)},75%,58%)`,
-      mood: "expanding", moodSince: this.state.tick, ideology: this.rng.pick(IDEOLOGIES), ruler: makeRuler(this.rng, this.state.tick),
+      mood: "expanding", moodSince: this.state.tick, ideology: this.rng.pick(IDEOLOGIES), ruler,
+      rulerLineage: initialLineage(id, ruler, "appointed"),
       court: makeCourt(this.rng, this.state.tick, sys.religionId !== null),
       capitalSystemId: sys.id,
       ownedSystemIds: [sys.id], population: Math.max(sys.population * 1000, 500), wealth: 700, militaryStrength: 200,
       cohesion: 0.9, aggression: this.rng.range(0.2, 0.8), expansionism: this.rng.range(0.4, 0.9), techLevel: Math.max(sys.techLevel, 0.8),
       cultureId, stateReligionId: sys.religionId, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [],
-      godBoostTicks: 400, allianceIds: [],
+      godBoostTicks: 400, allianceIds: [], builtArtifactIds: [],
     };
     sys.ownerEmpireId = id;
     sys.cultureId = cultureId;
@@ -283,6 +297,10 @@ export class Simulation {
     empire.activeWarEmpireIds = empire.activeWarEmpireIds.filter(id => id !== otherId); other.activeWarEmpireIds = other.activeWarEmpireIds.filter(id => id !== empireId);
     createEvent(this.state, this.state.tick, "peace-signed", `Peace: ${empire.name} & ${other.name}`, `${empire.name} and ${other.name} were forced into peace.`, 3, [empireId, otherId], []);
     this._touch();
+  }
+
+  forceMerge(dominantId: Id, absorbedId: Id): void {
+    if (mergeEmpires(this.state, dominantId, absorbedId, "outside intervention")) this._touch();
   }
 
   inflameEmpire(empireId: Id): void { const emp = this.state.empires[empireId]; if (!emp) return; emp.aggression = Math.min(1, emp.aggression + 0.25); for (const other of Object.values(this.state.empires)) { if (other.id === emp.id) continue; const rel = this._relationship(emp, other.id); rel.tension = Math.min(100, rel.tension + 30); rel.opinion = Math.max(0, rel.opinion - 20); } createEvent(this.state, this.state.tick, "border-conflict", `${emp.name} radicalized`, `${emp.name} became more aggressive toward its rivals.`, 3, [emp.id], []); this._touch(); }
@@ -368,6 +386,14 @@ export class Simulation {
     return best;
   }
 
+  private _shipCapacity(emp: Empire): number {
+    return Math.max(1, Math.floor(emp.ownedSystemIds.length / 3) + Math.floor(emp.techLevel));
+  }
+
+  private _activeBuiltShips(empireId: Id) {
+    return Object.values(this.state.fleets).filter(f => f.ownerEmpireId === empireId && (f.kind === "patrol" || f.kind === "war" || f.kind === "flagship"));
+  }
+
   commandRallyFleet(targetSystemId: Id): boolean {
     if (!this._checkCommand("rally", 15, 20)) return false;
     const pc = this.state.playerControl;
@@ -387,6 +413,48 @@ export class Simulation {
       x: origin.x, y: origin.y, progress: 0, speed: 2.5, strength, createdTick: this.state.tick,
     };
     createEvent(this.state, this.state.tick, "border-conflict", `${emp.name}: Imperial fleet rallied`, `${emp.ruler.title} ${emp.ruler.name} ordered a fleet toward ${target.name}.`, 3, [emp.id], [target.id]);
+    this._touch();
+    return true;
+  }
+
+  commandBuildShip(systemId: Id, shipClass: ShipClass): boolean {
+    if (!this._checkCommand(`ship-${shipClass}`, 18, shipClass === "armada" ? 28 : 18)) return false;
+    const pc = this.state.playerControl;
+    const emp = this.state.empires[pc.controlledEmpireId!]!;
+    const sys = this.state.systems[systemId];
+    if (!sys || sys.ownerEmpireId !== emp.id) return false;
+    if (this._activeBuiltShips(emp.id).length >= this._shipCapacity(emp)) return false;
+    const cost = shipClass === "armada" ? 180 : shipClass === "strike" ? 110 : 80;
+    if (emp.wealth < cost) return false;
+    const id = `ship-${shipClass}-${this.state.tick}-${Object.keys(this.state.fleets).length}`;
+    const strength = (shipClass === "armada" ? 34 : shipClass === "strike" ? 22 : 14) + emp.techLevel * 8;
+    this.state.fleets[id] = {
+      id,
+      name: `${emp.name.split(" ")[0]} ${shipClass === "armada" ? "Armada" : shipClass === "strike" ? "Strike" : "Raider"} Patrol`,
+      kind: "patrol",
+      shipClass,
+      ownerEmpireId: emp.id,
+      originSystemId: sys.id,
+      targetSystemId: sys.id,
+      path: [sys.id],
+      legIndex: 0,
+      legProgress: 1,
+      totalDist: 1,
+      x: sys.x,
+      y: sys.y,
+      progress: 1,
+      speed: shipClass === "raider" ? 2.6 : shipClass === "armada" ? 1.4 : 2,
+      strength,
+      hp: strength,
+      maxHp: strength,
+      level: 1,
+      xp: 0,
+      createdTick: this.state.tick,
+    };
+    emp.wealth = Math.max(0, emp.wealth - cost);
+    sys.markers ??= [];
+    if (!sys.markers.some(m => m.kind === "shipyard")) sys.markers.push({ kind: "shipyard", since: this.state.tick, label: "Imperial ship construction" });
+    createEvent(this.state, this.state.tick, "golden-age", `${emp.name} built a ${shipClass} patrol`, `${emp.ruler.title} ${emp.ruler.name} commissioned a ${shipClass} patrol at ${sys.name}.`, 2, [emp.id], [sys.id]);
     this._touch();
     return true;
   }
@@ -507,9 +575,10 @@ export class Simulation {
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
     const sys = this.state.systems[systemId];
-    if (!sys || sys.ownerEmpireId !== emp.id || sys.artifactId) return false;
+    if (!sys || sys.ownerEmpireId !== emp.id || sys.artifactId || (emp.builtArtifactIds?.length ?? 0) > 0) return false;
     if (emp.wealth < 450) return false;
     const artifact = createArtifact(this.state, sys, this.rng, kind ?? pickArtifactKind(this.rng), "built", emp.id);
+    emp.builtArtifactIds = [...(emp.builtArtifactIds ?? []), artifact.id];
     emp.wealth -= 450;
     pc.legitimacy = Math.max(0, pc.legitimacy - 4);
     createEvent(this.state, this.state.tick, "artifact-discovered", `${emp.name} built ${artifact.name}`, `${emp.ruler.title} ${emp.ruler.name} commissioned ${artifact.name}, a ${ARTIFACT_LABEL[artifact.kind].toLowerCase()}, at ${sys.name}.`, 4, [emp.id], [sys.id]);
@@ -556,6 +625,37 @@ export class Simulation {
       }
     }
     createEvent(this.state, this.state.tick, "border-conflict", `${emp.name} spy mission succeeded`, `${emp.name}'s agents completed a ${mission.replace("-", " ")} operation against ${target.name}.`, 3, [emp.id, target.id], []);
+    this._touch();
+    return true;
+  }
+
+  commandEngageFaction(factionId: Id): boolean {
+    if (!this._checkCommand("faction", 45, 18)) return false;
+    const pc = this.state.playerControl;
+    const emp = this.state.empires[pc.controlledEmpireId!]!;
+    const faction = this.state.factions?.[factionId];
+    if (!faction || faction.targetEmpireId !== emp.id) return false;
+    const minister = emp.court.find(c => c.role === "minister");
+    const skill = minister?.skill ?? 0.45;
+    const successChance = 0.45 + skill * 0.25 + emp.cohesion * 0.2 - faction.uprisingProgress * 0.25;
+    faction.engagedUntilTick = this.state.tick + 220;
+    if (this.rng.next() < successChance) {
+      const gain = this.rng.range(2.5, 4.5) + skill * 2;
+      faction.engagementScore = Math.min(12, faction.engagementScore + gain);
+      faction.uprisingProgress = Math.max(0, faction.uprisingProgress - 0.12);
+      emp.cohesion = Math.min(1, emp.cohesion + 0.02);
+      createEvent(this.state, this.state.tick, "faction-engaged", `${emp.name} engaged ${faction.name}`,
+        `${minister ? `${minister.title} ${minister.name}` : emp.ruler.title} opened negotiations and counter-organizing against ${faction.name}.`,
+        3, [emp.id], faction.systemIds);
+    } else {
+      const loss = this.rng.range(2.5, 4.5);
+      faction.engagementScore = Math.max(-12, faction.engagementScore - loss);
+      faction.uprisingProgress = Math.min(1.1, faction.uprisingProgress + 0.12);
+      pc.legitimacy = Math.max(0, pc.legitimacy - 6);
+      createEvent(this.state, this.state.tick, "faction-engaged", `${emp.name} mishandled ${faction.name}`,
+        `${faction.leader.title} ${faction.leader.name} used the failed engagement to rally more supporters.`,
+        3, [emp.id], faction.systemIds);
+    }
     this._touch();
     return true;
   }
