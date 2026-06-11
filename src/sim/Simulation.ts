@@ -5,14 +5,42 @@ import { executeTick } from "./Tick";
 import { createEvent, getEventCounter, setEventCounter } from "./Events";
 import { IDEOLOGIES } from "./Moods";
 import { makeCourt } from "./Characters";
-import { addRelationModifier } from "./Relations";
+import { addRelationModifier, getModifierSeq, setModifierSeq } from "./Relations";
 import { createArtifact, ensureArtifactObjects, pickArtifactKind, ARTIFACT_LABEL } from "./Artifacts";
 import { findPath, pathLength } from "./Pathing";
+import type { RelationModifier, RelationModifierKind } from "../types/sim";
 
-const SAVE_VERSION = 6;
+const SAVE_VERSION = 7;
 
 function defaultPlayerControl() {
   return { controlledEmpireId: null, mode: "observer" as const, authority: 100, legitimacy: 75, commandCooldowns: {}, flagshipFleetId: null, corruption: 0 };
+}
+
+// Older saves stored relationship modifiers identified only by label. Map those legacy
+// labels onto the new `kind` so structural entries dedupe and historical ones coexist.
+const LEGACY_MODIFIER_KIND: Record<string, RelationModifierKind> = {
+  "Same faith": "structural", "Different faith": "structural", "Allied": "structural",
+  "Trade partner": "structural", "Common enemy": "structural",
+  "Recent war": "war", "Forced into war": "war",
+  "Recent peace": "peace", "Forced into peace": "peace",
+  "Capital occupied": "clash", "Border clash": "clash",
+  "Caught spy network": "spy",
+  "Diplomatic accident": "diplomacy", "Diplomatic masterstroke": "diplomacy", "Secret diplomatic channel": "diplomacy",
+};
+
+function upgradeModifiers(state: GalaxyState): void {
+  let seq = 0;
+  for (const emp of Object.values(state.empires)) {
+    for (const rel of Object.values(emp.relationshipByEmpireId)) {
+      if (!rel.modifiers?.length) continue;
+      for (const m of rel.modifiers as RelationModifier[]) {
+        m.id ??= `relmod-legacy-${seq++}`;
+        // structural entries are refreshed each pass; anything unrecognized is treated as a
+        // discrete historical incident so it is never wrongly stripped as structural.
+        m.kind ??= LEGACY_MODIFIER_KIND[m.label] ?? "diplomacy";
+      }
+    }
+  }
 }
 
 function upgradeState(state: GalaxyState): GalaxyState {
@@ -47,6 +75,7 @@ function upgradeState(state: GalaxyState): GalaxyState {
   for (const fleet of Object.values(state.fleets)) {
     fleet.shipClass ??= fleet.kind === "war" || fleet.kind === "flagship" ? "strike" : "settler";
   }
+  upgradeModifiers(state);
   return state;
 }
 
@@ -150,6 +179,7 @@ export class Simulation {
       settings: { ...this.settings },
       rngState: this.rng.getState(),
       eventCounter: getEventCounter(),
+      modifierCounter: getModifierSeq(),
       state: this.state,
     };
     return JSON.stringify(save, null, 2);
@@ -171,6 +201,7 @@ export class Simulation {
     if (isSave && typeof obj.rngState === "number") this.rng.setState(obj.rngState);
     ensureArtifactObjects(this.state, this.rng);
     setEventCounter(isSave && typeof obj.eventCounter === "number" ? obj.eventCounter : state.eventLog.length + Object.keys(state.events).length);
+    setModifierSeq(isSave && typeof obj.modifierCounter === "number" ? obj.modifierCounter : 0);
     this._notify();
     return null;
   }
@@ -267,19 +298,19 @@ export class Simulation {
   // Relationship/war mutations shared by god controls and empire-control commands.
   // These helpers ONLY mutate state — the caller owns the event + _touch so empire-control
   // commands can emit a single player-facing event instead of a duplicate god-control one.
-  private _applyWar(attacker: Empire, defender: Empire): void {
+  private _applyWar(attacker: Empire, defender: Empire, sourceEventId?: Id): void {
     const rel = this._relationship(attacker, defender.id); const relBack = this._relationship(defender, attacker.id);
     rel.atWar = true; relBack.atWar = true; rel.tension = 100; relBack.tension = 100; rel.opinion = Math.min(rel.opinion, 5); relBack.opinion = Math.min(relBack.opinion, 5);
-    const forcedWar = { label: "Forced into war", opinionDelta: -25, tensionDelta: 20, expiresAtTick: this.state.tick + 700 };
+    const forcedWar = { kind: "war" as const, label: "Forced into war", opinionDelta: -25, tensionDelta: 20, expiresAtTick: this.state.tick + 700, sourceEventId };
     addRelationModifier(rel, forcedWar); addRelationModifier(relBack, { ...forcedWar });
     if (!attacker.activeWarEmpireIds.includes(defender.id)) attacker.activeWarEmpireIds.push(defender.id);
     if (!defender.activeWarEmpireIds.includes(attacker.id)) defender.activeWarEmpireIds.push(attacker.id);
   }
 
-  private _applyPeace(empire: Empire, other: Empire): void {
+  private _applyPeace(empire: Empire, other: Empire, sourceEventId?: Id): void {
     const rel = this._relationship(empire, other.id); const relBack = this._relationship(other, empire.id);
     rel.atWar = false; relBack.atWar = false; rel.tension = Math.min(rel.tension, 20); relBack.tension = Math.min(relBack.tension, 20); rel.opinion = Math.max(rel.opinion, 45); relBack.opinion = Math.max(relBack.opinion, 45);
-    const forcedPeace = { label: "Forced into peace", opinionDelta: -8, tensionDelta: -15, expiresAtTick: this.state.tick + 500 };
+    const forcedPeace = { kind: "peace" as const, label: "Forced into peace", opinionDelta: -8, tensionDelta: -15, expiresAtTick: this.state.tick + 500, sourceEventId };
     addRelationModifier(rel, forcedPeace); addRelationModifier(relBack, { ...forcedPeace });
     empire.activeWarEmpireIds = empire.activeWarEmpireIds.filter(id => id !== other.id); other.activeWarEmpireIds = other.activeWarEmpireIds.filter(id => id !== empire.id);
   }
@@ -287,16 +318,16 @@ export class Simulation {
   forceWar(attackerId: Id, defenderId: Id): void {
     if (attackerId === defenderId) return;
     const attacker = this.state.empires[attackerId]; const defender = this.state.empires[defenderId]; if (!attacker || !defender) return;
-    this._applyWar(attacker, defender);
-    createEvent(this.state, this.state.tick, "war-declared", `War: ${attacker.name} vs ${defender.name}`, `${attacker.name} and ${defender.name} were forced into war.`, 4, [attackerId, defenderId], []);
+    const ev = createEvent(this.state, this.state.tick, "war-declared", `War: ${attacker.name} vs ${defender.name}`, `${attacker.name} and ${defender.name} were forced into war.`, 4, [attackerId, defenderId], []);
+    this._applyWar(attacker, defender, ev.id);
     this._touch();
   }
 
   forcePeace(empireId: Id, otherId: Id): void {
     if (empireId === otherId) return;
     const empire = this.state.empires[empireId]; const other = this.state.empires[otherId]; if (!empire || !other) return;
-    this._applyPeace(empire, other);
-    createEvent(this.state, this.state.tick, "peace-signed", `Peace: ${empire.name} & ${other.name}`, `${empire.name} and ${other.name} were forced into peace.`, 3, [empireId, otherId], []);
+    const ev = createEvent(this.state, this.state.tick, "peace-signed", `Peace: ${empire.name} & ${other.name}`, `${empire.name} and ${other.name} were forced into peace.`, 3, [empireId, otherId], []);
+    this._applyPeace(empire, other, ev.id);
     this._touch();
   }
 
@@ -515,11 +546,12 @@ export class Simulation {
     if (!rel?.atWar) return false;
     // 2. spend
     this._spendCommand("peace", 25);
-    // 3. mutate (shared helper; the player-facing event below replaces the god-control one)
+    // 3. mutate + 4. event (single player-facing event replaces the god-control one;
+    //    its id links the relationship modifier to this command in the ledger)
     pc.legitimacy = Math.max(0, pc.legitimacy - 5);
-    this._applyPeace(emp, target);
-    // 4. event / 5. _touch once
-    createEvent(this.state, this.state.tick, "peace-signed", `${emp.name} proposed peace to ${target.name}`, `${emp.ruler.title} ${emp.ruler.name} personally negotiated an end to hostilities with ${target.name}.`, 3, [emp.id, targetEmpireId], []);
+    const ev = createEvent(this.state, this.state.tick, "peace-signed", `${emp.name} proposed peace to ${target.name}`, `${emp.ruler.title} ${emp.ruler.name} personally negotiated an end to hostilities with ${target.name}.`, 3, [emp.id, targetEmpireId], []);
+    this._applyPeace(emp, target, ev.id);
+    // 5. _touch once
     this._touch();
     return true;
   }
@@ -534,14 +566,16 @@ export class Simulation {
     if (!target) return false;
     // 2. spend
     this._spendCommand("war", 30);
-    // 3. mutate (shared helper; the player-facing event below replaces the god-control one)
-    this._applyWar(emp, target);
+    // 3. mutate
     const admiral = emp.court.find(c => c.role === "admiral");
     const minister = emp.court.find(c => c.role === "minister");
     if (admiral) admiral.loyalty = Math.min(1, admiral.loyalty + 0.08);
     if (minister) minister.loyalty = Math.max(0, minister.loyalty - 0.1);
-    // 4. event / 5. _touch once
-    createEvent(this.state, this.state.tick, "war-declared", `${emp.name}: Imperial war declaration`, `${emp.ruler.title} ${emp.ruler.name} personally declared war on ${target.name}.${admiral ? ` ${admiral.title} ${admiral.name} rallied behind the throne.` : ""}`, 4, [emp.id, targetEmpireId], []);
+    // 4. event (single player-facing event replaces the god-control one; its id links
+    //    the war modifier to this command), then apply the war with that source id
+    const ev = createEvent(this.state, this.state.tick, "war-declared", `${emp.name}: Imperial war declaration`, `${emp.ruler.title} ${emp.ruler.name} personally declared war on ${target.name}.${admiral ? ` ${admiral.title} ${admiral.name} rallied behind the throne.` : ""}`, 4, [emp.id, targetEmpireId], []);
+    this._applyWar(emp, target, ev.id);
+    // 5. _touch once
     this._touch();
     return true;
   }
@@ -611,12 +645,14 @@ export class Simulation {
     const success = this.rng.next() < Math.max(0.25, Math.min(0.85, 0.55 + emp.techLevel * 0.08 - target.cohesion * 0.25));
     const rel = this._relationship(target, emp.id);
     if (!success) {
-      addRelationModifier(rel, { label: "Caught spy network", opinionDelta: -18, tensionDelta: 18, expiresAtTick: this.state.tick + 450 });
       pc.legitimacy = Math.max(0, pc.legitimacy - 8);
-      createEvent(this.state, this.state.tick, "border-conflict", `${emp.name} spy network exposed`, `${target.name} exposed ${emp.name}'s ${mission.replace("-", " ")} operation.`, 3, [emp.id, target.id], []);
+      const ev = createEvent(this.state, this.state.tick, "border-conflict", `${emp.name} spy network exposed`, `${target.name} exposed ${emp.name}'s ${mission.replace("-", " ")} operation.`, 3, [emp.id, target.id], []);
+      addRelationModifier(rel, { kind: "spy", label: "Caught spy network", opinionDelta: -18, tensionDelta: 18, expiresAtTick: this.state.tick + 450, sourceEventId: ev.id });
       this._touch();
       return true;
     }
+    // 4. event (created before applying effects so relation modifiers can link to it)
+    const ev = createEvent(this.state, this.state.tick, "border-conflict", `${emp.name} spy mission succeeded`, `${emp.name}'s agents completed a ${mission.replace("-", " ")} operation against ${target.name}.`, 3, [emp.id, target.id], []);
     switch (mission) {
       case "steal-tech":
         emp.techLevel = Math.min(3, emp.techLevel + Math.max(0.02, target.techLevel * 0.04));
@@ -629,8 +665,8 @@ export class Simulation {
       }
       case "improve-relations": {
         const forward = this._relationship(emp, target.id);
-        addRelationModifier(forward, { label: "Secret diplomatic channel", opinionDelta: 18, tensionDelta: -8, expiresAtTick: this.state.tick + 500 });
-        addRelationModifier(this._relationship(target, emp.id), { label: "Secret diplomatic channel", opinionDelta: 12, tensionDelta: -6, expiresAtTick: this.state.tick + 500 });
+        addRelationModifier(forward, { kind: "diplomacy", label: "Secret diplomatic channel", opinionDelta: 18, tensionDelta: -8, expiresAtTick: this.state.tick + 500, sourceEventId: ev.id });
+        addRelationModifier(this._relationship(target, emp.id), { kind: "diplomacy", label: "Secret diplomatic channel", opinionDelta: 12, tensionDelta: -6, expiresAtTick: this.state.tick + 500, sourceEventId: ev.id });
         break;
       }
       case "sabotage-fleet": {
@@ -640,23 +676,32 @@ export class Simulation {
         break;
       }
     }
-    createEvent(this.state, this.state.tick, "border-conflict", `${emp.name} spy mission succeeded`, `${emp.name}'s agents completed a ${mission.replace("-", " ")} operation against ${target.name}.`, 3, [emp.id, target.id], []);
+    // 5. _touch once
     this._touch();
     return true;
   }
 
   commandSetWarDirective(targetEmpireId: Id, focus: WarFocus): boolean {
+    // Follows the same validate → spend → mutate → event → _touch invariant as the other
+    // commands, but war directives are a free-to-adjust doctrine toggle you re-issue throughout
+    // an active war, so they INTENTIONALLY bypass the cooldown and corruption of
+    // _canCommand/_spendCommand and gate only on control mode, an active war, and a flat
+    // authority cost. (Adding a cooldown/corruption here would change established balance.)
+    // 1. validate
     const pc = this.state.playerControl;
     if (pc.mode !== "empire" || !pc.controlledEmpireId) return false;
     const emp = this.state.empires[pc.controlledEmpireId];
     const target = this.state.empires[targetEmpireId];
     if (!emp || !target || !emp.activeWarEmpireIds.includes(targetEmpireId)) return false;
     if (pc.authority < 10) return false;
+    // 2. spend (authority only — no cooldown, no corruption by design)
     pc.authority = Math.max(0, pc.authority - 10);
+    // 3. mutate
     emp.warDirectives ??= {};
     emp.warDirectives[targetEmpireId] = { targetEmpireId, focus, createdTick: this.state.tick };
     const admiral = emp.court.find(c => c.role === "admiral");
     if (admiral && (focus === "attack" || focus === "raid")) admiral.loyalty = Math.min(1, admiral.loyalty + 0.04);
+    // 4. event / 5. _touch once
     createEvent(this.state, this.state.tick, "war-declared", `${emp.name} war room: ${focus} ${target.name}`,
       `${emp.ruler.title} ${emp.ruler.name} ordered the war against ${target.name} fought with a doctrine of ${focus}.`,
       2, [emp.id, targetEmpireId], []);
