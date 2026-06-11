@@ -2,7 +2,6 @@ import type { GalaxyState, Empire, Character, CharacterRole, CharacterTrait, PRN
 import { createEvent } from "./Events";
 import { makeName } from "./Galaxy";
 import { IDEOLOGIES, rulerDisplayName } from "./Moods";
-import { recordRulerTransition } from "./Lineage";
 import { usurpThroneByName } from "./Dynasty";
 
 const ROLE_TITLES: Record<CharacterRole, string[]> = {
@@ -167,14 +166,6 @@ function churnCourt(state: GalaxyState, emp: Empire, rng: PRNG): void {
 // ideology lurches, and the realm is shaken. Mirrors a coup but with a named cause.
 function stageCoup(state: GalaxyState, emp: Empire, usurper: Character, rng: PRNG): void {
   const oldRuler = rulerDisplayName(emp);
-  recordRulerTransition(emp, {
-    name: usurper.name,
-    title: emp.ruler.title,
-    dynasty: usurper.dynasty,
-    ordinal: 1,
-    accessionTick: state.tick,
-    traits: usurper.traits,
-  }, state.tick, "coup", "deposed");
   // The court officer takes the throne as a real person, founding their own house.
   usurpThroneByName(state, emp, rng, { name: usurper.name, skill: usurper.skill, renown: usurper.renown });
 

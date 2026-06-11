@@ -272,32 +272,7 @@ export interface Ruler {
   ordinal: number;
   accessionTick: number;
   traits?: CharacterTrait[];
-}
-
-export type RulerLineageOrigin =
-  | "founder"
-  | "succession"
-  | "dynastic-succession"
-  | "coup"
-  | "rebellion"
-  | "successor-state"
-  | "emergence"
-  | "appointed";
-
-export interface RulerLineageEntry {
-  id: Id;
-  name: string;
-  title: string;
-  dynasty: string;
-  ordinal: number;
-  accessionTick: number;
-  endTick?: number;
-  endReason?: string;
-  origin: RulerLineageOrigin;
-  predecessorId?: Id | null;
-  parentId?: Id | null;
-  traits?: CharacterTrait[];
-  /** The Person in `state.people` this throne-shim mirrors. Optional for legacy saves. */
+  /** The Person in `state.people` this ruler shim mirrors. Optional for legacy saves. */
   personId?: Id;
 }
 
@@ -435,8 +410,6 @@ export interface Empire {
   moodSince: number;
   ideology: Ideology;
   ruler: Ruler;
-  /** Succession chain for the ruling office. Current ruler is the entry without endTick. */
-  rulerLineage?: RulerLineageEntry[];
   /** The reigning monarch's Person in `state.people`. Mirrors `ruler` for display. */
   rulerPersonId?: Id;
   /** The ruling house in `state.dynasties`. */
@@ -575,7 +548,6 @@ export type EmpireLayout =
 /** Bespoke weird actors that are not standard monsters. */
 export type OddityKind = "star-eater" | "puppet-mind" | "sloth-cloud" | "replicator" | "void-gate";
 
-// AI NOTE: This is broken attempting to merge...
 /** A persistent space oddity: a strange object or entity that lives on the map,
  *  wanders or roosts, and interacts with the galaxy by one memorable rule. */
 export interface Oddity {
@@ -584,14 +556,6 @@ export interface Oddity {
   name: string;
   x: number;
   y: number;
-  targetSystemId: Id;
-  path: Id[];
-  legIndex: number;
-  legProgress: number;
-  speed: number;
-  strength: number;
-  spawnedTick: number;
-  lastPulseTick: number;
   /** System currently occupied/targeted, when the oddity is system-bound. */
   systemId?: Id | null;
   /** Lane route currently being followed (star-eater walks lanes like a monster). */

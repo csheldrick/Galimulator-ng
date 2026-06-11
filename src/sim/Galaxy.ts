@@ -1,11 +1,10 @@
-import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler, Religion,, Person, Dynasty, CharacterTrait } from "../types/sim";
+import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler, Religion, Person, Dynasty, CharacterTrait } from "../types/sim";
 import type { GalaxyShape, StarlaneMode, EmpireLayout, GridAlignment, PlanetTag, GovernmentType } from "../types/sim";
 import { resetEventCounter } from "./Events";
 import { resetModifierSeq } from "./Relations";
 import { makeReligion } from "./Religion";
 import { IDEOLOGIES } from "./Moods";
 import { makeCourt, resetCharacterCounter } from "./Characters";
-import { initialLineage } from "./Lineage";
 import { foundDynasty, resetDynastyCounters } from "./Dynasty";
 
 const SYLLABLES = [
@@ -685,7 +684,6 @@ export function generateGalaxy(
       moodSince: 0,
       ideology,
       ruler,
-      rulerLineage: initialLineage(empId, ruler, "founder"),
       court: makeCourt(rng, 0, capital.religionId !== null),
       capitalSystemId: capital.id,
       ownedSystemIds: [capital.id],

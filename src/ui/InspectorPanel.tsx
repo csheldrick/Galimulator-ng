@@ -1,4 +1,4 @@
-import type { GalaxyState, Id, RulerLineageEntry, Empire, Person } from "../types/sim";
+import type { GalaxyState, Id, Empire, Person } from "../types/sim";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL, TRAIT_LABEL } from "../sim/Characters";
 import { lineageChain, livingDynastyCount, dynastyMembers, personDisplayName } from "../sim/Dynasty";
@@ -13,17 +13,6 @@ const ALLIANCE_PURPOSE_LABEL: Record<string, string> = {
 
 const FACTION_KIND_LABEL: Record<string, string> = {
   separatist: "Separatist", religious: "Religious", court: "Court", regional: "Regional",
-};
-
-const LINEAGE_ORIGIN_LABEL: Record<string, string> = {
-  founder: "Founder",
-  succession: "New dynasty",
-  "dynastic-succession": "Dynastic succession",
-  coup: "Coup",
-  rebellion: "Rebellion",
-  "successor-state": "Successor state",
-  emergence: "Emergence",
-  appointed: "Appointed",
 };
 
 interface Props {
@@ -62,12 +51,6 @@ function fmt(n: number, dec = 1) { return n.toFixed(dec); }
 function eta(progress: number, totalDist: number, speed: number) { return Math.max(0, Math.ceil(((1 - progress) * totalDist) / Math.max(0.001, speed))); }
 function traitText(traits?: readonly string[]) {
   return traits?.length ? traits.map(t => TRAIT_LABEL[t as keyof typeof TRAIT_LABEL] ?? t).join(", ") : "No traits";
-}
-function lineageName(ruler: RulerLineageEntry) {
-  return `${ruler.title} ${ruler.name}${ruler.ordinal > 1 ? ` ${ruler.ordinal}` : ""}`;
-}
-function lineageSpan(ruler: RulerLineageEntry) {
-  return ruler.endTick === undefined ? `${ruler.accessionTick}-present` : `${ruler.accessionTick}-${ruler.endTick}`;
 }
 
 /** Ruler identity, ruling house, heir, predecessor/parent ties, and a compact lineage chain. */
@@ -268,22 +251,6 @@ export function InspectorPanel({
             <div key={al.id} className="info-row"><span>Alliance</span><span style={{ color: al.color ?? "inherit" }}>{al.emblem ?? "◇"} {al.name} <small style={{ opacity: 0.6 }}>· {ALLIANCE_PURPOSE_LABEL[al.purpose ?? "defensive"]} · {al.memberEmpireIds.length} · {snapshot.tick - al.formedTick}t</small></span></div>
           ))}
           <div className="info-row"><span>Trade</span><span>{Object.values(snapshot.tradeRoutes).filter(r => r.empireAId === emp.id || r.empireBId === emp.id).length} routes</span></div>
-          <div className="info-row"><span>Ruler</span><span>{rulerDisplayName(emp)} <small style={{ opacity: 0.62 }}>· {traitText(emp.ruler.traits)}</small></span></div>
-          <div className="info-row"><span>Dynasty</span><span>{emp.ruler.dynasty} (since {emp.ruler.accessionTick})</span></div>
-          {(emp.rulerLineage?.length ?? 0) > 0 && (
-            <>
-              <h4>Lineage</h4>
-              {[...(emp.rulerLineage ?? [])].slice(-6).reverse().map(r => {
-                const parent = emp.rulerLineage?.find(p => p.id === r.parentId);
-                return (
-                  <div key={r.id} className="event-mini" style={{ borderLeft: r.endTick === undefined ? `3px solid ${emp.color}` : "3px solid rgba(160,180,220,0.45)", paddingLeft: 5, fontSize: 10, marginBottom: 2 }}>
-                    {lineageName(r)} <span style={{ opacity: 0.55 }}>· House {r.dynasty} · {LINEAGE_ORIGIN_LABEL[r.origin] ?? r.origin} · {lineageSpan(r)}{parent ? ` · child of ${parent.name}` : ""}</span>
-                  </div>
-                );
-              })}
-            </>
-          )}
-
           <LineageSection snapshot={snapshot} emp={emp} />
           {emp.court && emp.court.length > 0 && (
             <>

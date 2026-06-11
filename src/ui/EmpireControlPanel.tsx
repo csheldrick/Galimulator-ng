@@ -45,19 +45,20 @@ const PRIORITY_DESC: Record<EmpirePriority, string> = {
 
 const ARTIFACT_KINDS: ArtifactKind[] = ["research-lab", "fleet-base", "holy-monument", "financial-center", "sentinel-station", "stellar-forcefield", "mind-control-hub", "lost-archive", "strange-engine"];
 
-function CmdBtn({ label, onClick, disabled, cd = 0 }: {
-  label: string; onClick: () => void; disabled?: boolean; cd?: number;
+function CmdBtn({ label, onClick, disabled, cd = 0, cooldownLeft = 0 }: {
+  label: string; onClick: () => void; disabled?: boolean; cd?: number; cooldownLeft?: number;
 }) {
-  const isDisabled = disabled || cd > 0;
+  const remaining = Math.max(cd, cooldownLeft);
+  const isDisabled = disabled || remaining > 0;
   return (
     <button
       className="cmd-btn"
       onClick={onClick}
       disabled={isDisabled}
-      title={cd > 0 ? `Cooldown: ${cd} ticks` : undefined}
+      title={remaining > 0 ? `Cooldown: ${remaining} ticks` : undefined}
       style={{ opacity: isDisabled ? 0.45 : 1 }}
     >
-      {label}{cd > 0 ? ` (${cd})` : ""}
+      {label}{remaining > 0 ? ` (${remaining})` : ""}
     </button>
   );
 }
@@ -75,26 +76,6 @@ function Bar({ value, max = 100, color }: { value: number; max?: number; color: 
 
 function traitText(traits?: readonly string[]) {
   return traits?.length ? traits.map(t => TRAIT_LABEL[t as keyof typeof TRAIT_LABEL] ?? t).join(", ") : "No traits";
-}
-
-function CmdBtn({ label, onClick, disabled, cooldownLeft = 0 }: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  cooldownLeft?: number;
-}) {
-  const isDisabled = disabled || cooldownLeft > 0;
-  return (
-    <button
-      className="cmd-btn"
-      onClick={onClick}
-      disabled={isDisabled}
-      title={cooldownLeft > 0 ? `Cooldown: ${cooldownLeft} ticks` : undefined}
-      style={{ opacity: isDisabled ? 0.45 : 1 }}
-    >
-      {label}{cooldownLeft > 0 ? ` (${cooldownLeft})` : ""}
-    </button>
-  );
 }
 
 export function EmpireControlPanel({
@@ -302,9 +283,6 @@ export function EmpireControlPanel({
           <CmdBtn label="Adopt Major Faith" onClick={() => onAdoptReligion(religions[0].id)} cooldownLeft={cooldownLeft("religion", 90)} disabled={authority < 35 || controlled.stateReligionId === religions[0].id} />
         )}
         <CmdBtn label="Reform Gov" onClick={onReformGovernment} cooldownLeft={cooldownLeft("reform", 140)} disabled={authority < 35 || corruption < 10} />
-            return <CmdBtn key={eid} label={`Peace: ${e.name.split(" ")[0]}`} onClick={() => onProposePeace(eid)} cd={cooldownLeft("peace", 30)} disabled={authority < 25} />;
-          })
-        )}
         {!selectedSys && !selectedIsEnemy && (
           <div style={{ fontSize: 10, color: "rgba(200,220,255,0.35)", gridColumn: "1/-1" }}>
             Select a system or empire to see contextual commands.

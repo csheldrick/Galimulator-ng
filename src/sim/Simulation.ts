@@ -9,7 +9,6 @@ import { foundDynasty, ensureDynasty, getPersonCounter, getDynastyCounter, setPe
 import { addRelationModifier, getModifierSeq, setModifierSeq } from "./Relations";
 import { createArtifact, ensureArtifactObjects, pickArtifactKind, ARTIFACT_LABEL } from "./Artifacts";
 import { mergeEmpires } from "./Merge";
-import { ensureLineage, initialLineage } from "./Lineage";
 import { findPath, pathLength } from "./Pathing";
 import type { RelationModifier, RelationModifierKind } from "../types/sim";
 
@@ -77,7 +76,6 @@ function upgradeState(state: GalaxyState): GalaxyState {
     emp.stateReligionId ??= null;
     emp.court ??= [];
     emp.ruler.traits ??= [];
-    ensureLineage(emp);
     for (const c of emp.court) {
       c.dynasty ??= emp.ruler.dynasty;
       c.traits ??= [];
@@ -288,7 +286,6 @@ export class Simulation {
     const empire: Empire = {
       id, name: `${sys.name} Ascendancy`, color: `hsl(${this.rng.nextInt(0, 360)},75%,58%)`,
       mood: "expanding", moodSince: this.state.tick, ideology: this.rng.pick(IDEOLOGIES), ruler,
-      rulerLineage: initialLineage(id, ruler, "appointed"),
       court: makeCourt(this.rng, this.state.tick, sys.religionId !== null),
       capitalSystemId: sys.id,
       ownedSystemIds: [sys.id], population: Math.max(sys.population * 1000, 500), wealth: 700, militaryStrength: 200,
@@ -496,7 +493,9 @@ export class Simulation {
   }
 
   commandBuildShip(systemId: Id, shipClass: ShipClass): boolean {
-    if (!this._checkCommand(`ship-${shipClass}`, 18, shipClass === "armada" ? 28 : 18)) return false;
+    const commandKey = `ship-${shipClass}`;
+    const authCost = shipClass === "armada" ? 28 : 18;
+    if (!this._canCommand(commandKey, 18, authCost)) return false;
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
     const sys = this.state.systems[systemId];
@@ -504,6 +503,7 @@ export class Simulation {
     if (this._activeBuiltShips(emp.id).length >= this._shipCapacity(emp)) return false;
     const cost = shipClass === "armada" ? 180 : shipClass === "strike" ? 110 : 80;
     if (emp.wealth < cost) return false;
+    this._spendCommand(commandKey, authCost);
     const id = `ship-${shipClass}-${this.state.tick}-${Object.keys(this.state.fleets).length}`;
     const strength = (shipClass === "armada" ? 34 : shipClass === "strike" ? 22 : 14) + emp.techLevel * 8;
     this.state.fleets[id] = {
@@ -790,11 +790,12 @@ export class Simulation {
   }
 
   commandEngageFaction(factionId: Id): boolean {
-    if (!this._checkCommand("faction", 45, 18)) return false;
+    if (!this._canCommand("faction", 45, 18)) return false;
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
     const faction = this.state.factions?.[factionId];
     if (!faction || faction.targetEmpireId !== emp.id) return false;
+    this._spendCommand("faction", 18);
     const minister = emp.court.find(c => c.role === "minister");
     const skill = minister?.skill ?? 0.45;
     const successChance = 0.45 + skill * 0.25 + emp.cohesion * 0.2 - faction.uprisingProgress * 0.25;

@@ -63,22 +63,6 @@ const MONSTER_COLOR: Record<Monster["kind"], string> = {
   swarm: "#7ded7f",
 };
 
-const ODDITY_GLYPH: Record<Oddity["kind"], string> = {
-  "star-eater": "◉",
-  "puppet-mind": "ψ",
-  "sloth-cloud": "☁",
-  "replicator": "⬡",
-  "void-gate": "◎",
-};
-
-//const ODDITY_COLOR: Record<Oddity["kind"], string> = {
-//  "star-eater": "#ff5a5a",
-//  "puppet-mind": "#c77dff",
-//  "sloth-cloud": "#9aa6b8",
-//  "replicator": "#8ef0a6",
-//  "void-gate": "#6ee7ff",
-//};
-
 const ODDITY_COLOR: Record<Oddity["kind"], string> = {
   "star-eater": "#ff5d8f",
   "puppet-mind": "#d0a2ff",
@@ -135,7 +119,6 @@ function drawOddity(ctx: CanvasRenderingContext2D, oddity: Oddity, sx: number, s
   }
 }
 
->>>>>>> 39778dd220a6e50bcdc51c7dc724c9c76b9d4760
 function drawMonster(ctx: CanvasRenderingContext2D, monster: Monster, sx: number, sy: number, zoom: number, now: number) {
   const pulse = 1 + Math.sin(now / 220 + monster.x) * 0.15;
   const r = Math.max(4, (5 + monster.strength / 12) * zoom) * pulse;
@@ -171,41 +154,6 @@ function drawMonster(ctx: CanvasRenderingContext2D, monster: Monster, sx: number
     ctx.fillText(monster.name, sx, sy + r + 12);
     ctx.textAlign = "left";
   }
-}
-
-function drawOddity(ctx: CanvasRenderingContext2D, oddity: Oddity, sx: number, sy: number, zoom: number, now: number) {
-  const color = ODDITY_COLOR[oddity.kind];
-  const r = Math.max(9, 13 * zoom) * (1 + Math.sin(now / 300 + oddity.spawnedTick) * 0.08);
-  ctx.save();
-  ctx.translate(sx, sy);
-  ctx.rotate(now / 1600);
-  ctx.beginPath();
-  ctx.arc(0, 0, r, 0, Math.PI * 2);
-  ctx.strokeStyle = colorWithAlpha(color, 0.65);
-  ctx.lineWidth = Math.max(1.5, 2 * zoom);
-  ctx.setLineDash([3 * zoom, 4 * zoom]);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
-  ctx.font = `700 ${Math.max(13, 16 * zoom)}px "Trebuchet MS", sans-serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.strokeStyle = "rgba(0,0,0,0.85)";
-  ctx.lineWidth = 3;
-  ctx.strokeText(ODDITY_GLYPH[oddity.kind], sx, sy);
-  ctx.fillStyle = color;
-  ctx.fillText(ODDITY_GLYPH[oddity.kind], sx, sy);
-  if (zoom > 0.9) {
-    ctx.font = "10px monospace";
-    ctx.textBaseline = "alphabetic";
-    ctx.strokeStyle = "rgba(0,0,0,0.85)";
-    ctx.lineWidth = 3;
-    ctx.strokeText(oddity.name, sx, sy + r + 12);
-    ctx.fillStyle = colorWithAlpha(color, 0.95);
-    ctx.fillText(oddity.name, sx, sy + r + 12);
-  }
-  ctx.textAlign = "left";
-  ctx.textBaseline = "alphabetic";
 }
 
 export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, viewOptions, resetCameraToken, onSelectSystem, onSelectEmpire, onSelectFleet, onManualPan }: Props) {

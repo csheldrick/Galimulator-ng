@@ -4,7 +4,7 @@ import { createEvent } from "./Events";
 import { updateRelationships, getNeighboringEmpires, tryDeclareWar, tryMakePeace } from "./Diplomacy";
 import { pruneExpiredModifiers, effectiveOpinion, effectiveTension, addRelationModifier } from "./Relations";
 import type { WarFocus, RelationModifierInput } from "../types/sim";
-import { makeRuler, makeEmpireName } from "./Galaxy";
+import { makeRuler, makeEmpireName, makeName } from "./Galaxy";
 import { MOOD_LABEL, MOOD_FLAVOR, IDEOLOGY_LABEL, IDEOLOGY_MODS, IDEOLOGIES, rulerDisplayName } from "./Moods";
 import { dist, findPath, pathLength, advanceAlongPath } from "./Pathing";
 import { stepReligion } from "./Religion";
@@ -13,7 +13,6 @@ import { stepMonsters, stepCrises, stepOddities, discoverArtifact } from "./Cris
 import { makeCourt, stepCharacters, topByRole, findCharacter, makeCharacter } from "./Characters";
 import { createArtifact, pickArtifactKind, stepArtifacts } from "./Artifacts";
 import { mergeEmpires } from "./Merge";
-import { currentLineageEntry, initialLineage, recordRulerTransition } from "./Lineage";
 import { stepDynasties, foundDynasty, installPretender, dynastyMembers } from "./Dynasty";
 
 const SHIP_CLASS_MODS: Record<ShipClass, { speed: number; strength: number }> = {
@@ -570,9 +569,6 @@ function stepPlayerControl(state: GalaxyState, rng: PRNG): void {
   if (pc.legitimacy < 20 && !flagshipAtCapital && rng.next() < 0.001) {
     const pretender = emp.court.find(c => c.role === "pretender");
     if (pretender && pretender.loyalty < 0.35) {
-      // Force a coup that ends player control
-      //recordRulerTransition(emp, makeRuler(rng, state.tick), state.tick, "coup", "overthrown");
-
       // Force a coup that ends player control — installing a real pretender claimant.
       const { person, reason } = installPretender(state, emp, rng);
       emp.cohesion = Math.max(0.1, emp.cohesion - 0.15);
@@ -935,16 +931,6 @@ function resolvePatrolArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void
   fleet.speed = Math.max(0.9, fleet.speed);
 }
 
-function patrolDefenseAt(state: GalaxyState, ownerId: Id, systemId: Id): number {
-  let total = 0;
-  for (const fleet of Object.values(state.fleets)) {
-    if (fleet.ownerEmpireId !== ownerId || fleet.kind !== "patrol") continue;
-    if (fleet.targetSystemId === systemId && fleet.progress > 0.85) total += fleet.strength * 0.55;
-    else if (fleet.originSystemId === systemId && fleet.progress < 0.15) total += fleet.strength * 0.35;
-  }
-  return total;
-}
-
 function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void {
   const owner = state.empires[fleet.ownerEmpireId]; const target = state.systems[fleet.targetSystemId];
   if (!owner || !target) return;
@@ -1290,9 +1276,7 @@ function spawnRebellion(state: GalaxyState, empire: Empire, rng: PRNG, forcedSys
     accessionTick: state.tick,
     traits: faction.leader.traits,
   } : makeRuler(rng, state.tick);
-  const rebelLineage = initialLineage(newId, rebelRuler, "rebellion");
-  rebelLineage[0].parentId = currentLineageEntry(empire).id;
-  const newEmpire: Empire = { id: newId, name: faction ? faction.name : `${rng.pick(["Broken","Free","New","Rogue","Rising","Lost"])} ${rng.pick(rebelNames)}`, color: `hsl(${rng.nextInt(0, 360)},${rng.nextInt(50, 90)}%,${rng.nextInt(35, 65)}%)`, mood: "expanding", moodSince: state.tick, ideology: faction?.kind === "religious" ? "spiritualist" : rng.pick(IDEOLOGIES), ruler: rebelRuler, rulerLineage: rebelLineage, court: makeCourt(rng, state.tick, rebelReligion !== null), capitalSystemId: defecting[0], ownedSystemIds: [], population: 0, wealth: 50, militaryStrength: 30, cohesion: rng.range(0.4, 0.8), aggression: rng.range(0.3, 0.8), expansionism: rng.range(0.3, 0.7), techLevel: empire.techLevel * 0.8, cultureId: `culture-rebel-${newId}`, stateReligionId: rebelReligion, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [], allianceIds: [] };
+  const newEmpire: Empire = { id: newId, name: faction ? faction.name : `${rng.pick(["Broken","Free","New","Rogue","Rising","Lost"])} ${rng.pick(rebelNames)}`, color: `hsl(${rng.nextInt(0, 360)},${rng.nextInt(50, 90)}%,${rng.nextInt(35, 65)}%)`, mood: "expanding", moodSince: state.tick, ideology: faction?.kind === "religious" ? "spiritualist" : rng.pick(IDEOLOGIES), ruler: rebelRuler, court: makeCourt(rng, state.tick, rebelReligion !== null), capitalSystemId: defecting[0], ownedSystemIds: [], population: 0, wealth: 50, militaryStrength: 30, cohesion: rng.range(0.4, 0.8), aggression: rng.range(0.3, 0.8), expansionism: rng.range(0.3, 0.7), techLevel: empire.techLevel * 0.8, cultureId: `culture-rebel-${newId}`, stateReligionId: rebelReligion, relationshipByEmpireId: {}, activeWarEmpireIds: [], historicalEventIds: [], allianceIds: [] };
   for (const sysId of defecting) { const sys = state.systems[sysId]; if (!sys) continue; empire.ownedSystemIds = empire.ownedSystemIds.filter(id => id !== sysId); sys.ownerEmpireId = newId; sys.cultureId = newEmpire.cultureId; if (faction && sys.factionId === faction.id) sys.factionId = null; newEmpire.ownedSystemIds.push(sysId); }
   state.empires[newId] = newEmpire; empire.cohesion = Math.max(0.1, empire.cohesion - 0.2);
   foundDynasty(state, newEmpire, state.tick, rng);
@@ -1390,8 +1374,6 @@ function collapseEmpire(state: GalaxyState, empire: Empire, rng: PRNG): void {
       const sucCultureId = empire.cultureId; // inherits culture
       const sucReligion = successorSys.religionId ?? empire.stateReligionId;
       const sucRuler = makeRuler(rng, state.tick);
-      const sucLineage = initialLineage(sucId, sucRuler, "successor-state");
-      sucLineage[0].parentId = currentLineageEntry(empire).id;
       const sucEmpire: Empire = {
         id: sucId,
         name: `${successorSys.name} ${rng.pick(["Remnant","Successor","Continuity","Restoration","Rump State"])}`,
@@ -1399,7 +1381,6 @@ function collapseEmpire(state: GalaxyState, empire: Empire, rng: PRNG): void {
         mood: "fortifying", moodSince: state.tick,
         ideology: empire.ideology,
         ruler: sucRuler,
-        rulerLineage: sucLineage,
         court: makeCourt(rng, state.tick, sucReligion !== null),
         capitalSystemId: successorSysId,
         ownedSystemIds: [successorSysId],
@@ -1541,34 +1522,6 @@ function stepMoods(state: GalaxyState, rng: PRNG): void {
   }
 }
 
-function stepRulers(state: GalaxyState, rng: PRNG): void {
-  for (const emp of Object.values(state.empires)) {
-    const reign = state.tick - emp.ruler.accessionTick;
-    const deathChance = Math.min(0.008, 0.0006 + reign * 0.000003);
-    if (rng.next() > deathChance) continue;
-    const old = emp.ruler;
-    const oldDisplay = rulerDisplayName(emp);
-    const sameDynasty = rng.next() < 0.65;
-    const nextRuler = sameDynasty ? (() => {
-      const sameName = rng.next() < 0.5;
-      return {
-        name: sameName ? old.name : makeName(rng),
-        title: rng.next() < 0.85 ? old.title : makeRuler(rng, state.tick).title,
-        dynasty: old.dynasty,
-        ordinal: sameName ? old.ordinal + 1 : 1,
-        accessionTick: state.tick,
-        traits: rng.next() < 0.45 ? (old.traits ?? []) : makeRuler(rng, state.tick).traits,
-      };
-    })() : makeRuler(rng, state.tick);
-    recordRulerTransition(emp, nextRuler, state.tick, sameDynasty ? "dynastic-succession" : "succession", "died");
-    emp.aggression = Math.min(1, Math.max(0.05, emp.aggression + rng.range(-0.2, 0.2)));
-    emp.expansionism = Math.min(1, Math.max(0.05, emp.expansionism + rng.range(-0.2, 0.2)));
-    const cap = state.systems[emp.capitalSystemId];
-    const dynastyNote = sameDynasty ? "" : ` The ${old.dynasty} dynasty has fallen; the ${emp.ruler.dynasty} dynasty rises.`;
-    createEvent(state, state.tick, "succession", `${oldDisplay} of ${emp.name} has died`, `After a reign of ${reign} ticks, ${rulerDisplayName(emp)} ascended the throne of ${emp.name}.${dynastyNote}`, sameDynasty ? 2 : 3, [emp.id], cap ? [cap.id] : []);
-  }
-}
-
 function stepPolitics(state: GalaxyState, rng: PRNG): void {
   for (const emp of Object.values(state.empires)) {
     const unrest = (1 - emp.cohesion) * (emp.mood === "rioting" ? 3 : emp.mood === "degenerating" ? 1.6 : 1);
@@ -1576,7 +1529,6 @@ function stepPolitics(state: GalaxyState, rng: PRNG): void {
     if (rng.next() > unrest * 0.0009 + warPressure) continue;
     const oldRuler = rulerDisplayName(emp);
     const oldIdeology = emp.ideology;
-    //recordRulerTransition(emp, makeRuler(rng, state.tick), state.tick, "coup", "overthrown");
     // The throne is seized by a pretender with a real identity and grievance, not a random stranger.
     const { person, reason, oldDynastyName } = installPretender(state, emp, rng);
     const flips = IDEOLOGIES.filter(i => i !== oldIdeology);
@@ -1695,7 +1647,6 @@ function createEmergentEmpire(state: GalaxyState, candidate: EmergenceCandidate,
     moodSince: state.tick,
     ideology: candidate.kind === "pretender" ? "militarist" : rng.pick(IDEOLOGIES),
     ruler,
-    rulerLineage: initialLineage(id, ruler, "emergence"),
     court: makeCourt(rng, state.tick, sys.religionId !== null),
     capitalSystemId: sys.id,
     ownedSystemIds: [sys.id],
@@ -1870,7 +1821,7 @@ function stepLocalStarWeirdness(state: GalaxyState, rng: PRNG): void {
 }
 
 export function executeTick(state: GalaxyState, rng: PRNG): void {
-  stepGrowth(state, rng); stepProgress(state, rng); stepReligion(state, rng); stepCharacters(state, rng); stepMoods(state, rng); stepFactions(state, rng); stepDynasties(state, rng); stepRulers(state, rng); stepPolitics(state, rng);
+  stepGrowth(state, rng); stepProgress(state, rng); stepReligion(state, rng); stepCharacters(state, rng); stepMoods(state, rng); stepFactions(state, rng); stepDynasties(state, rng); stepPolitics(state, rng);
   stepFleets(state, rng); stepExpansion(state, rng); stepQuests(state, rng); stepShipConstruction(state, rng); stepConflict(state, rng); stepTrade(state, rng); stepMonsters(state, rng); stepCrises(state, rng); stepOddities(state, rng);
   stepCollapse(state, rng); stepEmergence(state, rng);
   stepLocalWealth(state); stepArtifacts(state); stepAmbientShips(state, rng); stepAlliances(state, rng); stepEmpireMerges(state, rng); stepPlayerControl(state, rng);
