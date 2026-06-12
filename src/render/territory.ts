@@ -22,6 +22,26 @@ export interface TerritoryBitmap {
   worldH: number;
 }
 
+export function ownershipKey(snap: Readonly<GalaxyState>, mode: MapMode): string {
+  const systems = Object.values(snap.systems).sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  if (mode === "religion") {
+    return `religion|${systems.map(s => `${s.id}:${s.religionId ?? ""}`).join("|")}`;
+  }
+  if (mode === "wealth") {
+    return `wealth|${systems.map(s => {
+      const v = Math.max(0, Math.min(1, (s.population / 2 + s.resources) / 2 + s.techLevel * 0.12));
+      return `${s.id}:${Math.round(v * 10)}:${s.ownerEmpireId ?? ""}`;
+    }).join("|")}`;
+  }
+  if (mode === "alliance") {
+    return `alliance|${systems.map(s => {
+      const owner = s.ownerEmpireId ? snap.empires[s.ownerEmpireId] : null;
+      return `${s.id}:${owner?.allianceIds?.[0] ?? owner?.id ?? ""}`;
+    }).join("|")}`;
+  }
+  return `empire|${systems.map(s => `${s.id}:${s.ownerEmpireId ?? ""}`).join("|")}`;
+}
+
 function wealthHeat(sys: StarSystem): [string, [number, number, number]] {
   // poor worlds cool blue, rich worlds hot gold
   const v = Math.max(0, Math.min(1, (sys.population / 2 + sys.resources) / 2 + sys.techLevel * 0.12));

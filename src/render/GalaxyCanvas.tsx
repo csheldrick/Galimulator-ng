@@ -4,7 +4,7 @@ import type { Camera } from "./camera";
 import { worldToScreen, screenToWorld, clampZoom } from "./camera";
 import { colorWithAlpha, eventColor, UNOWNED_COLOR, SELECTION_COLOR, BACKGROUND_COLOR, STAR_COLOR } from "./colors";
 import { drawShip, shipShape } from "./ships";
-import { buildTerritoryBitmap } from "./territory";
+import { buildTerritoryBitmap, ownershipKey } from "./territory";
 import type { TerritoryBitmap, MapMode } from "./territory";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, rulerDisplayName } from "../sim/Moods";
 import type { Simulation } from "../sim/Simulation";
@@ -204,7 +204,7 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
   const pinchRef = useRef<{ dist: number } | null>(null);
   const hoverRef = useRef<Id | null>(null);
   const zoomAnimRef = useRef<{ target: number; wx: number; wy: number; cx: number; cy: number } | null>(null);
-  const territoryRef = useRef<{ bitmap: TerritoryBitmap | null; lastBuild: number; lastRevision: number; lastMode: MapMode }>({ bitmap: null, lastBuild: 0, lastRevision: -1, lastMode: "empire" });
+  const territoryRef = useRef<{ bitmap: TerritoryBitmap | null; lastKey: string }>({ bitmap: null, lastKey: "" });
   const starfieldRef = useRef<BgStar[] | null>(null);
 
   useEffect(() => { camRef.current = { x: 600, y: 450, zoom: 0.8 }; zoomAnimRef.current = null; }, [resetCameraToken]);
@@ -262,16 +262,10 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
 
       if (viewOptions.territory) {
         const cache = territoryRef.current;
-        // Only re-derive ownership when the sim actually advanced or the map mode
-        // changed — not every animation frame — so panning/zooming stays cheap.
-        const revision = simulation.getRevision();
-        if (revision !== cache.lastRevision || viewOptions.mapMode !== cache.lastMode) {
-          cache.lastRevision = revision;
-          cache.lastMode = viewOptions.mapMode;
-          if (now - cache.lastBuild > 100) {
-            cache.bitmap = buildTerritoryBitmap(snap, viewOptions.mapMode);
-            cache.lastBuild = now;
-          }
+        const key = ownershipKey(snap, viewOptions.mapMode);
+        if (key !== cache.lastKey) {
+          cache.bitmap = buildTerritoryBitmap(snap, viewOptions.mapMode);
+          cache.lastKey = key;
         }
         const bitmap = cache.bitmap;
         if (bitmap) {
