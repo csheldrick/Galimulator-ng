@@ -3,6 +3,7 @@ import type { Id, Fleet, Monster, Oddity } from "../types/sim";
 import type { Camera } from "./camera";
 import { worldToScreen, screenToWorld, clampZoom } from "./camera";
 import { colorWithAlpha, eventColor, UNOWNED_COLOR, SELECTION_COLOR, BACKGROUND_COLOR, STAR_COLOR } from "./colors";
+import { drawShip, shipShape } from "./ships";
 import { buildTerritoryBitmap } from "./territory";
 import type { TerritoryBitmap, MapMode } from "./territory";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, rulerDisplayName } from "../sim/Moods";
@@ -35,6 +36,38 @@ interface Props {
 }
 
 // Specialist role tints so science/missionary/support/etc. ships read distinctly on the map.
+// Parallax background starfield — deep-space dust that makes empty regions read
+// as a galaxy rather than a black void. Positions are unit-square fractions that
+// wrap across the viewport, drifting slowly with the camera at depth-scaled rates.
+type BgStar = { x: number; y: number; depth: number; base: number; phase: number; warm: boolean };
+function makeStarfield(count: number): BgStar[] {
+  const stars: BgStar[] = [];
+  for (let i = 0; i < count; i++) {
+    stars.push({
+      x: Math.random(), y: Math.random(),
+      depth: 0.25 + Math.random() * 0.9,
+      base: 0.18 + Math.random() * 0.5,
+      phase: Math.random() * Math.PI * 2,
+      warm: Math.random() < 0.22,
+    });
+  }
+  return stars;
+}
+function drawStarfield(ctx: CanvasRenderingContext2D, stars: BgStar[], w: number, h: number, cam: Camera, now: number) {
+  for (const s of stars) {
+    const offX = -cam.x * cam.zoom * s.depth * 0.12;
+    const offY = -cam.y * cam.zoom * s.depth * 0.12;
+    let px = (s.x * w + offX) % w; if (px < 0) px += w;
+    let py = (s.y * h + offY) % h; if (py < 0) py += h;
+    const twinkle = s.base * (0.55 + 0.45 * Math.sin(now / 700 + s.phase));
+    ctx.fillStyle = s.warm
+      ? `rgba(255,224,196,${twinkle})`
+      : `rgba(206,222,255,${twinkle})`;
+    const r = s.depth * 0.9;
+    ctx.fillRect(px - r, py - r, r * 2, r * 2);
+  }
+}
+
 const ROLE_FILL: Record<string, string> = {
   science: "rgba(140,235,255,0.9)", missionary: "rgba(220,200,255,0.9)", support: "rgba(170,255,190,0.9)",
   gunstation: "rgba(255,170,120,0.95)", dropship: "rgba(255,240,150,0.9)", disruptor: "rgba(255,140,220,0.9)",
@@ -172,6 +205,7 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
   const hoverRef = useRef<Id | null>(null);
   const zoomAnimRef = useRef<{ target: number; wx: number; wy: number; cx: number; cy: number } | null>(null);
   const territoryRef = useRef<{ bitmap: TerritoryBitmap | null; lastBuild: number; lastRevision: number; lastMode: MapMode }>({ bitmap: null, lastBuild: 0, lastRevision: -1, lastMode: "empire" });
+  const starfieldRef = useRef<BgStar[] | null>(null);
 
   useEffect(() => { camRef.current = { x: 600, y: 450, zoom: 0.8 }; zoomAnimRef.current = null; }, [resetCameraToken]);
 
@@ -221,6 +255,10 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
 
       ctx.fillStyle = BACKGROUND_COLOR;
       ctx.fillRect(0, 0, w, h);
+
+      // deep-space parallax starfield behind everything
+      if (!starfieldRef.current) starfieldRef.current = makeStarfield(260);
+      drawStarfield(ctx, starfieldRef.current, w, h, cam, now);
 
       if (viewOptions.territory) {
         const cache = territoryRef.current;
@@ -333,6 +371,14 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
           ctx.strokeStyle = isSelected ? SELECTION_COLOR : colorWithAlpha(emp?.color ?? UNOWNED_COLOR, 0.8);
           ctx.lineWidth = isSelected ? 2 : 1.5; ctx.stroke();
         }
+        // soft bloom so stars glow rather than sit flat; brighter when populous
+        const glowR = r * (2.6 + sys.population * 0.5);
+        const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
+        const glowColor = emp ? emp.color : "#aec4ff";
+        glow.addColorStop(0, colorWithAlpha(glowColor, 0.32));
+        glow.addColorStop(1, colorWithAlpha(glowColor, 0));
+        ctx.fillStyle = glow;
+        ctx.beginPath(); ctx.arc(sx, sy, glowR, 0, Math.PI * 2); ctx.fill();
         ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2);
         ctx.fillStyle = emp ? STAR_COLOR : "rgba(220,228,244,0.6)";
         ctx.fill();
@@ -383,8 +429,6 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
           const nextNode = snap.systems[fleet.path[Math.min(fleet.legIndex + 1, fleet.path.length - 1)]] ?? target;
           const [tx, ty] = worldToScreen(nextNode.x, nextNode.y, cam, w, h);
           const size = fleetSize(fleet) * cam.zoom;
-          ctx.save(); ctx.translate(sx, sy); ctx.rotate(Math.atan2(ty - sy, tx - sx));
-          ctx.beginPath(); ctx.moveTo(size + 2, 0); ctx.lineTo(-size, -size * 0.65); ctx.lineTo(-size * 0.45, 0); ctx.lineTo(-size, size * 0.65); ctx.closePath();
           const fleetFill = (fleet.role && ROLE_FILL[fleet.role])
             ? ROLE_FILL[fleet.role]
             : fleet.kind === "war" ? "rgba(255,220,220,0.92)"
@@ -395,10 +439,14 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
             : fleet.kind === "flagship" ? "rgba(255,215,80,0.95)"
             : fleet.kind === "patrol" ? "rgba(170,210,255,0.85)"
             : "rgba(220,245,255,0.9)";
-          ctx.fillStyle = fleetFill;
-          ctx.strokeStyle = fleet.id === selectedFleetId ? SELECTION_COLOR : owner.color;
-          ctx.lineWidth = fleet.id === selectedFleetId ? 2.5 : selected ? 1.5 : 1;
-          ctx.fill(); ctx.stroke(); ctx.restore();
+          ctx.save(); ctx.translate(sx, sy); ctx.rotate(Math.atan2(ty - sy, tx - sx));
+          drawShip(
+            ctx, shipShape(fleet), size, fleetFill,
+            fleet.id === selectedFleetId ? SELECTION_COLOR : owner.color,
+            fleet.id === selectedFleetId ? 2.5 : selected ? 1.5 : 1,
+            owner.color, now, fleet.x * 0.3 + fleet.y * 0.7,
+          );
+          ctx.restore();
           if (fleet.kind === "flagship") {
             // royal ring so the ruler's ship reads as unique on the map
             ctx.beginPath(); ctx.arc(sx, sy, size + 5, 0, Math.PI * 2);
