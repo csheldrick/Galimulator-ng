@@ -147,6 +147,7 @@ export function foundDynasty(host: PeopleHost, emp: Empire, tick: number, rng: P
     rng, gender: founderGender, name: emp.ruler.name, title: emp.ruler.title,
     claimStrength: 1, loyalty: 1, renown: rng.range(0.45, 0.75),
   });
+  founder.milestones = [`Founded the House of ${emp.ruler.dynasty} (t${tick})`];
 
   const dynasty: Dynasty = {
     id: dynastyId,
@@ -430,6 +431,7 @@ export function selectSuccessor(state: GalaxyState, emp: Empire, dead: Person, r
 function enthrone(state: GalaxyState, emp: Empire, heir: Person, dead: Person | null, tick: number): string {
   const preTitle = heir.title;
   const officeTitle = emp.ruler.title; // the office persists across holders
+  heir.milestones = [...(heir.milestones ?? []), `Crowned ${officeTitle} of ${emp.name} (t${tick})`].slice(-10);
   heir.role = "ruler";
   heir.title = officeTitle;
   heir.empireId = emp.id;

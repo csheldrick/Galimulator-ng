@@ -225,6 +225,9 @@ export type FleetKind = "colonizer" | "war" | "patrol" | "merchant" | "pilgrim" 
 /** Ship class shapes speed/strength tradeoffs and the glyph on the map. */
 export type ShipClass = "settler" | "raider" | "strike" | "armada";
 
+/** Specialized non-combat ship roles; the raider/strike/armada classes remain the battleship line. */
+export type ShipRole = "science" | "missionary" | "support" | "gunstation" | "dropship" | "disruptor";
+
 export interface Fleet {
   id: Id;
   name: string;
@@ -256,6 +259,8 @@ export interface Fleet {
   /** Named admiral leading a war fleet, if one was assigned from the court. */
   admiralId?: Id;
   admiralName?: string;
+  /** Specialized role for built ships; undefined means a classic combat/patrol vessel. */
+  role?: ShipRole;
 }
 
 export interface EmpireRelationship {
@@ -336,6 +341,8 @@ export interface Person {
   /** The ruler who reigned immediately before this person, when this person took a throne.
    *  Lets the UI walk a chronological chain of rulers regardless of blood relation. */
   predecessorPersonId?: Id;
+  /** Life milestones in chronological order: "Crowned ruler of X (t1234)". */
+  milestones?: string[];
 }
 
 /** A ruling house: a named lineage that can span generations and even branch into
@@ -382,6 +389,8 @@ export interface Character {
   /** Allegiance to the throne, 0..1 — low loyalty breeds pretenders. */
   loyalty: number;
   bornTick: number;
+  /** Career milestones in chronological order: "Won the Battle of X (t1234)". */
+  career?: string[];
 }
 
 export interface Religion {

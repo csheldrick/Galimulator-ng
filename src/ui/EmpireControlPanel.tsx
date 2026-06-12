@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { ArtifactKind, GalaxyState, Id, EmpirePriority, PlayerControlState, SpyMission, ShipClass, WarFocus  } from "../types/sim";
+import type { ArtifactKind, GalaxyState, Id, EmpirePriority, PlayerControlState, SpyMission, ShipClass, ShipRole, WarFocus  } from "../types/sim";
+import { SHIP_ROLES, SHIP_ROLE_SPEC } from "../sim/ShipRoles";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL, TRAIT_LABEL } from "../sim/Characters";
 import { ARTIFACT_LABEL } from "../sim/Artifacts";
@@ -18,7 +19,7 @@ interface Props {
   onFortify: (systemId: Id) => void;
   onStabilize: (systemId: Id) => void;
   onBuildArtifact: (systemId: Id, kind?: ArtifactKind) => void;
-  onBuildShip: (systemId: Id, shipClass: ShipClass) => void;
+  onBuildShip: (systemId: Id, shipClass: ShipClass, role?: ShipRole) => void;
   onProposePeace: (empireId: Id) => void;
   onProvokeWar: (empireId: Id) => void;
   onSpyMission: (empireId: Id, mission: SpyMission) => void;
@@ -48,6 +49,17 @@ const PRIORITY_DESC: Record<EmpirePriority, string> = {
 };
 
 const ARTIFACT_KINDS: ArtifactKind[] = ["research-lab", "fleet-base", "holy-monument", "financial-center", "sentinel-station", "stellar-forcefield", "mind-control-hub", "lost-archive", "strange-engine"];
+
+/** Everything the emperor can lay down at a shipyard: the battleship line plus specialist roles. */
+const BUILD_OPTIONS: { key: string; label: string; cost: number; auth: number; shipClass: ShipClass; role?: ShipRole; desc: string }[] = [
+  { key: "raider", label: "Raider", cost: 80, auth: 18, shipClass: "raider", desc: "Fast battleship line — loots treasuries on capture" },
+  { key: "strike", label: "Strike", cost: 110, auth: 18, shipClass: "strike", desc: "Balanced battleship line" },
+  { key: "armada", label: "Armada", cost: 180, auth: 28, shipClass: "armada", desc: "Heavy battleship line — slow but powerful" },
+  ...SHIP_ROLES.filter(r => SHIP_ROLE_SPEC[r].buildableIn.emperor).map(r => ({
+    key: r, label: SHIP_ROLE_SPEC[r].label, cost: SHIP_ROLE_SPEC[r].cost, auth: SHIP_ROLE_SPEC[r].authority,
+    shipClass: "settler" as ShipClass, role: r, desc: SHIP_ROLE_SPEC[r].description,
+  })),
+];
 
 function CmdBtn({ label, onClick, disabled, cd = 0, cooldownLeft = 0 }: {
   label: string; onClick: () => void; disabled?: boolean; cd?: number; cooldownLeft?: number;
@@ -89,6 +101,7 @@ export function EmpireControlPanel({
   onProposePeace, onProvokeWar, onSpyMission, onEngageFaction, onSponsorColonization, onAdoptReligion, onReformGovernment, onSetWarDirective, onDemandSubmission
 }: Props) {
   const [artifactKind, setArtifactKind] = useState<ArtifactKind>(ARTIFACT_KINDS[0]);
+  const [buildKey, setBuildKey] = useState<string>("strike");
   const { mode, controlledEmpireId, authority, legitimacy, commandCooldowns, corruption = 0, flagshipFleetId } = playerControl;
   const controlled = controlledEmpireId ? snapshot.empires[controlledEmpireId] : null;
   const selectedSys = selectedSystemId ? snapshot.systems[selectedSystemId] : null;
@@ -238,9 +251,22 @@ export function EmpireControlPanel({
             </div>
           </>
         )}
-        <CmdBtn label="Build Raider" onClick={() => onBuildShip(shipBuildSystemId, "raider")} cooldownLeft={cooldownLeft("ship-raider", 18)} disabled={authority < 18 || controlled.wealth < 80 || shipSlotsFull} />
-        <CmdBtn label="Build Strike" onClick={() => onBuildShip(shipBuildSystemId, "strike")} cooldownLeft={cooldownLeft("ship-strike", 18)} disabled={authority < 18 || controlled.wealth < 110 || shipSlotsFull} />
-        <CmdBtn label="Build Armada" onClick={() => onBuildShip(shipBuildSystemId, "armada")} cooldownLeft={cooldownLeft("ship-armada", 18)} disabled={authority < 28 || controlled.wealth < 180 || shipSlotsFull} />
+        {(() => {
+          const opt = BUILD_OPTIONS.find(o => o.key === buildKey) ?? BUILD_OPTIONS[1];
+          return (
+            <div style={{ gridColumn: "1/-1", display: "flex", gap: 4 }}>
+              <select
+                style={{ flex: 1, fontSize: 10 }}
+                value={opt.key}
+                onChange={e => setBuildKey(e.target.value)}
+                title={`${opt.desc} · ${opt.cost} wealth · ${opt.auth} authority`}
+              >
+                {BUILD_OPTIONS.map(o => <option key={o.key} value={o.key} title={o.desc}>{o.label} ({o.cost}w/{o.auth}a)</option>)}
+              </select>
+              <CmdBtn label="Build Ship" onClick={() => onBuildShip(shipBuildSystemId, opt.shipClass, opt.role)} cooldownLeft={cooldownLeft(`ship-${opt.key}`, 18)} disabled={authority < opt.auth || controlled.wealth < opt.cost || shipSlotsFull} />
+            </div>
+          );
+        })()}
         {selectedSys && (
           <CmdBtn label="Move Flagship" onClick={() => onMoveFlagship(selectedSystemId!)} cooldownLeft={cooldownLeft("flagship", 8)} disabled={authority < 8} />
         )}

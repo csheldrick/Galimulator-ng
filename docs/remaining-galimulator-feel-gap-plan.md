@@ -7,7 +7,7 @@ Validated against the codebase (see `original-galimulator-polish-implementation-
 - Phase 1 (factions): implemented in simplified form (`src/sim/Factions` logic lives in `Tick.ts`; kinds `separatist|religious|court|regional`), now extended with status/support/militancy/legitimacy fields.
 - Phase 2 (subjects): **implemented** in `src/sim/Subjects.ts` (vassal/protectorate/tributary/client-state).
 - Phase 3 (quests): implemented in simplified form (`stepQuests` quest fleets; no observer offer UI).
-- Phase 4 (ship ecology): partially covered by ambient ships (merchant/pilgrim/refugee) and patrol leveling; the science/missionary/warden/raider/courier kinds were not added.
+- Phase 4 (ship ecology): **implemented** via the `ShipRole` layer (science/missionary/support/gunstation/dropship/disruptor) plus ambient ships and patrol leveling; gun stations play the warden role and the raider ship class covers raiders. Couriers were folded into ambient/quest traffic.
 - Phase 5 (planet flavor): **implemented** lightweight — named `Planet` objects derived from tags, inspector display.
 
 ## Purpose

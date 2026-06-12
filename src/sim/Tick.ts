@@ -1,4 +1,4 @@
-import type { GalaxyState, Empire, StarSystem, Id, Fleet, FleetKind, EmpireMood, ShipClass, SystemMarker, MarkerKind, Alliance, AlliancePurpose, Character, Faction, FactionKind } from "../types/sim";
+import type { GalaxyState, Empire, StarSystem, Id, Fleet, FleetKind, EmpireMood, ShipClass, ShipRole, SystemMarker, MarkerKind, Alliance, AlliancePurpose, Character, Faction, FactionKind } from "../types/sim";
 import type { PRNG } from "../types/sim";
 import { createEvent } from "./Events";
 import { updateRelationships, getNeighboringEmpires, tryDeclareWar, tryMakePeace } from "./Diplomacy";
@@ -10,11 +10,12 @@ import { dist, findPath, pathLength, advanceAlongPath } from "./Pathing";
 import { stepReligion } from "./Religion";
 import { stepTrade, severEmpireRoutes } from "./Trade";
 import { stepMonsters, stepCrises, stepOddities, discoverArtifact } from "./Crises";
-import { makeCourt, stepCharacters, topByRole, findCharacter, makeCharacter } from "./Characters";
+import { makeCourt, stepCharacters, topByRole, findCharacter, makeCharacter, pushCareer } from "./Characters";
 import { createArtifact, pickArtifactKind, stepArtifacts } from "./Artifacts";
 import { mergeEmpires } from "./Merge";
 import { stepDynasties, foundDynasty, installPretender, dynastyMembers } from "./Dynasty";
 import { stepSubjects, subjectOf, breakSubjectRelation } from "./Subjects";
+import { SHIP_ROLE_SPEC } from "./ShipRoles";
 
 const SHIP_CLASS_MODS: Record<ShipClass, { speed: number; strength: number }> = {
   settler: { speed: 1, strength: 1 },
@@ -102,7 +103,7 @@ function hasFleetTo(state: GalaxyState, ownerEmpireId: Id, targetSystemId: Id, k
   return Object.values(state.fleets).some(f => f.ownerEmpireId === ownerEmpireId && f.targetSystemId === targetSystemId && (!kind || f.kind === kind));
 }
 
-function launchFleet(state: GalaxyState, empire: Empire, origin: StarSystem, target: StarSystem, kind: FleetKind, strength: number, rng: PRNG, shipClass: ShipClass = "settler", admiral?: Character | null): void {
+function launchFleet(state: GalaxyState, empire: Empire, origin: StarSystem, target: StarSystem, kind: FleetKind, strength: number, rng: PRNG, shipClass: ShipClass = "settler", admiral?: Character | null, role?: ShipRole): void {
   if (hasFleetTo(state, empire.id, target.id, kind)) return;
   const id = `fleet-${state.tick}-${Object.keys(state.fleets).length}-${rng.nextInt(0, 9999)}`;
   const path = findPath(state, origin.id, target.id);
@@ -139,7 +140,9 @@ function launchFleet(state: GalaxyState, empire: Empire, origin: StarSystem, tar
     xp: 0,
     admiralId: admiral?.id,
     admiralName: admiral ? `${admiral.title} ${admiral.name}` : undefined,
+    role,
   };
+  if (role) fleet.name = `${empire.name.split(" ")[0]} ${SHIP_ROLE_SPEC[role].label}`;
   state.fleets[id] = fleet;
 }
 
@@ -169,9 +172,21 @@ function pickPatrolDestination(state: GalaxyState, empire: Empire, fromId: Id, r
   return scored[0]?.s ?? null;
 }
 
-function launchPatrolShip(state: GalaxyState, empire: Empire, origin: StarSystem, target: StarSystem, rng: PRNG, shipClass: ShipClass): void {
-  const strengthBase = shipClass === "armada" ? 30 : shipClass === "raider" ? 13 : 20;
-  launchFleet(state, empire, origin, target, "patrol", strengthBase + empire.techLevel * 8, rng, shipClass);
+function launchPatrolShip(state: GalaxyState, empire: Empire, origin: StarSystem, target: StarSystem, rng: PRNG, shipClass: ShipClass, role?: ShipRole): void {
+  const strengthBase = role ? SHIP_ROLE_SPEC[role].baseStrength : shipClass === "armada" ? 30 : shipClass === "raider" ? 13 : 20;
+  launchFleet(state, empire, origin, target, "patrol", strengthBase + empire.techLevel * (role ? 6 : 8), rng, shipClass, null, role);
+}
+
+/** What specialist an AI empire would commission right now, if any. */
+function pickAiShipRole(state: GalaxyState, emp: Empire, rng: PRNG): ShipRole | null {
+  if (rng.next() > 0.3) return null;
+  if (emp.activeWarEmpireIds.length > 0) return rng.next() < 0.5 ? "gunstation" : "disruptor";
+  if (emp.ideology === "spiritualist" && emp.stateReligionId) return "missionary";
+  if (emp.ideology === "materialist" || emp.techLevel > 1.6) return "science";
+  if (emp.expansionism > 0.6) return "dropship";
+  const shaky = emp.ownedSystemIds.some(id => (state.systems[id]?.stability ?? 1) < 0.4);
+  if (shaky) return "support";
+  return null;
 }
 
 // ── System markers ────────────────────────────────────────────────────────────
@@ -797,10 +812,11 @@ function stepShipConstruction(state: GalaxyState, rng: PRNG): void {
     if (rng.next() > desire * emp.cohesion * Math.min(1.5, emp.wealth / 500)) continue;
     const origin = state.systems[emp.capitalSystemId] ?? state.systems[emp.ownedSystemIds[0]];
     if (!origin) continue;
-    const target = pickPatrolDestination(state, emp, origin.id, rng) ?? origin;
-    const shipClass: ShipClass = emp.wealth > 700 && emp.techLevel > 1.5 ? "armada" : emp.techLevel > 1 ? "strike" : "raider";
-    launchPatrolShip(state, emp, origin, target, rng, shipClass);
-    emp.wealth = Math.max(0, emp.wealth - (shipClass === "armada" ? 130 : 70));
+    const role = pickAiShipRole(state, emp, rng);
+    const target = role === "gunstation" ? origin : pickPatrolDestination(state, emp, origin.id, rng) ?? origin;
+    const shipClass: ShipClass = role ? "settler" : emp.wealth > 700 && emp.techLevel > 1.5 ? "armada" : emp.techLevel > 1 ? "strike" : "raider";
+    launchPatrolShip(state, emp, origin, target, rng, shipClass, role ?? undefined);
+    emp.wealth = Math.max(0, emp.wealth - (role ? SHIP_ROLE_SPEC[role].cost * 0.6 : shipClass === "armada" ? 130 : 70));
   }
 }
 
@@ -939,6 +955,80 @@ function stepFleets(state: GalaxyState, rng: PRNG): void {
   }
 }
 
+/** One readable systemic rule per ship role, applied when the ship calls at an owned star. */
+function applyShipRoleEffect(state: GalaxyState, fleet: Fleet, here: StarSystem, owner: Empire, rng: PRNG): void {
+  switch (fleet.role) {
+    case "science": {
+      here.techLevel = Math.min(3, here.techLevel + rng.range(0.005, 0.02));
+      owner.techLevel = Math.min(3, owner.techLevel + 0.002);
+      if (here.artifactName && !here.artifactId && rng.next() < 0.3) {
+        discoverArtifact(state, here);
+        fleet.xp = (fleet.xp ?? 0) + 8;
+      }
+      return;
+    }
+    case "missionary": {
+      if (!owner.stateReligionId) return;
+      if (!here.religionId) {
+        here.religionId = owner.stateReligionId;
+      } else if (here.religionId !== owner.stateReligionId) {
+        if (rng.next() < 0.12) {
+          here.minorityReligionId = here.religionId;
+          here.religionId = owner.stateReligionId;
+          fleet.xp = (fleet.xp ?? 0) + 5;
+        } else {
+          here.minorityReligionId = owner.stateReligionId;
+        }
+      }
+      here.stability = Math.min(1, here.stability + 0.005);
+      return;
+    }
+    case "support": {
+      here.stability = Math.min(1, here.stability + 0.03);
+      here.population = Math.min(2.0, here.population + 0.004);
+      for (const f of Object.values(state.fleets)) {
+        if (f.id === fleet.id || f.ownerEmpireId !== owner.id) continue;
+        if (f.targetSystemId !== here.id || f.hp === undefined || f.maxHp === undefined) continue;
+        f.hp = Math.min(f.maxHp, f.hp + 5);
+      }
+      return;
+    }
+    case "dropship": {
+      const neutral = here.connectedSystemIds
+        .map(id => state.systems[id])
+        .find(s => s && !s.ownerEmpireId && s.habitability > 0.25 && !hasFleetTo(state, owner.id, s.id, "colonizer"));
+      if (neutral && rng.next() < 0.35) {
+        launchFleet(state, owner, here, neutral, "colonizer", 10, rng);
+        fleet.xp = (fleet.xp ?? 0) + 3;
+      }
+      return;
+    }
+    case "disruptor": {
+      for (const f of Object.values(state.fleets)) {
+        const fOwner = state.empires[f.ownerEmpireId];
+        if (!fOwner || fOwner.id === owner.id || !owner.activeWarEmpireIds.includes(fOwner.id)) continue;
+        if (!f.path.slice(f.legIndex).includes(here.id)) continue;
+        f.speed = Math.max(0.5, f.speed * 0.7);
+        fleet.xp = (fleet.xp ?? 0) + 2;
+      }
+      return;
+    }
+  }
+}
+
+/** Role-flavored patrol routing: each specialist seeks the worlds where its rule matters. */
+function pickRoleDestination(state: GalaxyState, owner: Empire, fromId: Id, fleet: Fleet, rng: PRNG): StarSystem | null {
+  if (!fleet.role) return null;
+  const owned = owner.ownedSystemIds.filter(id => id !== fromId).map(id => state.systems[id]).filter((s): s is StarSystem => Boolean(s));
+  let candidates: StarSystem[] = [];
+  if (fleet.role === "science") candidates = owned.filter(s => (s.artifactName && !s.artifactId) || s.planets?.includes("ancient"));
+  else if (fleet.role === "missionary" && owner.stateReligionId) candidates = owned.filter(s => s.religionId !== owner.stateReligionId || s.minorityReligionId);
+  else if (fleet.role === "support") candidates = owned.filter(s => s.stability < 0.5);
+  else if (fleet.role === "dropship") candidates = owned.filter(s => s.connectedSystemIds.some(nid => !state.systems[nid]?.ownerEmpireId));
+  else if (fleet.role === "disruptor") candidates = owned.filter(s => s.connectedSystemIds.some(nid => { const o = state.systems[nid]?.ownerEmpireId; return o && owner.activeWarEmpireIds.includes(o); }));
+  return candidates.length > 0 ? rng.pick(candidates) : null;
+}
+
 function resolvePatrolArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void {
   const owner = state.empires[fleet.ownerEmpireId];
   const here = state.systems[fleet.targetSystemId];
@@ -947,6 +1037,7 @@ function resolvePatrolArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void
     return;
   }
   here.stability = Math.min(1, here.stability + 0.015 + (fleet.level ?? 1) * 0.002);
+  applyShipRoleEffect(state, fleet, here, owner, rng);
   fleet.xp = (fleet.xp ?? 0) + 1;
   const nextLevel = (fleet.level ?? 1) + 1;
   if ((fleet.xp ?? 0) >= nextLevel * 12) {
@@ -955,7 +1046,13 @@ function resolvePatrolArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void
     fleet.maxHp = (fleet.maxHp ?? fleet.strength) * 1.08;
     fleet.hp = Math.min(fleet.maxHp, (fleet.hp ?? fleet.maxHp) + 4);
   }
-  const next = pickPatrolDestination(state, owner, here.id, rng);
+  // gun stations hold their post; everyone else picks the next port of call
+  if (fleet.role === "gunstation") {
+    fleet.path = [here.id]; fleet.legIndex = 0; fleet.legProgress = 1; fleet.progress = 1;
+    fleet.originSystemId = here.id; fleet.x = here.x; fleet.y = here.y;
+    return;
+  }
+  const next = pickRoleDestination(state, owner, here.id, fleet, rng) ?? pickPatrolDestination(state, owner, here.id, rng);
   if (!next) return;
   fleet.originSystemId = here.id;
   fleet.targetSystemId = next.id;
@@ -1076,6 +1173,7 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
       owner.cohesion = Math.max(0.05, owner.cohesion - 0.08);
       fleetAdmiral.renown = Math.min(1, fleetAdmiral.renown + 0.04);
       fleetAdmiral.loyalty = Math.max(0, fleetAdmiral.loyalty - 0.08);
+      pushCareer(fleetAdmiral, `Mutinied before the assault on ${target.name} (t${state.tick})`);
       createEvent(state, state.tick, "rebellion", `${fleetAdmiral.title} ${fleetAdmiral.name} mutinied`,
         `${fleetAdmiral.title} ${fleetAdmiral.name} of House ${fleetAdmiral.dynasty} turned ${fleet.name} away from the assault on ${target.name}, shaking confidence in ${owner.name}.`,
         4, [owner.id], [target.id]);
@@ -1084,7 +1182,10 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
     const divineShield = (target.godBoostTicks ?? 0) > 0 ? 2.5 : 1;
     const fortressWorld = target.planets?.includes("fortress") ? 1.35 : 1;
     const forcefield = target.artifactId && state.artifacts?.[target.artifactId]?.kind === "stellar-forcefield" ? 1.4 : 1;
-    const localDefense = (defender.militaryStrength * 0.08 + target.population * 18 + target.stability * 18) * rng.range(0.7, 1.35) * divineShield * fortressWorld * forcefield;
+    // gun stations posted at the target add their guns to the garrison
+    const stations = Object.values(state.fleets).filter(f => f.role === "gunstation" && f.ownerEmpireId === defenderId && f.targetSystemId === target.id);
+    const stationDefense = stations.reduce((s, f) => s + f.strength, 0) * rng.range(0.8, 1.2);
+    const localDefense = (defender.militaryStrength * 0.08 + target.population * 18 + target.stability * 18) * rng.range(0.7, 1.35) * divineShield * fortressWorld * forcefield + stationDefense;
     const attack = fleet.strength * rng.range(0.75, 1.35);
     target.stability = Math.max(0.05, target.stability - 0.12); target.population = Math.max(0.03, target.population * rng.range(0.88, 0.98));
 
@@ -1107,7 +1208,7 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
         defender.wealth -= loot; owner.wealth += loot;
       }
       if (defender.capitalSystemId === target.id && defender.ownedSystemIds.length > 0) defender.capitalSystemId = defender.ownedSystemIds[0];
-      if (fleetAdmiral) { fleetAdmiral.renown = Math.min(1, fleetAdmiral.renown + 0.08); fleetAdmiral.loyalty = Math.min(1, fleetAdmiral.loyalty + 0.02); }
+      if (fleetAdmiral) { fleetAdmiral.renown = Math.min(1, fleetAdmiral.renown + 0.08); fleetAdmiral.loyalty = Math.min(1, fleetAdmiral.loyalty + 0.02); pushCareer(fleetAdmiral, `Won the Battle of ${target.name} (t${state.tick})`); }
       const credit = fleet.admiralName ? ` ${fleet.admiralName} is hailed for the victory.` : "";
       const captureEv = createEvent(state, state.tick, "border-conflict", `${owner.name} captured ${target.name}`, `${fleet.name} seized ${target.name} from ${defender.name}.${credit}`, tookCapital ? 4 : 3, [owner.id, defenderId], [target.id]);
       if (tookCapital) {
@@ -1119,6 +1220,8 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
       if (defender.ownedSystemIds.length === 0) collapseEmpire(state, defender, rng);
     } else {
       owner.cohesion = Math.max(0.1, owner.cohesion - 0.02);
+      if (fleetAdmiral) pushCareer(fleetAdmiral, `Repelled at ${target.name} (t${state.tick})`);
+      for (const station of stations) station.xp = (station.xp ?? 0) + 4;
       const clashEv = createEvent(state, state.tick, "border-conflict", `${owner.name} failed at ${target.name}`, `${fleet.name} was repelled by ${defender.name}.`, 2, [owner.id, defenderId], [target.id]);
       // a repelled assault still sours the border for a while
       const relBack = defender.relationshipByEmpireId[owner.id];

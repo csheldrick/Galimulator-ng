@@ -1,4 +1,5 @@
-import type { GalaxyState, Id, Empire, Person, EmpireAdjustableProperty, EmpireMood, Ideology, CharacterTrait, TotemKind, ShipClass } from "../types/sim";
+import type { GalaxyState, Id, Empire, Person, EmpireAdjustableProperty, EmpireMood, Ideology, CharacterTrait, TotemKind, ShipClass, ShipRole } from "../types/sim";
+import { SHIP_ROLES, SHIP_ROLE_SPEC } from "../sim/ShipRoles";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL, TRAIT_LABEL } from "../sim/Characters";
 import { lineageChain, livingDynastyCount, dynastyMembers, personDisplayName } from "../sim/Dynasty";
@@ -42,7 +43,7 @@ interface Props {
   onSetEmpireIdeology: (id: Id, ideology: Ideology) => void;
   onToggleRulerTrait: (id: Id, trait: CharacterTrait) => void;
   onSetSystemTotem: (id: Id, totem: TotemKind | null) => void;
-  onBuildShip: (id: Id, shipClass: ShipClass) => void;
+  onBuildShip: (id: Id, shipClass: ShipClass, role?: ShipRole) => void;
   onForceWar: (a: Id, b: Id) => void;
   onForcePeace: (a: Id, b: Id) => void;
   onForceMerge: (dominant: Id, absorbed: Id) => void;
@@ -127,6 +128,14 @@ function LineageSection({ snapshot, emp }: { snapshot: Readonly<GalaxyState>; em
       {!rulerParent && predecessor && <div className="info-row"><span>Succeeded</span><span>{personDisplayName(predecessor)}</span></div>}
       <div className="info-row"><span>Heir</span><span>{heir ? <>{personDisplayName(heir)} <small style={{ opacity: 0.6 }}>· claim {fmt(heir.claimStrength, 2)}</small></> : <em style={{ opacity: 0.6 }}>none — no clear successor</em>}</span></div>
       <div className="info-row"><span>House members</span><span>{livingHouse} living</span></div>
+      {ruler?.milestones && ruler.milestones.length > 0 && (
+        <div className="info-row" style={{ alignItems: "flex-start" }}>
+          <span>Milestones</span>
+          <span style={{ textAlign: "right", fontSize: 10, opacity: 0.75 }}>
+            {ruler.milestones.slice(-3).map((m, i) => <span key={i} style={{ display: "block" }}>{m}</span>)}
+          </span>
+        </div>
+      )}
       {chain.length > 1 && (
         <div className="info-row" style={{ alignItems: "flex-start" }}>
           <span>Lineage</span>
@@ -169,6 +178,7 @@ export function InspectorPanel({
         </div>
         <div className="info-row"><span>Mission</span><span>{fleet.kind}</span></div>
         <div className="info-row"><span>Class</span><span>{fleet.shipClass}</span></div>
+        {fleet.role && <div className="info-row"><span>Role</span><span title={SHIP_ROLE_SPEC[fleet.role].description}>{SHIP_ROLE_SPEC[fleet.role].label}</span></div>}
         {owner && <div className="info-row owner-row" onClick={() => onSelectEmpire(owner.id)}><span className="emp-dot" style={{ background: owner.color }} /><span>{owner.name}</span></div>}
         <div className="info-row"><span>Origin</span><span>{origin?.name ?? "?"}</span></div>
         <div className="info-row"><span>Target</span><span>{target?.name ?? "?"}</span></div>
@@ -308,6 +318,11 @@ export function InspectorPanel({
               <button key={s.cls} disabled={!sys.ownerEmpireId} title={sys.ownerEmpireId ? `Build a ${s.label}` : "Build needs an owning empire"} onClick={() => onBuildShip(sys.id, s.cls)}>{s.label}</button>
             ))}
           </div>
+          <div className="god-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            {SHIP_ROLES.filter(r => SHIP_ROLE_SPEC[r].buildableIn.sandbox).map(r => (
+              <button key={r} disabled={!sys.ownerEmpireId} title={SHIP_ROLE_SPEC[r].description} onClick={() => onBuildShip(sys.id, "settler", r)}>{SHIP_ROLE_SPEC[r].label.replace(" Ship", "")}</button>
+            ))}
+          </div>
           {sys.recentEventIds.length > 0 && <><h4>Recent Events</h4>{[...sys.recentEventIds].reverse().slice(0, 5).map(eid => { const ev = snapshot.events[eid]; return ev ? <div key={eid} className="event-mini" style={{ borderLeft: `3px solid ${eventColor(ev.type)}`, paddingLeft: 5 }}>{ev.title}</div> : null; })}</>}
         </>
       )}
@@ -360,7 +375,7 @@ export function InspectorPanel({
               <h4>Court</h4>
               <div className="court-list">
                 {emp.court.map(c => (
-                  <div key={c.id} className={`court-row role-${c.role}`} title={`House ${c.dynasty} · ${traitText(c.traits)} · skill ${c.skill.toFixed(2)} · renown ${c.renown.toFixed(2)} · loyalty ${c.loyalty.toFixed(2)}`}>
+                  <div key={c.id} className={`court-row role-${c.role}`} title={`House ${c.dynasty} · ${traitText(c.traits)} · skill ${c.skill.toFixed(2)} · renown ${c.renown.toFixed(2)} · loyalty ${c.loyalty.toFixed(2)}${c.career?.length ? `\nCareer:\n${c.career.slice(-5).join("\n")}` : ""}`}>
                     <span className="court-role">{ROLE_LABEL[c.role]}</span>
                     <span className="court-name">{c.title} {c.name} <small style={{ opacity: 0.55 }}>· {traitText(c.traits)}</small></span>
                     {c.renown >= 0.6 && <span className="court-star" title="renowned">★</span>}
