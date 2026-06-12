@@ -50,7 +50,7 @@ function pickMonsterTarget(state: GalaxyState, rng: PRNG, fromId: string): StarS
   return scored[0].s;
 }
 
-function spawnMonster(state: GalaxyState, rng: PRNG): void {
+export function spawnMonster(state: GalaxyState, rng: PRNG): void {
   const fringe = Object.values(state.systems).filter(s => !s.ownerEmpireId);
   if (fringe.length === 0) return;
   const origin = rng.pick(fringe);
@@ -142,7 +142,7 @@ const ODDITY_NAMES: Record<OddityKind, string[]> = {
 const ODDITY_KINDS: OddityKind[] = ["star-eater", "puppet-mind", "sloth-cloud", "replicator", "void-gate"];
 const MAX_ODDITIES = 3;
 
-function spawnOddity(state: GalaxyState, rng: PRNG, forcedKind?: OddityKind): void {
+export function spawnOddity(state: GalaxyState, rng: PRNG, forcedKind?: OddityKind): void {
   state.oddities ??= {};
   const systems = Object.values(state.systems);
   if (systems.length === 0) return;

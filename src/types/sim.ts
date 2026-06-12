@@ -45,6 +45,11 @@ export type EventType =
   | "faction-engaged"
   | "faction-uprising"
   | "faction-dissolved"
+  | "subject-created"
+  | "subject-rebelled"
+  | "subject-integrated"
+  | "subject-liberated"
+  | "meteor-strike"
   | "dynasty-founded"
   | "heir-born"
   | "dynastic-marriage"
@@ -207,6 +212,8 @@ export interface StarSystem {
   localWealth?: number;
   /** Surface-level planet flavor. Generated at galaxy creation, may be modified by events. */
   planets?: PlanetTag[];
+  /** Named worlds derived from `planets` tags. Display flavor only; mechanics stay star-level. */
+  worlds?: Planet[];
   /** Separatist, religious, or court faction currently organizing here. */
   factionId?: Id | null;
   /** God-placed totem buffing this star and its owner empire every tick. */
@@ -487,6 +494,9 @@ export interface Alliance {
 
 export type FactionKind = "separatist" | "religious" | "court" | "regional";
 
+/** Lifecycle of a faction: quietly organizing, kept down by engagement, or on the brink. */
+export type FactionStatus = "organizing" | "suppressed" | "revolting";
+
 /** Internal movement that pressures an empire before becoming an open rebellion. */
 export interface Faction {
   id: Id;
@@ -504,6 +514,47 @@ export interface Faction {
   engagementScore: number;
   engagedUntilTick?: number;
   historicalEventIds: Id[];
+  /** Derived lifecycle label, recomputed each tick for display and reporting. */
+  status?: FactionStatus;
+  /** 0..1 popular backing among the faction's worlds. */
+  support?: number;
+  /** 0..1 willingness to take up arms; tracks uprising momentum. */
+  militancy?: number;
+  /** 0..1 perceived right to rule; high legitimacy makes peaceful outcomes likelier. */
+  legitimacy?: number;
+}
+
+/** Non-binary diplomatic subordination: subordinate but alive. */
+export type SubjectStatus = "vassal" | "protectorate" | "tributary" | "client-state";
+
+/** A standing overlord/subject tie between two living empires. */
+export interface SubjectRelation {
+  id: Id;
+  subjectEmpireId: Id;
+  overlordEmpireId: Id;
+  status: SubjectStatus;
+  createdTick: number;
+  /** 0..1, high means more independent. */
+  autonomy: number;
+  /** 0..1, low means rebellion risk. */
+  loyalty: number;
+  /** 0..1, portion of subject wealth flowing to the overlord. */
+  tributeRate: number;
+  protection: boolean;
+  canDeclareWars: boolean;
+  canJoinAlliances: boolean;
+  historicalEventIds: Id[];
+}
+
+/** A named world orbiting a star: lightweight local flavor, not a conquest unit. */
+export interface Planet {
+  id: Id;
+  name: string;
+  ordinal: number;
+  type: PlanetTag;
+  habitability: number;
+  /** Share of the system's population living here (all worlds sum to ~1). */
+  populationShare: number;
 }
 
 export type EmpirePriority =
@@ -611,6 +662,8 @@ export interface GalaxyState {
   artifacts?: Record<Id, Artifact>;
   oddities?: Record<Id, Oddity>;
   factions?: Record<Id, Faction>;
+  /** Overlord/subject ties keyed by relation id. */
+  subjects?: Record<Id, SubjectRelation>;
   /** First-class people: rulers, heirs, consorts, relatives, nobles, pretenders. */
   people?: Record<Id, Person>;
   /** Ruling houses keyed by id. */

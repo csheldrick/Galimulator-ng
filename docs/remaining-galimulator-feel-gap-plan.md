@@ -1,5 +1,15 @@
 # Galimulator-ng Remaining Feel Gap Plan
 
+## Status
+
+Validated against the codebase (see `original-galimulator-polish-implementation-plan.md` for the follow-on audit):
+
+- Phase 1 (factions): implemented in simplified form (`src/sim/Factions` logic lives in `Tick.ts`; kinds `separatist|religious|court|regional`), now extended with status/support/militancy/legitimacy fields.
+- Phase 2 (subjects): **implemented** in `src/sim/Subjects.ts` (vassal/protectorate/tributary/client-state).
+- Phase 3 (quests): implemented in simplified form (`stepQuests` quest fleets; no observer offer UI).
+- Phase 4 (ship ecology): partially covered by ambient ships (merchant/pilgrim/refugee) and patrol leveling; the science/missionary/warden/raider/courier kinds were not added.
+- Phase 5 (planet flavor): **implemented** lightweight — named `Planet` objects derived from tags, inspector display.
+
 ## Purpose
 
 `galimulator-ng` now has most of the broad Galimulator-like systems:

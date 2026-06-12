@@ -1,5 +1,16 @@
 # Original Galimulator Polish Implementation Plan
 
+## Implementation Status
+
+- Gap 1 (Sandbox commands): **Done** — `sandboxSpawnMonster`, `sandboxSpawnOddity`, `sandboxThrowMeteor`, `sandboxSeedFaction` on `Simulation`, surfaced in the inspector (system god controls + galaxy Sandbox section). Every command emits an event. Explicit `PlayerMode` enum not added; god controls remain the sandbox surface.
+- Gap 2 (Subject states / diplomacy requests): **Done** — `SubjectRelation` (vassal/protectorate/tributary/client-state) in `src/sim/Subjects.ts`: tribute, loyalty/autonomy drift, protective war joins, rebellion, integration, liberation; created via one-sided peace, voluntary protectorates, and the `commandDemandSubmission` emperor command. Structural relation modifiers (Subject/Overlord/Tribute burden) and war/alliance/merge guards included.
+- Gap 3 (Ship roles / build menu): **Not implemented** — existing `ShipClass` build buttons retained.
+- Gap 4 (Planet objects): **Done (lightweight)** — `Planet` objects in `StarSystem.worlds`, deterministically derived from tags (`worldsFromTags`); named worlds with type/habitability/population share in the inspector. Mechanics stay tag/star-level.
+- Gap 5 (Faction polish): **Done** — `status`/`support`/`militancy`/`legitimacy` fields maintained each tick, shown in inspector, plus sandbox seed-faction command and headless tallies.
+- Gap 6 (Career readability): **Not implemented**.
+- Gap 7 (Artifact build choice): **Done** — Build Artifact now has an artifact-kind menu in the Empire Control panel.
+- Gap 8 (Report expansion): **Done (partial)** — headless report now tallies factions (active/worlds/near-uprising/formed/uprisings), subjects (by status, created/rebelled/integrated/liberated), and quests. Ship-role and diplomacy-request counters await Gaps 3/6.
+
 ## Purpose
 
 This is a planning-only audit. No implementation is included here.

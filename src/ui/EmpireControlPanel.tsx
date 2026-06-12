@@ -1,6 +1,9 @@
+import { useState } from "react";
 import type { ArtifactKind, GalaxyState, Id, EmpirePriority, PlayerControlState, SpyMission, ShipClass, WarFocus  } from "../types/sim";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL, TRAIT_LABEL } from "../sim/Characters";
+import { ARTIFACT_LABEL } from "../sim/Artifacts";
+import { subjectOf, subjectsOf } from "../sim/Subjects";
 
 interface Props {
   snapshot: Readonly<GalaxyState>;
@@ -24,6 +27,7 @@ interface Props {
   onAdoptReligion: (religionId: Id) => void;
   onReformGovernment: () => void;
   onSetWarDirective: (empireId: Id, focus: WarFocus) => void;
+  onDemandSubmission: (empireId: Id) => void;
 }
 
 const PRIORITY_LABELS: Record<EmpirePriority, string> = {
@@ -82,8 +86,9 @@ export function EmpireControlPanel({
   snapshot, playerControl, selectedSystemId, selectedEmpireId,
   onStartControl, onStopControl, onSetPriority,
   onRallyFleet, onMoveFlagship, onFortify, onStabilize, onBuildArtifact, onBuildShip,
-  onProposePeace, onProvokeWar, onSpyMission, onEngageFaction, onSponsorColonization, onAdoptReligion, onReformGovernment, onSetWarDirective
+  onProposePeace, onProvokeWar, onSpyMission, onEngageFaction, onSponsorColonization, onAdoptReligion, onReformGovernment, onSetWarDirective, onDemandSubmission
 }: Props) {
+  const [artifactKind, setArtifactKind] = useState<ArtifactKind>(ARTIFACT_KINDS[0]);
   const { mode, controlledEmpireId, authority, legitimacy, commandCooldowns, corruption = 0, flagshipFleetId } = playerControl;
   const controlled = controlledEmpireId ? snapshot.empires[controlledEmpireId] : null;
   const selectedSys = selectedSystemId ? snapshot.systems[selectedSystemId] : null;
@@ -220,7 +225,17 @@ export function EmpireControlPanel({
           <>
             <CmdBtn label="Fortify" onClick={() => onFortify(selectedSystemId!)} cooldownLeft={cooldownLeft("fortify", 20)} disabled={authority < 15} />
             <CmdBtn label="Stabilize" onClick={() => onStabilize(selectedSystemId!)} cooldownLeft={cooldownLeft("stabilize", 10)} disabled={authority < 10} />
-            <CmdBtn label="Build Artifact" onClick={() => onBuildArtifact(selectedSystemId!, ARTIFACT_KINDS[0])} cooldownLeft={cooldownLeft("artifact", 120)} disabled={authority < 45 || controlled.wealth < 450 || !!selectedSys?.artifactId || (controlled.builtArtifactIds?.length ?? 0) > 0} />
+            <div style={{ gridColumn: "1/-1", display: "flex", gap: 4 }}>
+              <select
+                style={{ flex: 1, fontSize: 10 }}
+                value={artifactKind}
+                onChange={e => setArtifactKind(e.target.value as ArtifactKind)}
+                title="Artifact to commission (cost 450 wealth · 45 authority · one per empire)"
+              >
+                {ARTIFACT_KINDS.map(k => <option key={k} value={k}>{ARTIFACT_LABEL[k]}</option>)}
+              </select>
+              <CmdBtn label="Build Artifact" onClick={() => onBuildArtifact(selectedSystemId!, artifactKind)} cooldownLeft={cooldownLeft("artifact", 120)} disabled={authority < 45 || controlled.wealth < 450 || !!selectedSys?.artifactId || (controlled.builtArtifactIds?.length ?? 0) > 0} />
+            </div>
           </>
         )}
         <CmdBtn label="Build Raider" onClick={() => onBuildShip(shipBuildSystemId, "raider")} cooldownLeft={cooldownLeft("ship-raider", 18)} disabled={authority < 18 || controlled.wealth < 80 || shipSlotsFull} />
@@ -241,6 +256,21 @@ export function EmpireControlPanel({
         {notAtWarWith && (
           <CmdBtn label="Provoke War" onClick={() => onProvokeWar(selectedEmpireId!)} cd={cooldownLeft("war", 40)} disabled={authority < 30} />
         )}
+        {notAtWarWith && (() => {
+          const target = snapshot.empires[selectedEmpireId!];
+          if (!target) return null;
+          const powerOf = (e: typeof target) => e.militaryStrength + (e.militaryBonus ?? 0) + e.ownedSystemIds.length * 10;
+          const strongEnough = powerOf(controlled) >= powerOf(target) * 1.6;
+          const alreadyBound = Boolean(subjectOf(snapshot, controlled.id) || subjectOf(snapshot, target.id) || subjectsOf(snapshot, target.id).length > 0);
+          return (
+            <CmdBtn
+              label="Demand Submission"
+              onClick={() => onDemandSubmission(selectedEmpireId!)}
+              cooldownLeft={cooldownLeft("demand-submission", 120)}
+              disabled={authority < 40 || !strongEnough || alreadyBound}
+            />
+          );
+        })()}
         {selectedIsEnemy && (
           <>
             <CmdBtn label="Spy: Steal Tech" onClick={() => onSpyMission(selectedEmpireId!, "steal-tech")} cd={cooldownLeft("spy-steal-tech", 70)} disabled={authority < 25} />

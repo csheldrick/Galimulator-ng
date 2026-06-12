@@ -14,6 +14,7 @@ import { makeCourt, stepCharacters, topByRole, findCharacter, makeCharacter } fr
 import { createArtifact, pickArtifactKind, stepArtifacts } from "./Artifacts";
 import { mergeEmpires } from "./Merge";
 import { stepDynasties, foundDynasty, installPretender, dynastyMembers } from "./Dynasty";
+import { stepSubjects, subjectOf, breakSubjectRelation } from "./Subjects";
 
 const SHIP_CLASS_MODS: Record<ShipClass, { speed: number; strength: number }> = {
   settler: { speed: 1, strength: 1 },
@@ -334,11 +335,15 @@ function stepAlliances(state: GalaxyState, rng: PRNG): void {
       if (rng.next() > 0.04) continue;
       const alreadyAllied = empA.allianceIds?.length ?? 0;
       if (alreadyAllied >= 2) continue;
+      const bondA = subjectOf(state, empA.id);
+      if (bondA && !bondA.canJoinAlliances) continue;
       const neighbors = getNeighboringEmpires(state, empA.id);
       for (const neighborId of neighbors) {
         const empB = state.empires[neighborId];
         if (!empB) continue;
         if ((empB.allianceIds?.length ?? 0) >= 2) continue;
+        const bondB = subjectOf(state, neighborId);
+        if (bondB && !bondB.canJoinAlliances) continue;
         const rel = empA.relationshipByEmpireId[neighborId];
         if (!rel || rel.atWar) continue;
         if (effectiveOpinion(rel, state.tick) < 60 || effectiveTension(rel, state.tick) > 40) continue;
@@ -493,6 +498,8 @@ function stepEmpireMerges(state: GalaxyState, rng: PRNG): void {
       if (!rel || rel.atWar) continue;
       const backRel = smaller.relationshipByEmpireId[larger.id];
       if (backRel?.atWar) continue;
+      // subjects merge only via integration; their bond blocks ordinary diplomatic unions
+      if (subjectOf(state, larger.id) || subjectOf(state, smaller.id)) continue;
       const a = larger.ownedSystemIds.length >= smaller.ownedSystemIds.length ? larger : smaller;
       const b = a.id === larger.id ? smaller : larger;
       if (b.ownedSystemIds.length > Math.max(2, a.ownedSystemIds.length * 0.55)) continue;
@@ -1157,7 +1164,7 @@ function factionName(kind: FactionKind, sys: StarSystem, rng: PRNG): string {
   }
 }
 
-function formFaction(state: GalaxyState, emp: Empire, sys: StarSystem, rng: PRNG): void {
+export function formFaction(state: GalaxyState, emp: Empire, sys: StarSystem, rng: PRNG): void {
   state.factions ??= {};
   if (sys.factionId && state.factions[sys.factionId]) return;
   const kind = pickFactionKind(emp, sys, rng);
@@ -1179,6 +1186,10 @@ function formFaction(state: GalaxyState, emp: Empire, sys: StarSystem, rng: PRNG
     spreadRate: 0.012 + pressure * 0.012 + (leader.traits.includes("popular") ? 0.012 : 0),
     engagementScore: 0,
     historicalEventIds: [],
+    status: "organizing",
+    support: Math.min(1, 0.2 + pressure * 0.3),
+    militancy: Math.min(1, 0.1 + pressure * 0.2),
+    legitimacy: Math.min(1, 0.3 + leader.renown * 0.5),
   };
   state.factions[id] = faction;
   sys.factionId = id;
@@ -1244,6 +1255,12 @@ function stepFactions(state: GalaxyState, rng: PRNG): void {
     const leaderMul = faction.leader.traits.includes("popular") ? 1.25 : faction.leader.traits.includes("dull") ? 0.8 : 1;
     const engagementDrag = faction.engagedUntilTick && state.tick < faction.engagedUntilTick ? faction.engagementScore * 0.00035 : 0;
     faction.uprisingProgress = Math.max(0, faction.uprisingProgress + faction.uprisingRate * sizePressure * leaderMul - engagementDrag);
+    // derived pressure fields for display, reporting, and revolt-risk reads
+    const suppressed = Boolean(faction.engagedUntilTick && state.tick < faction.engagedUntilTick);
+    faction.support = Math.max(0, Math.min(1, 0.15 + faction.systemIds.length / Math.max(3, emp.ownedSystemIds.length) + (1 - emp.cohesion) * 0.25));
+    faction.militancy = Math.max(0, Math.min(1, faction.uprisingProgress * 0.8 + (suppressed ? -0.15 : 0.1)));
+    faction.legitimacy = Math.max(0, Math.min(1, (faction.legitimacy ?? 0.4) + (suppressed ? -0.0005 : 0.0002)));
+    faction.status = suppressed ? "suppressed" : faction.uprisingProgress > 0.75 ? "revolting" : "organizing";
     for (const sysId of faction.systemIds) {
       const sys = state.systems[sysId];
       if (sys) sys.stability = Math.max(0.05, sys.stability - 0.0008 * sizePressure);
@@ -1339,6 +1356,11 @@ function spawnRebellion(state: GalaxyState, empire: Empire, rng: PRNG, forcedSys
 
 function removeEmpireFromGalaxy(state: GalaxyState, empire: Empire): void {
   severEmpireRoutes(state, empire.id, "died with its partner");
+  // Subject bookkeeping: a dying subject's bond dissolves; a dying overlord frees its subjects.
+  for (const sr of Object.values(state.subjects ?? {})) {
+    if (sr.subjectEmpireId === empire.id) breakSubjectRelation(state, sr.id, "collapse");
+    else if (sr.overlordEmpireId === empire.id) breakSubjectRelation(state, sr.id, "liberation");
+  }
   for (const faction of Object.values(state.factions ?? {})) {
     if (faction.targetEmpireId !== empire.id && faction.originEmpireId !== empire.id) continue;
     for (const sysId of faction.systemIds) {
@@ -1857,7 +1879,7 @@ export function executeTick(state: GalaxyState, rng: PRNG): void {
   stepTotems(state); stepGrowth(state, rng); stepProgress(state, rng); stepReligion(state, rng); stepCharacters(state, rng); stepMoods(state, rng); stepFactions(state, rng); stepDynasties(state, rng); stepPolitics(state, rng);
   stepFleets(state, rng); stepExpansion(state, rng); stepQuests(state, rng); stepShipConstruction(state, rng); stepConflict(state, rng); stepTrade(state, rng); stepMonsters(state, rng); stepCrises(state, rng); stepOddities(state, rng);
   stepCollapse(state, rng); stepEmergence(state, rng);
-  stepLocalWealth(state); stepArtifacts(state); stepAmbientShips(state, rng); stepAlliances(state, rng); stepEmpireMerges(state, rng); stepPlayerControl(state, rng);
+  stepLocalWealth(state); stepArtifacts(state); stepAmbientShips(state, rng); stepAlliances(state, rng); stepSubjects(state, rng); stepEmpireMerges(state, rng); stepPlayerControl(state, rng);
   stepRelationModifiers(state); stepLocalStarWeirdness(state, rng);
   state.tick++;
 }
