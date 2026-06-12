@@ -1,9 +1,11 @@
-import type { GalaxyState, Id, Empire, Person, EmpireAdjustableProperty, EmpireMood, Ideology, CharacterTrait, TotemKind, ShipClass } from "../types/sim";
+import type { GalaxyState, Id, Empire, Person, EmpireAdjustableProperty, EmpireMood, Ideology, CharacterTrait, TotemKind, ShipClass, ShipRole } from "../types/sim";
+import { SHIP_ROLES, SHIP_ROLE_SPEC } from "../sim/ShipRoles";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL, TRAIT_LABEL } from "../sim/Characters";
 import { lineageChain, livingDynastyCount, dynastyMembers, personDisplayName } from "../sim/Dynasty";
-import { GOVERNMENT_LABEL } from "../sim/Galaxy";
+import { GOVERNMENT_LABEL, PLANET_TAG_LABEL } from "../sim/Galaxy";
 import { ARTIFACT_LABEL } from "../sim/Artifacts";
+import { SUBJECT_STATUS_LABEL, subjectOf, subjectsOf } from "../sim/Subjects";
 import { eventColor } from "../render/colors";
 import { effectiveOpinion, effectiveTension, activeModifiers } from "../sim/Relations";
 
@@ -41,10 +43,14 @@ interface Props {
   onSetEmpireIdeology: (id: Id, ideology: Ideology) => void;
   onToggleRulerTrait: (id: Id, trait: CharacterTrait) => void;
   onSetSystemTotem: (id: Id, totem: TotemKind | null) => void;
-  onBuildShip: (id: Id, shipClass: ShipClass) => void;
+  onBuildShip: (id: Id, shipClass: ShipClass, role?: ShipRole) => void;
   onForceWar: (a: Id, b: Id) => void;
   onForcePeace: (a: Id, b: Id) => void;
   onForceMerge: (dominant: Id, absorbed: Id) => void;
+  onThrowMeteor: (id: Id) => void;
+  onSpawnMonster: () => void;
+  onSpawnOddity: () => void;
+  onSeedFaction: (id: Id) => void;
 }
 
 const MARKER_GLYPH: Record<string, string> = {
@@ -122,6 +128,14 @@ function LineageSection({ snapshot, emp }: { snapshot: Readonly<GalaxyState>; em
       {!rulerParent && predecessor && <div className="info-row"><span>Succeeded</span><span>{personDisplayName(predecessor)}</span></div>}
       <div className="info-row"><span>Heir</span><span>{heir ? <>{personDisplayName(heir)} <small style={{ opacity: 0.6 }}>· claim {fmt(heir.claimStrength, 2)}</small></> : <em style={{ opacity: 0.6 }}>none — no clear successor</em>}</span></div>
       <div className="info-row"><span>House members</span><span>{livingHouse} living</span></div>
+      {ruler?.milestones && ruler.milestones.length > 0 && (
+        <div className="info-row" style={{ alignItems: "flex-start" }}>
+          <span>Milestones</span>
+          <span style={{ textAlign: "right", fontSize: 10, opacity: 0.75 }}>
+            {ruler.milestones.slice(-3).map((m, i) => <span key={i} style={{ display: "block" }}>{m}</span>)}
+          </span>
+        </div>
+      )}
       {chain.length > 1 && (
         <div className="info-row" style={{ alignItems: "flex-start" }}>
           <span>Lineage</span>
@@ -141,6 +155,7 @@ function LineageSection({ snapshot, emp }: { snapshot: Readonly<GalaxyState>; em
 export function InspectorPanel({
   snapshot, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, onSelectEmpire, onSelectSystem, onSelectFleet, onClearSelection, onCancelFleet, onToggleFollow,
   onBoostSystem, onDevastateSystem, onNeutralizeSystem, onFoundEmpire, onBoostEmpire, onStabilizeEmpire, onWeakenEmpire, onInflameEmpire, onPacifyEmpire, onAdjustEmpire, onSetEmpireMood, onSetEmpireIdeology, onToggleRulerTrait, onSetSystemTotem, onBuildShip, onForceWar, onForcePeace, onForceMerge,
+  onThrowMeteor, onSpawnMonster, onSpawnOddity, onSeedFaction,
 }: Props) {
   const fleet = selectedFleetId ? snapshot.fleets[selectedFleetId] : null;
   const sys = !fleet && selectedSystemId ? snapshot.systems[selectedSystemId] : null;
@@ -163,6 +178,7 @@ export function InspectorPanel({
         </div>
         <div className="info-row"><span>Mission</span><span>{fleet.kind}</span></div>
         <div className="info-row"><span>Class</span><span>{fleet.shipClass}</span></div>
+        {fleet.role && <div className="info-row"><span>Role</span><span title={SHIP_ROLE_SPEC[fleet.role].description}>{SHIP_ROLE_SPEC[fleet.role].label}</span></div>}
         {owner && <div className="info-row owner-row" onClick={() => onSelectEmpire(owner.id)}><span className="emp-dot" style={{ background: owner.color }} /><span>{owner.name}</span></div>}
         <div className="info-row"><span>Origin</span><span>{origin?.name ?? "?"}</span></div>
         <div className="info-row"><span>Target</span><span>{target?.name ?? "?"}</span></div>
@@ -214,6 +230,11 @@ export function InspectorPanel({
           const worlds = Object.values(snapshot.systems).filter(s => s.religionId === r.id).length;
           return <div key={r.id} className="info-row"><span><span className="emp-dot" style={{ background: r.color, marginRight: 5 }} />{r.name}</span><span>{worlds} worlds</span></div>;
         })}
+        <h4>Sandbox</h4>
+        <div className="god-grid">
+          <button onClick={onSpawnMonster}>Spawn monster</button>
+          <button onClick={onSpawnOddity}>Spawn oddity</button>
+        </div>
         <div className="empty-hint">Select a system, fleet, empire, or event.</div>
       </div>
     );
@@ -261,7 +282,16 @@ export function InspectorPanel({
               </div>
             );
           })()}
-          {sys.planets && sys.planets.length > 0 && (
+          {sys.worlds && sys.worlds.length > 0 ? (
+            <>
+              <h4>Worlds</h4>
+              {sys.worlds.map(w => (
+                <div key={w.id} className="event-mini" style={{ borderLeft: "3px solid rgba(140,200,160,0.5)", paddingLeft: 5, fontSize: 10, marginBottom: 2 }}>
+                  {w.name} <span style={{ opacity: 0.55 }}>· {PLANET_TAG_LABEL[w.type]} · {Math.round(w.populationShare * 100)}% pop · hab {w.habitability.toFixed(2)}</span>
+                </div>
+              ))}
+            </>
+          ) : sys.planets && sys.planets.length > 0 && (
             <div className="info-row"><span>Worlds</span><span style={{ fontSize: 10, color: "rgba(200,220,255,0.7)" }}>{sys.planets.join(", ")}</span></div>
           )}
           {sys.markers && sys.markers.length > 0 && (
@@ -275,7 +305,7 @@ export function InspectorPanel({
             </>
           )}
           <h4>God Controls</h4>
-          <div className="god-grid"><button onClick={() => onBoostSystem(sys.id)}>Boost world</button><button onClick={() => onDevastateSystem(sys.id)}>Devastate</button><button onClick={() => onNeutralizeSystem(sys.id)} disabled={!sys.ownerEmpireId}>Free system</button><button onClick={() => onFoundEmpire(sys.id)}>Found empire</button></div>
+          <div className="god-grid"><button onClick={() => onBoostSystem(sys.id)}>Boost world</button><button onClick={() => onDevastateSystem(sys.id)}>Devastate</button><button onClick={() => onNeutralizeSystem(sys.id)} disabled={!sys.ownerEmpireId}>Free system</button><button onClick={() => onFoundEmpire(sys.id)}>Found empire</button><button onClick={() => onThrowMeteor(sys.id)}>Throw meteor</button><button onClick={() => onSeedFaction(sys.id)} disabled={!sys.ownerEmpireId || !!sys.factionId} title={sys.factionId ? "A faction already organizes here" : undefined}>Seed faction</button></div>
           <div className="control-row" style={{ marginTop: 4 }}>
             <label>Totem</label>
             <select style={{ flex: 1 }} value={sys.totem ?? ""} onChange={e => onSetSystemTotem(sys.id, (e.target.value || null) as TotemKind | null)}>
@@ -286,6 +316,11 @@ export function InspectorPanel({
           <div className="god-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
             {SHIP_CLASSES.map(s => (
               <button key={s.cls} disabled={!sys.ownerEmpireId} title={sys.ownerEmpireId ? `Build a ${s.label}` : "Build needs an owning empire"} onClick={() => onBuildShip(sys.id, s.cls)}>{s.label}</button>
+            ))}
+          </div>
+          <div className="god-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            {SHIP_ROLES.filter(r => SHIP_ROLE_SPEC[r].buildableIn.sandbox).map(r => (
+              <button key={r} disabled={!sys.ownerEmpireId} title={SHIP_ROLE_SPEC[r].description} onClick={() => onBuildShip(sys.id, "settler", r)}>{SHIP_ROLE_SPEC[r].label.replace(" Ship", "")}</button>
             ))}
           </div>
           {sys.recentEventIds.length > 0 && <><h4>Recent Events</h4>{[...sys.recentEventIds].reverse().slice(0, 5).map(eid => { const ev = snapshot.events[eid]; return ev ? <div key={eid} className="event-mini" style={{ borderLeft: `3px solid ${eventColor(ev.type)}`, paddingLeft: 5 }}>{ev.title}</div> : null; })}</>}
@@ -304,13 +339,43 @@ export function InspectorPanel({
             <div key={al.id} className="info-row"><span>Alliance</span><span style={{ color: al.color ?? "inherit" }}>{al.emblem ?? "◇"} {al.name} <small style={{ opacity: 0.6 }}>· {ALLIANCE_PURPOSE_LABEL[al.purpose ?? "defensive"]} · {al.memberEmpireIds.length} · {snapshot.tick - al.formedTick}t</small></span></div>
           ))}
           <div className="info-row"><span>Trade</span><span>{Object.values(snapshot.tradeRoutes).filter(r => r.empireAId === emp.id || r.empireBId === emp.id).length} routes</span></div>
+          {(() => {
+            const bond = subjectOf(snapshot, emp.id);
+            const overlord = bond ? snapshot.empires[bond.overlordEmpireId] : null;
+            const vassals = subjectsOf(snapshot, emp.id);
+            return (
+              <>
+                {bond && overlord && (
+                  <div className="info-row">
+                    <span>Subject state</span>
+                    <span style={{ cursor: "pointer", textDecoration: "underline dotted" }} onClick={() => onSelectEmpire(overlord.id)}>
+                      {SUBJECT_STATUS_LABEL[bond.status]} of {overlord.name} <small style={{ opacity: 0.6 }}>· loyalty {Math.round(bond.loyalty * 100)}% · autonomy {Math.round(bond.autonomy * 100)}% · tribute {Math.round(bond.tributeRate * 100)}%{bond.protection ? " · protected" : ""}</small>
+                    </span>
+                  </div>
+                )}
+                {vassals.length > 0 && (
+                  <>
+                    <h4>Subjects</h4>
+                    {vassals.map(sr => {
+                      const sub = snapshot.empires[sr.subjectEmpireId];
+                      return sub ? (
+                        <div key={sr.id} className="event-mini" style={{ borderLeft: "3px solid rgba(120,180,255,0.6)", paddingLeft: 5, fontSize: 10, marginBottom: 2, cursor: "pointer" }} onClick={() => onSelectEmpire(sub.id)}>
+                          {sub.name} <span style={{ opacity: 0.55 }}>· {SUBJECT_STATUS_LABEL[sr.status]} · loyalty {Math.round(sr.loyalty * 100)}% · autonomy {Math.round(sr.autonomy * 100)}% · tribute {Math.round(sr.tributeRate * 100)}%</span>
+                        </div>
+                      ) : null;
+                    })}
+                  </>
+                )}
+              </>
+            );
+          })()}
           <LineageSection snapshot={snapshot} emp={emp} />
           {emp.court && emp.court.length > 0 && (
             <>
               <h4>Court</h4>
               <div className="court-list">
                 {emp.court.map(c => (
-                  <div key={c.id} className={`court-row role-${c.role}`} title={`House ${c.dynasty} · ${traitText(c.traits)} · skill ${c.skill.toFixed(2)} · renown ${c.renown.toFixed(2)} · loyalty ${c.loyalty.toFixed(2)}`}>
+                  <div key={c.id} className={`court-row role-${c.role}`} title={`House ${c.dynasty} · ${traitText(c.traits)} · skill ${c.skill.toFixed(2)} · renown ${c.renown.toFixed(2)} · loyalty ${c.loyalty.toFixed(2)}${c.career?.length ? `\nCareer:\n${c.career.slice(-5).join("\n")}` : ""}`}>
                     <span className="court-role">{ROLE_LABEL[c.role]}</span>
                     <span className="court-name">{c.title} {c.name} <small style={{ opacity: 0.55 }}>· {traitText(c.traits)}</small></span>
                     {c.renown >= 0.6 && <span className="court-star" title="renowned">★</span>}
@@ -324,7 +389,7 @@ export function InspectorPanel({
               <h4>Factions</h4>
               {Object.values(snapshot.factions ?? {}).filter(f => f.targetEmpireId === emp.id).slice(0, 6).map(f => (
                 <div key={f.id} className="event-mini" style={{ borderLeft: "3px solid rgba(255,160,30,0.8)", paddingLeft: 5, fontSize: 10, marginBottom: 2 }}>
-                  {f.name} <span style={{ opacity: 0.55 }}>· {FACTION_KIND_LABEL[f.kind]} · {Math.round(f.uprisingProgress * 100)}% · {f.systemIds.length} worlds · {f.leader.title} {f.leader.name}</span>
+                  {f.name} <span style={{ opacity: 0.55 }}>· {FACTION_KIND_LABEL[f.kind]}{f.status ? ` · ${f.status}` : ""} · {Math.round(f.uprisingProgress * 100)}% · {f.systemIds.length} worlds · {f.leader.title} {f.leader.name}</span>
                 </div>
               ))}
             </>
@@ -403,9 +468,12 @@ export function InspectorPanel({
               const atWar = rel?.atWar ?? emp.activeWarEmpireIds.includes(other.id);
               const tension = effectiveTension(rel, snapshot.tick); const opinion = effectiveOpinion(rel, snapshot.tick);
               const mods = activeModifiers(rel, snapshot.tick);
+              const bond = Object.values(snapshot.subjects ?? {}).find(sr =>
+                (sr.subjectEmpireId === emp.id && sr.overlordEmpireId === other.id) ||
+                (sr.subjectEmpireId === other.id && sr.overlordEmpireId === emp.id));
               return (
                 <div key={other.id} className={atWar ? "relation-row at-war" : "relation-row"}>
-                  <div className="relation-head" onClick={() => onSelectEmpire(other.id)}><span className="emp-dot" style={{ background: other.color }} /><span>{other.name}</span></div>
+                  <div className="relation-head" onClick={() => onSelectEmpire(other.id)}><span className="emp-dot" style={{ background: other.color }} /><span>{other.name}</span>{bond && <small style={{ opacity: 0.6, marginLeft: 4 }}>{bond.subjectEmpireId === other.id ? `· ${SUBJECT_STATUS_LABEL[bond.status]}` : "· Overlord"}</small>}</div>
                   <div className="relation-stats"><span>T {fmt(tension, 0)}</span><span>O {fmt(opinion, 0)}</span><span>{atWar ? "WAR" : "peace"}</span></div>
                   <div className="relation-actions"><button onClick={() => onForceWar(emp.id, other.id)} disabled={atWar}>War</button><button onClick={() => onForcePeace(emp.id, other.id)} disabled={!atWar}>Peace</button><button onClick={() => onForceMerge(emp.id, other.id)} disabled={atWar}>Merge</button></div>
                   {mods.length > 0 && <div style={{ fontSize: 9, color: "rgba(180,200,240,0.6)", gridColumn: "1/-1", paddingLeft: 4, paddingBottom: 2 }}>{mods.map(m => `${m.opinionDelta >= 0 ? "+" : ""}${m.opinionDelta} ${m.label}`).join(" · ")}</div>}

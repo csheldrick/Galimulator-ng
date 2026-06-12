@@ -6,6 +6,7 @@ import {
   effectiveTension,
   refreshStructuralModifiers,
 } from "./Relations";
+import { isSubjectPair, createSubjectRelation, subjectOf, subjectsOf } from "./Subjects";
 
 function defaultRelationship(targetId: Id): EmpireRelationship {
   return {
@@ -78,6 +79,12 @@ export function tryDeclareWar(
   const rel = attacker.relationshipByEmpireId[defenderId];
   if (!rel || rel.atWar) return;
 
+  // overlords and subjects never drift into ordinary war; only rebellion breaks the bond
+  if (isSubjectPair(state, attacker.id, defenderId)) return;
+  // subjects barred from declaring wars stay out of wars of choice
+  const attackerBond = subjectOf(state, attacker.id);
+  if (attackerBond && !attackerBond.canDeclareWars) return;
+
   // war/peace decisions read the *effective* relationship, so a grudge or an alliance shifts the odds
   const effOpinion = effectiveOpinion(rel, state.tick);
   const effTension = effectiveTension(rel, state.tick);
@@ -143,4 +150,20 @@ export function tryMakePeace(
   const peaceMod: RelationModifierInput = { kind: "peace", label: "Recent peace", opinionDelta: 6, tensionDelta: -25, expiresAtTick: state.tick + 800, sourceEventId: ev.id };
   addRelationModifier(rel, peaceMod);
   if (relBack) addRelationModifier(relBack, { ...peaceMod });
+
+  // one-sided peace: a badly outmatched loser may survive as a subject instead of a free equal
+  maybeSubjugateLoser(state, empire, enemy, rng);
+}
+
+/** After a peace, a much weaker survivor sometimes becomes a vassal or tributary of the winner. */
+function maybeSubjugateLoser(state: GalaxyState, a: Empire, b: Empire, rng: { next(): number }): void {
+  const powerOf = (e: Empire) => e.militaryStrength + (e.militaryBonus ?? 0) + e.ownedSystemIds.length * 10;
+  const [winner, loser] = powerOf(a) >= powerOf(b) ? [a, b] : [b, a];
+  if (loser.ownedSystemIds.length < 1 || loser.ownedSystemIds.length > winner.ownedSystemIds.length * 0.5) return;
+  if (powerOf(loser) > powerOf(winner) * 0.4) return;
+  if (winner.cohesion < 0.4) return;
+  if (subjectOf(state, loser.id) || subjectOf(state, winner.id) || subjectsOf(state, loser.id).length > 0) return;
+  if (rng.next() > 0.35) return;
+  const status = loser.ownedSystemIds.length <= 2 ? "vassal" : "tributary";
+  createSubjectRelation(state, loser.id, winner.id, status, state.tick);
 }

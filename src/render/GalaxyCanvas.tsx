@@ -34,6 +34,12 @@ interface Props {
   onManualPan: () => void;
 }
 
+// Specialist role tints so science/missionary/support/etc. ships read distinctly on the map.
+const ROLE_FILL: Record<string, string> = {
+  science: "rgba(140,235,255,0.9)", missionary: "rgba(220,200,255,0.9)", support: "rgba(170,255,190,0.9)",
+  gunstation: "rgba(255,170,120,0.95)", dropship: "rgba(255,240,150,0.9)", disruptor: "rgba(255,140,220,0.9)",
+};
+
 function fleetSize(fleet: Fleet): number {
   if (fleet.kind === "merchant" || fleet.kind === "pilgrim" || fleet.kind === "refugee") return 2.5;
   if (fleet.kind === "quest") return 3;
@@ -379,7 +385,9 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
           const size = fleetSize(fleet) * cam.zoom;
           ctx.save(); ctx.translate(sx, sy); ctx.rotate(Math.atan2(ty - sy, tx - sx));
           ctx.beginPath(); ctx.moveTo(size + 2, 0); ctx.lineTo(-size, -size * 0.65); ctx.lineTo(-size * 0.45, 0); ctx.lineTo(-size, size * 0.65); ctx.closePath();
-          const fleetFill = fleet.kind === "war" ? "rgba(255,220,220,0.92)"
+          const fleetFill = (fleet.role && ROLE_FILL[fleet.role])
+            ? ROLE_FILL[fleet.role]
+            : fleet.kind === "war" ? "rgba(255,220,220,0.92)"
             : fleet.kind === "merchant" ? "rgba(255,209,102,0.88)"
             : fleet.kind === "pilgrim" ? "rgba(200,240,200,0.88)"
             : fleet.kind === "refugee" ? "rgba(200,200,255,0.82)"
@@ -395,6 +403,11 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
             // royal ring so the ruler's ship reads as unique on the map
             ctx.beginPath(); ctx.arc(sx, sy, size + 5, 0, Math.PI * 2);
             ctx.strokeStyle = "rgba(255,215,80,0.7)"; ctx.lineWidth = 1.5; ctx.stroke();
+          }
+          if (fleet.role === "gunstation") {
+            // bastion ring so stationed defenses read as fixtures rather than traffic
+            ctx.beginPath(); ctx.arc(sx, sy, size + 4, 0, Math.PI * 2);
+            ctx.strokeStyle = "rgba(255,170,120,0.65)"; ctx.lineWidth = 1.2; ctx.stroke();
           }
 
           if (fleet.id === selectedFleetId) {

@@ -84,4 +84,14 @@ export function refreshStructuralModifiers(state: GalaxyState, rel: EmpireRelati
   // common enemy: someone both empires are at war with
   const commonEnemy = from.activeWarEmpireIds.some(e => e !== to.id && to.activeWarEmpireIds.includes(e));
   if (commonEnemy) addRelationModifier(rel, { kind: "structural", label: "Common enemy", opinionDelta: 14, tensionDelta: -6 });
+
+  // subject ties: standing modifiers in both directions while the bond endures
+  for (const sr of Object.values(state.subjects ?? {})) {
+    if (sr.subjectEmpireId === fromId && sr.overlordEmpireId === rel.targetEmpireId) {
+      addRelationModifier(rel, { kind: "structural", label: sr.protection ? "Protected subject" : "Subject", opinionDelta: sr.protection ? 10 : 4, tensionDelta: -12 });
+      if (sr.tributeRate > 0.08) addRelationModifier(rel, { kind: "structural", label: "Tribute burden", opinionDelta: -8, tensionDelta: 4 });
+    } else if (sr.overlordEmpireId === fromId && sr.subjectEmpireId === rel.targetEmpireId) {
+      addRelationModifier(rel, { kind: "structural", label: "Overlord", opinionDelta: 6, tensionDelta: -10 });
+    }
+  }
 }

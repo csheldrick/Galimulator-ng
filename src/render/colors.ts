@@ -51,7 +51,12 @@ export function eventColor(type: EventType): string {
     case "border-conflict":
     case "empire-collapsed":
     case "monster-attack":
+    case "subject-rebelled":
+    case "meteor-strike":
     case "monster-spawned": return "rgba(255,90,90,0.75)";
+    case "subject-created":
+    case "subject-integrated":
+    case "subject-liberated":
     case "empire-merged": return "rgba(90,150,255,0.75)";
     case "quest-launched":
     case "quest-completed": return "rgba(120,220,255,0.7)";

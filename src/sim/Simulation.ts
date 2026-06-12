@@ -1,17 +1,20 @@
-import type { ArtifactKind, GalaxyState, SimSettings, SaveFile, Id, Empire, EmpireRelationship, EmpirePriority, EmpireAdjustableProperty, EmpireMood, Ideology, CharacterTrait, TotemKind, StarSystem, SpyMission, ShipClass, WarFocus } from "../types/sim";
+import type { ArtifactKind, GalaxyState, SimSettings, SaveFile, Id, Empire, EmpireRelationship, EmpirePriority, EmpireAdjustableProperty, EmpireMood, Ideology, CharacterTrait, TotemKind, StarSystem, SpyMission, ShipClass, ShipRole, WarFocus, OddityKind } from "../types/sim";
 import { SeededRandom } from "./Random";
-import { generateGalaxy, makeRuler, pickGovernmentType, GOVERNMENT_RULER_TITLE } from "./Galaxy";
-import { executeTick } from "./Tick";
+import { generateGalaxy, makeRuler, pickGovernmentType, GOVERNMENT_RULER_TITLE, worldsFromTags } from "./Galaxy";
+import { executeTick, formFaction } from "./Tick";
+import { spawnMonster, spawnOddity } from "./Crises";
+import { createSubjectRelation, subjectOf, subjectsOf } from "./Subjects";
+import { SHIP_ROLE_SPEC } from "./ShipRoles";
 import { createEvent, getEventCounter, setEventCounter } from "./Events";
 import { IDEOLOGIES } from "./Moods";
 import { makeCourt } from "./Characters";
 import { foundDynasty, ensureDynasty, getPersonCounter, getDynastyCounter, setPersonCounter, setDynastyCounter } from "./Dynasty";
-import { addRelationModifier, getModifierSeq, setModifierSeq } from "./Relations";
+import { addRelationModifier, getModifierSeq, setModifierSeq, effectiveOpinion } from "./Relations";
 import { createArtifact, ensureArtifactObjects, pickArtifactKind, ARTIFACT_LABEL } from "./Artifacts";
 import { mergeEmpires } from "./Merge";
 import { findPath, pathLength } from "./Pathing";
 import { ensureEmpireRelationships } from "./Diplomacy";
-import type { RelationModifier, RelationModifierKind } from "../types/sim";
+import type { RelationModifier, RelationModifierKind, RelationModifierInput } from "../types/sim";
 
 
 const SAVE_VERSION = 8;
@@ -60,6 +63,7 @@ function upgradeState(state: GalaxyState): GalaxyState {
   state.artifacts ??= {};
   state.oddities ??= {};
   state.factions ??= {};
+  state.subjects ??= {};
   state.people ??= {};
   state.dynasties ??= {};
   state.transcendenceEnabled ??= true;
@@ -76,8 +80,15 @@ function upgradeState(state: GalaxyState): GalaxyState {
     sys.markers ??= [];
     sys.localWealth ??= 0;
     sys.planets ??= [];
+    sys.worlds ??= worldsFromTags(sys.name, sys.planets, sys.habitability);
     sys.factionId ??= null;
     sys.totem ??= null;
+  }
+  for (const f of Object.values(state.factions)) {
+    f.status ??= "organizing";
+    f.support ??= 0.3;
+    f.militancy ??= f.uprisingProgress * 0.8;
+    f.legitimacy ??= 0.4;
   }
   for (const emp of Object.values(state.empires)) {
     emp.ideology ??= IDEOLOGIES[0];
@@ -414,6 +425,49 @@ export class Simulation {
   }
 
   /** Galaxy-wide chaos: throw every empire into a riot. */
+  // ── Sandbox commands ─────────────────────────────────────────────────────────
+  // Direct observer interventions. Each creates an event so the timeline records the meddling.
+
+  /** Unleash a random monster from the galactic fringe. */
+  sandboxSpawnMonster(): void {
+    spawnMonster(this.state, this.rng);
+    this._touch();
+  }
+
+  /** Manifest a space oddity, optionally of a chosen kind. */
+  sandboxSpawnOddity(kind?: OddityKind): void {
+    spawnOddity(this.state, this.rng, kind);
+    this._touch();
+  }
+
+  /** Hurl a meteor at a star: population, stability, and local wealth take the hit. */
+  sandboxThrowMeteor(systemId: Id): void {
+    const sys = this.state.systems[systemId];
+    if (!sys) return;
+    sys.population = Math.max(0.02, sys.population * 0.35);
+    sys.stability = Math.max(0.05, sys.stability - 0.35);
+    sys.localWealth = Math.max(0, (sys.localWealth ?? 0) * 0.4);
+    sys.markers ??= [];
+    if (!sys.markers.some(m => m.kind === "monster-wound")) {
+      sys.markers.push({ kind: "monster-wound", since: this.state.tick, label: "Meteor impact scar" });
+    }
+    createEvent(this.state, this.state.tick, "meteor-strike", `Meteor strike on ${sys.name}`,
+      `A meteor hurled from beyond the void struck ${sys.name}, shattering cities and scattering its people.`,
+      4, sys.ownerEmpireId ? [sys.ownerEmpireId] : [], [sys.id]);
+    this._touch();
+  }
+
+  /** Seed an internal faction on an owned star. Returns false if the star is unowned or already organized. */
+  sandboxSeedFaction(systemId: Id): boolean {
+    const sys = this.state.systems[systemId];
+    if (!sys || !sys.ownerEmpireId || sys.factionId) return false;
+    const emp = this.state.empires[sys.ownerEmpireId];
+    if (!emp) return false;
+    formFaction(this.state, emp, sys, this.rng);
+    this._touch();
+    return true;
+  }
+
   riotGalaxy(): void {
     let n = 0;
     for (const emp of Object.values(this.state.empires)) {
@@ -527,31 +581,34 @@ export class Simulation {
     return god.id;
   }
 
-  /** Ship builder: spawn a military patrol ship of the chosen class at a star, for its owner. */
-  buildShipAtSystem(systemId: Id, shipClass: ShipClass): Id | null {
+  /** Ship builder: spawn a patrol ship of the chosen class — or a specialized role ship — at a star, for its owner. */
+  buildShipAtSystem(systemId: Id, shipClass: ShipClass, role?: ShipRole): Id | null {
     const sys = this.state.systems[systemId];
     if (!sys || !sys.ownerEmpireId) return null;
     const owner = this.state.empires[sys.ownerEmpireId];
     if (!owner) return null;
+    if (role && !SHIP_ROLE_SPEC[role].buildableIn.sandbox) return null;
     const mods: Record<ShipClass, { speed: number; strength: number }> = {
       settler: { speed: 1, strength: 1 }, raider: { speed: 1.45, strength: 0.6 },
       strike: { speed: 1, strength: 1 }, armada: { speed: 0.7, strength: 1.9 },
     };
     const m = mods[shipClass];
+    const spec = role ? SHIP_ROLE_SPEC[role] : null;
     const base = (shipClass === "armada" ? 30 : shipClass === "raider" ? 13 : 20) + owner.techLevel * 8;
-    const strength = base * m.strength;
+    const strength = spec ? spec.baseStrength + owner.techLevel * 6 : base * m.strength;
     const hull = Math.max(8, strength * 0.6);
     const id = `fleet-built-${this.state.tick}-${Object.keys(this.state.fleets).length}-${this.rng.nextInt(0, 9999)}`;
     const banner = owner.name.split(" ")[0] ?? "Imperial";
+    const label = spec ? spec.label : `${shipClass[0].toUpperCase()}${shipClass.slice(1)}`;
     this.state.fleets[id] = {
-      id, name: `${banner} ${shipClass[0].toUpperCase()}${shipClass.slice(1)} at ${sys.name}`, kind: "patrol", shipClass,
+      id, name: `${banner} ${label} at ${sys.name}`, kind: "patrol", shipClass, role,
       ownerEmpireId: owner.id, originSystemId: sys.id, targetSystemId: sys.id,
       path: [sys.id], legIndex: 0, legProgress: 1, totalDist: 1,
       x: sys.x, y: sys.y, progress: 1,
-      speed: (this.rng.range(1.4, 2.8) + owner.techLevel * 0.5) * m.speed,
+      speed: (this.rng.range(1.4, 2.8) + owner.techLevel * 0.5) * (spec ? spec.speedMul : m.speed),
       strength, createdTick: this.state.tick, hp: hull, maxHp: hull, level: 1, xp: 0,
     };
-    createEvent(this.state, this.state.tick, "golden-age", `${owner.name} commissioned a ${shipClass}`, `A ${shipClass} was raised at ${sys.name} by divine command.`, 1, [owner.id], [sys.id]);
+    createEvent(this.state, this.state.tick, "golden-age", `${owner.name} commissioned a ${label.toLowerCase()}`, `A ${label.toLowerCase()} was raised at ${sys.name} by divine command.`, 1, [owner.id], [sys.id]);
     this._touch();
     return id;
   }
@@ -703,6 +760,41 @@ export class Simulation {
     return Object.values(this.state.fleets).filter(f => f.ownerEmpireId === empireId && (f.kind === "patrol" || f.kind === "war" || f.kind === "flagship"));
   }
 
+  /** Demand a much weaker neighbor submit as vassal or tributary. Refusal raises tension. */
+  commandDemandSubmission(targetEmpireId: Id): boolean {
+    // 1. validate
+    if (!this._canCommand("demand-submission", 120, 40)) return false;
+    const pc = this.state.playerControl;
+    const emp = this.state.empires[pc.controlledEmpireId!]!;
+    const target = this.state.empires[targetEmpireId];
+    if (!target || target.id === emp.id) return false;
+    if (subjectOf(this.state, emp.id) || subjectOf(this.state, target.id) || subjectsOf(this.state, target.id).length > 0) return false;
+    const powerOf = (e: Empire) => e.militaryStrength + (e.militaryBonus ?? 0) + e.ownedSystemIds.length * 10;
+    if (powerOf(emp) < powerOf(target) * 1.6) return false;
+    // 2. spend
+    this._spendCommand("demand-submission", 40);
+    // 3. mutate + 4. event
+    const relBack = this._relationship(target, emp.id);
+    const chance = Math.min(0.85, 0.25 + (powerOf(emp) / Math.max(1, powerOf(target))) * 0.12 + effectiveOpinion(relBack, this.state.tick) / 400);
+    if (this.rng.next() < chance) {
+      // createSubjectRelation emits the player-facing subject-created event
+      const status = target.ownedSystemIds.length <= 2 ? "vassal" : "tributary";
+      createSubjectRelation(this.state, target.id, emp.id, status, this.state.tick);
+    } else {
+      const rel = this._relationship(emp, targetEmpireId);
+      rel.tension = Math.min(100, rel.tension + 20);
+      relBack.tension = Math.min(100, relBack.tension + 20);
+      const ev = createEvent(this.state, this.state.tick, "border-conflict", `${target.name} defied ${emp.name}`,
+        `${target.name} rejected ${emp.name}'s demand for submission. Tensions soar along the border.`,
+        3, [emp.id, target.id], []);
+      const mod: RelationModifierInput = { kind: "diplomacy", label: "Demanded submission", opinionDelta: -15, tensionDelta: 12, expiresAtTick: this.state.tick + 700, sourceEventId: ev.id };
+      addRelationModifier(rel, mod); addRelationModifier(relBack, { ...mod });
+    }
+    // 5. _touch once
+    this._touch();
+    return true;
+  }
+
   commandRallyFleet(targetSystemId: Id): boolean {
     // 1. validate
     if (!this._canCommand("rally", 15, 20)) return false;
@@ -733,25 +825,29 @@ export class Simulation {
     return true;
   }
 
-  commandBuildShip(systemId: Id, shipClass: ShipClass): boolean {
-    const commandKey = `ship-${shipClass}`;
-    const authCost = shipClass === "armada" ? 28 : 18;
+  commandBuildShip(systemId: Id, shipClass: ShipClass, role?: ShipRole): boolean {
+    const spec = role ? SHIP_ROLE_SPEC[role] : null;
+    if (spec && !spec.buildableIn.emperor) return false;
+    const commandKey = role ? `ship-${role}` : `ship-${shipClass}`;
+    const authCost = spec ? spec.authority : shipClass === "armada" ? 28 : 18;
     if (!this._canCommand(commandKey, 18, authCost)) return false;
     const pc = this.state.playerControl;
     const emp = this.state.empires[pc.controlledEmpireId!]!;
     const sys = this.state.systems[systemId];
     if (!sys || sys.ownerEmpireId !== emp.id) return false;
     if (this._activeBuiltShips(emp.id).length >= this._shipCapacity(emp)) return false;
-    const cost = shipClass === "armada" ? 180 : shipClass === "strike" ? 110 : 80;
+    const cost = spec ? spec.cost : shipClass === "armada" ? 180 : shipClass === "strike" ? 110 : 80;
     if (emp.wealth < cost) return false;
     this._spendCommand(commandKey, authCost);
-    const id = `ship-${shipClass}-${this.state.tick}-${Object.keys(this.state.fleets).length}`;
-    const strength = (shipClass === "armada" ? 34 : shipClass === "strike" ? 22 : 14) + emp.techLevel * 8;
+    const id = `ship-${role ?? shipClass}-${this.state.tick}-${Object.keys(this.state.fleets).length}`;
+    const strength = spec ? spec.baseStrength + emp.techLevel * 6 : (shipClass === "armada" ? 34 : shipClass === "strike" ? 22 : 14) + emp.techLevel * 8;
+    const label = spec ? spec.label : `${shipClass === "armada" ? "Armada" : shipClass === "strike" ? "Strike" : "Raider"} Patrol`;
     this.state.fleets[id] = {
       id,
-      name: `${emp.name.split(" ")[0]} ${shipClass === "armada" ? "Armada" : shipClass === "strike" ? "Strike" : "Raider"} Patrol`,
+      name: `${emp.name.split(" ")[0]} ${label}`,
       kind: "patrol",
       shipClass,
+      role,
       ownerEmpireId: emp.id,
       originSystemId: sys.id,
       targetSystemId: sys.id,
@@ -762,7 +858,7 @@ export class Simulation {
       x: sys.x,
       y: sys.y,
       progress: 1,
-      speed: shipClass === "raider" ? 2.6 : shipClass === "armada" ? 1.4 : 2,
+      speed: (shipClass === "raider" ? 2.6 : shipClass === "armada" ? 1.4 : 2) * (spec ? spec.speedMul : 1),
       strength,
       hp: strength,
       maxHp: strength,
@@ -773,7 +869,7 @@ export class Simulation {
     emp.wealth = Math.max(0, emp.wealth - cost);
     sys.markers ??= [];
     if (!sys.markers.some(m => m.kind === "shipyard")) sys.markers.push({ kind: "shipyard", since: this.state.tick, label: "Imperial ship construction" });
-    createEvent(this.state, this.state.tick, "golden-age", `${emp.name} built a ${shipClass} patrol`, `${emp.ruler.title} ${emp.ruler.name} commissioned a ${shipClass} patrol at ${sys.name}.`, 2, [emp.id], [sys.id]);
+    createEvent(this.state, this.state.tick, "golden-age", `${emp.name} built a ${label.toLowerCase()}`, `${emp.ruler.title} ${emp.ruler.name} commissioned a ${label.toLowerCase()} at ${sys.name}.`, 2, [emp.id], [sys.id]);
     this._touch();
     return true;
   }

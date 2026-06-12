@@ -1,5 +1,16 @@
 # Original Galimulator Polish Implementation Plan
 
+## Implementation Status
+
+- Gap 1 (Sandbox commands): **Done** — `sandboxSpawnMonster`, `sandboxSpawnOddity`, `sandboxThrowMeteor`, `sandboxSeedFaction` on `Simulation`, surfaced in the inspector (system god controls + galaxy Sandbox section). Every command emits an event. Explicit `PlayerMode` enum not added; god controls remain the sandbox surface.
+- Gap 2 (Subject states / diplomacy requests): **Done** — `SubjectRelation` (vassal/protectorate/tributary/client-state) in `src/sim/Subjects.ts`: tribute, loyalty/autonomy drift, protective war joins, rebellion, integration, liberation; created via one-sided peace, voluntary protectorates, and the `commandDemandSubmission` emperor command. Structural relation modifiers (Subject/Overlord/Tribute burden) and war/alliance/merge guards included.
+- Gap 3 (Ship roles / build menu): **Done** — `ShipRole` layer (science/missionary/support/gunstation/dropship/disruptor) in `src/sim/ShipRoles.ts` with `buildableIn` metadata; the raider/strike/armada classes remain the battleship line. Systemic effects only: science raises tech and discovers artifacts, missionaries spread the state faith, support ships stabilize and repair, gun stations add stationary local defense, dropships sponsor frontier colonization, disruptors slow enemy fleets. Role-aware patrol routing; AI empires commission fitting specialists; compact build menu replaces the fixed Raider/Strike/Armada buttons; role tints + gunstation ring on the map.
+- Gap 4 (Planet objects): **Done (lightweight)** — `Planet` objects in `StarSystem.worlds`, deterministically derived from tags (`worldsFromTags`); named worlds with type/habitability/population share in the inspector. Mechanics stay tag/star-level.
+- Gap 5 (Faction polish): **Done** — `status`/`support`/`militancy`/`legitimacy` fields maintained each tick, shown in inspector, plus sandbox seed-faction command and headless tallies.
+- Gap 6 (Career readability): **Done** — bounded career logs on `Character` (appointed, won/lost battles, mutinies) and milestone logs on `Person` (founded house, crowned ruler); shown in court tooltips and a ruler Milestones row in the lineage section; headless report tallies promotions/falls and names the top house by prestige.
+- Gap 7 (Artifact build choice): **Done** — Build Artifact now has an artifact-kind menu in the Empire Control panel.
+- Gap 8 (Report expansion): **Done** — headless report now tallies factions (active/worlds/near-uprising/formed/uprisings), subjects (by status, created/rebelled/integrated/liberated), quests, specialist ships by role, and career promotions/falls with the top house by prestige.
+
 ## Purpose
 
 This is a planning-only audit. No implementation is included here.

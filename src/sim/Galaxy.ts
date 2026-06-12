@@ -1,5 +1,5 @@
 import type { PRNG, StarSystem, Empire, GalaxyState, Id, Ruler, Religion, Person, Dynasty, CharacterTrait } from "../types/sim";
-import type { GalaxyShape, StarlaneMode, EmpireLayout, GridAlignment, PlanetTag, GovernmentType } from "../types/sim";
+import type { GalaxyShape, StarlaneMode, EmpireLayout, GridAlignment, PlanetTag, Planet, GovernmentType } from "../types/sim";
 import { resetEventCounter } from "./Events";
 import { resetModifierSeq } from "./Relations";
 import { makeReligion } from "./Religion";
@@ -385,6 +385,42 @@ function makePlanets(rng: PRNG, habitability: number, resources: number, hasArti
   return tags;
 }
 
+const ROMAN_ORDINAL = ["I", "II", "III", "IV", "V", "VI"];
+
+export const PLANET_TAG_LABEL: Record<PlanetTag, string> = {
+  barren: "Barren World", oceanic: "Ocean World", industrial: "Industrial World",
+  sacred: "Sacred World", ruined: "Ruined World", fortress: "Fortress World",
+  garden: "Garden World", toxic: "Toxic World", frozen: "Frozen World", ancient: "Ancient World",
+};
+
+/** Filler tags for the mundane companion worlds that round out a system. */
+const FILLER_TAGS: PlanetTag[] = ["barren", "frozen", "toxic", "barren"];
+
+const TAG_HABITABILITY: Partial<Record<PlanetTag, number>> = {
+  garden: 0.95, oceanic: 0.85, sacred: 0.6, industrial: 0.55, fortress: 0.5,
+  ancient: 0.4, ruined: 0.3, toxic: 0.1, frozen: 0.12, barren: 0.05,
+};
+
+/** Deterministically expand a star's planet tags into 1–4 named worlds.
+ *  Pure function of its inputs so galaxy generation and save upgrades agree without an RNG. */
+export function worldsFromTags(systemName: string, tags: PlanetTag[], habitability: number): Planet[] {
+  let hash = 0;
+  for (let i = 0; i < systemName.length; i++) hash = (hash * 31 + systemName.charCodeAt(i)) >>> 0;
+  const fillers = tags.length >= 4 ? 0 : hash % Math.min(3, 5 - tags.length);
+  const allTags: PlanetTag[] = [...tags];
+  for (let i = 0; i < fillers; i++) allTags.push(FILLER_TAGS[(hash + i) % FILLER_TAGS.length]);
+  const weights = allTags.map(t => 0.05 + (TAG_HABITABILITY[t] ?? 0.2));
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  return allTags.slice(0, 4).map((tag, i) => ({
+    id: `${systemName}-pl-${i}`,
+    name: `${systemName} ${ROMAN_ORDINAL[i] ?? i + 1}`,
+    ordinal: i + 1,
+    type: tag,
+    habitability: Math.max(0.02, Math.min(1, (TAG_HABITABILITY[tag] ?? 0.3) * (0.6 + habitability * 0.6))),
+    populationShare: weights[i] / totalWeight,
+  }));
+}
+
 // ── Government type ───────────────────────────────────────────────────────────
 
 const GOVERNMENT_TYPES: GovernmentType[] = [
@@ -607,9 +643,11 @@ export function generateGalaxy(
     const hasArtifact = rng.next() < 0.04;
     const habitability = rng.range(0.1, 1.0);
     const resources = rng.range(0.1, 1.0);
+    const sysName = makeName(rng);
+    const planetTags = makePlanets(rng, habitability, resources, hasArtifact);
     const system: StarSystem = {
       id,
-      name: makeName(rng),
+      name: sysName,
       x,
       y,
       population: rng.range(0.1, 1.0),
@@ -625,7 +663,8 @@ export function generateGalaxy(
       connectedSystemIds: [],
       markers: [],
       localWealth: rng.range(0, 30),
-      planets: makePlanets(rng, habitability, resources, hasArtifact),
+      planets: planetTags,
+      worlds: worldsFromTags(sysName, planetTags, habitability),
       factionId: null,
     };
     applyShapeBias(system, galaxyShape, CX, CY);

@@ -19,10 +19,20 @@ interface Tally {
   crises: number;
   artifacts: number;
   mergers: number;
+  factionsFormed: number;
+  factionUprisings: number;
+  questsLaunched: number;
+  questsCompleted: number;
+  subjectsCreated: number;
+  subjectRebellions: number;
+  subjectIntegrations: number;
+  subjectLiberations: number;
+  promotions: number;
+  falls: number;
 }
 
 function emptyTally(): Tally {
-  return { founded: 0, collapsed: 0, transcended: 0, rebellions: 0, warsDeclared: 0, coups: 0, monstersSpawned: 0, monstersSlain: 0, conversions: 0, newFaiths: 0, crises: 0, artifacts: 0, mergers: 0 };
+  return { founded: 0, collapsed: 0, transcended: 0, rebellions: 0, warsDeclared: 0, coups: 0, monstersSpawned: 0, monstersSlain: 0, conversions: 0, newFaiths: 0, crises: 0, artifacts: 0, mergers: 0, factionsFormed: 0, factionUprisings: 0, questsLaunched: 0, questsCompleted: 0, subjectsCreated: 0, subjectRebellions: 0, subjectIntegrations: 0, subjectLiberations: 0, promotions: 0, falls: 0 };
 }
 
 const TALLY_OF: Partial<Record<EventType, keyof Tally>> = {
@@ -39,6 +49,16 @@ const TALLY_OF: Partial<Record<EventType, keyof Tally>> = {
   "galactic-crisis": "crises",
   "artifact-discovered": "artifacts",
   "empire-merged": "mergers",
+  "faction-formed": "factionsFormed",
+  "faction-uprising": "factionUprisings",
+  "quest-launched": "questsLaunched",
+  "quest-completed": "questsCompleted",
+  "subject-created": "subjectsCreated",
+  "subject-rebelled": "subjectRebellions",
+  "subject-integrated": "subjectIntegrations",
+  "subject-liberated": "subjectLiberations",
+  "character-rose": "promotions",
+  "character-fell": "falls",
 };
 
 function graphMetrics(state: GalaxyState) {
@@ -82,7 +102,21 @@ function snapshotMetrics(state: GalaxyState, originalIds: Set<Id>) {
     const len = lineageChain(state, e, 999).length;
     if (len > deepestChain) { deepestChain = len; deepestName = `${e.name} (House of ${state.dynasties?.[e.dynastyId ?? ""]?.name ?? "?"})`; }
   }
+  const factionList = Object.values(state.factions ?? {});
+  const subjectList = Object.values(state.subjects ?? {});
+  const subjectsByStatus: Record<string, number> = {};
+  for (const sr of subjectList) subjectsByStatus[sr.status] = (subjectsByStatus[sr.status] ?? 0) + 1;
+  const shipsByRole: Record<string, number> = {};
+  for (const f of Object.values(state.fleets)) if (f.role) shipsByRole[f.role] = (shipsByRole[f.role] ?? 0) + 1;
+  const topDynasty = Object.values(dynasties).filter(d => d.extinctTick === undefined).sort((a, b) => b.prestige - a.prestige)[0] ?? null;
   return {
+    shipsByRole,
+    topDynasty,
+    factionsActive: factionList.length,
+    factionWorlds: factionList.reduce((sum, f) => sum + f.systemIds.length, 0),
+    nearUprisings: factionList.filter(f => f.uprisingProgress > 0.75).length,
+    subjects: subjectList.length,
+    subjectsByStatus,
     people: Object.keys(state.people ?? {}).length,
     dynasties: Object.keys(dynasties).length,
     livingDynasties,
@@ -162,6 +196,11 @@ export function runHeadlessReport(settings: SimSettings, milestones: number[] = 
         `- Religion: ${m.faiths} faiths · ${cumulative.newFaiths} founded · ${cumulative.conversions} state conversions`,
         `  - Spread: ${m.topFaiths.map(f => `${f.name} (${f.worlds})`).join(", ") || "none"}`,
         `- Monsters: ${m.monsters} at large · ${cumulative.monstersSpawned} spawned · ${cumulative.monstersSlain} slain · Oddities roaming: ${m.oddities} · Crises/oddity events: ${cumulative.crises}`,
+        `- Factions: ${m.factionsActive} active (${m.factionWorlds} worlds, ${m.nearUprisings} near uprising) · ${cumulative.factionsFormed} formed · ${cumulative.factionUprisings} uprisings`,
+        `- Subjects: ${m.subjects} active${m.subjects ? ` (${Object.entries(m.subjectsByStatus).map(([k, n]) => `${n} ${k}`).join(", ")})` : ""} · ${cumulative.subjectsCreated} created · ${cumulative.subjectRebellions} rebellions · ${cumulative.subjectIntegrations} integrations · ${cumulative.subjectLiberations} liberations`,
+        `- Quests: ${cumulative.questsLaunched} launched · ${cumulative.questsCompleted} completed`,
+        `- Specialist ships: ${Object.keys(m.shipsByRole).length ? Object.entries(m.shipsByRole).map(([r, n]) => `${n} ${r}`).join(", ") : "none"} active`,
+        `- Careers: ${cumulative.promotions} promotions · ${cumulative.falls} falls · top house: ${m.topDynasty ? `${m.topDynasty.name} (prestige ${m.topDynasty.prestige.toFixed(0)})` : "none"}`,
         ``,
       );
       lastFounded = cumulative.founded;

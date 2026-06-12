@@ -128,6 +128,11 @@ export function stepCharacters(state: GalaxyState, rng: PRNG): void {
   }
 }
 
+/** Append a career milestone, keeping the log bounded so long-lived characters don't bloat saves. */
+export function pushCareer(c: Character, note: string): void {
+  c.career = [...(c.career ?? []), note].slice(-12);
+}
+
 function ensureCourtSlots(state: GalaxyState, emp: Empire, rng: PRNG): void {
   if (!emp.court.some(c => c.role === "admiral")) emp.court.push(promote(state, emp, "admiral", rng));
   if (!emp.court.some(c => c.role === "minister")) emp.court.push(promote(state, emp, "minister", rng));
@@ -138,6 +143,7 @@ function ensureCourtSlots(state: GalaxyState, emp: Empire, rng: PRNG): void {
 
 function promote(state: GalaxyState, emp: Empire, role: CharacterRole, rng: PRNG): Character {
   const c = makeCharacter(rng, role, state.tick);
+  pushCareer(c, `Appointed ${c.title} of ${emp.name} (t${state.tick})`);
   if (c.renown > 0.3 || role === "prophet") {
     const cap = state.systems[emp.capitalSystemId];
     createEvent(state, state.tick, "character-rose", `${c.title} ${c.name} rises in ${emp.name}`,
@@ -153,6 +159,7 @@ function churnCourt(state: GalaxyState, emp: Empire, rng: PRNG): void {
   const gone = rng.pick(pool);
   emp.court = emp.court.filter(c => c.id !== gone.id);
   const replacement = makeCharacter(rng, gone.role, state.tick);
+  pushCareer(replacement, `Appointed ${replacement.title} of ${emp.name} (t${state.tick})`);
   emp.court.push(replacement);
   if (gone.renown > 0.45) {
     const cap = state.systems[emp.capitalSystemId];
