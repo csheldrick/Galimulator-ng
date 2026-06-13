@@ -38,7 +38,7 @@ Fable-like project cognition.
 -
 
 ## Latest transfer result
-- 2026-06-13 overlay.md: avg 3.5/4 (strong); primitives 9✓/1~/0✗
+- 2026-06-13 enhanced.md: avg 3.3/4 (strong); primitives 9✓/1~/0✗
 
 ## Capsule adjustments
 -

@@ -35,7 +35,7 @@ const LEGACY_MODIFIER_KIND: Record<string, RelationModifierKind> = {
   "Trade partner": "structural", "Common enemy": "structural",
   "Recent war": "war", "Forced into war": "war",
   "Recent peace": "peace", "Forced into peace": "peace",
-  "Capital occupied": "clash", "Border clash": "clash",
+  "Capital occupied": "grievance", "Border clash": "clash",
   "Caught spy network": "spy",
   "Diplomatic accident": "diplomacy", "Diplomatic masterstroke": "diplomacy", "Secret diplomatic channel": "diplomacy",
 };

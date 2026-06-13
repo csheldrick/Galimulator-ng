@@ -92,6 +92,7 @@ export type RelationModifierKind =
   | "war"
   | "peace"
   | "clash"
+  | "grievance"
   | "spy"
   | "diplomacy";
 

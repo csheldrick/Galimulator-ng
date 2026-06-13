@@ -1210,11 +1210,12 @@ function resolveFleetArrival(state: GalaxyState, fleet: Fleet, rng: PRNG): void 
       if (defender.capitalSystemId === target.id && defender.ownedSystemIds.length > 0) defender.capitalSystemId = defender.ownedSystemIds[0];
       if (fleetAdmiral) { fleetAdmiral.renown = Math.min(1, fleetAdmiral.renown + 0.08); fleetAdmiral.loyalty = Math.min(1, fleetAdmiral.loyalty + 0.02); pushCareer(fleetAdmiral, `Won the Battle of ${target.name} (t${state.tick})`); }
       const credit = fleet.admiralName ? ` ${fleet.admiralName} is hailed for the victory.` : "";
-      const captureEv = createEvent(state, state.tick, "border-conflict", `${owner.name} captured ${target.name}`, `${fleet.name} seized ${target.name} from ${defender.name}.${credit}`, tookCapital ? 4 : 3, [owner.id, defenderId], [target.id]);
+      const grievanceText = tookCapital ? ` House ${defender.ruler.dynasty} will remember the fall of its capital.` : "";
+      const captureEv = createEvent(state, state.tick, "border-conflict", `${owner.name} captured ${target.name}`, `${fleet.name} seized ${target.name} from ${defender.name}.${credit}${grievanceText}`, tookCapital ? 4 : 3, [owner.id, defenderId], [target.id]);
       if (tookCapital) {
         // losing the throne world is a wound diplomacy remembers for a long time
         const relBack = defender.relationshipByEmpireId[owner.id];
-        if (relBack) addRelationModifier(relBack, { kind: "clash", label: "Capital occupied", opinionDelta: -30, tensionDelta: 25, expiresAtTick: state.tick + 1500, sourceEventId: captureEv.id });
+        if (relBack) addRelationModifier(relBack, { kind: "grievance", label: `Grievance: fall of ${target.name}`, opinionDelta: -35, tensionDelta: 30, expiresAtTick: state.tick + 3600, sourceEventId: captureEv.id });
       }
       discoverArtifact(state, target);
       if (defender.ownedSystemIds.length === 0) collapseEmpire(state, defender, rng);

@@ -10,6 +10,7 @@ import { GalaxyPulse } from "../ui/GalaxyPulse";
 import { EventLog } from "../ui/EventLog";
 import { TopStories } from "../ui/TopStories";
 import { MOOD_LABEL, IDEOLOGY_LABEL, rulerDisplayName } from "../sim/Moods";
+import { activeModifiers } from "../sim/Relations";
 import { runHeadlessReport, runPresetSweep } from "../sim/Headless";
 import "./App.css";
 
@@ -60,6 +61,15 @@ function buildReport(snapshot: Readonly<GalaxyState>): string {
     const followers = systems.filter(s => s.religionId === r.id).length;
     return { r, followers };
   }).sort((a, b) => b.followers - a.followers);
+  const grievances = empires.flatMap(emp =>
+    Object.values(emp.relationshipByEmpireId).flatMap(rel => {
+      const target = snapshot.empires[rel.targetEmpireId];
+      if (!target) return [];
+      return activeModifiers(rel, snapshot.tick)
+        .filter(m => m.kind === "grievance")
+        .map(mod => ({ emp, target, mod, ev: mod.sourceEventId ? snapshot.events[mod.sourceEventId] : undefined }));
+    })
+  ).sort((a, b) => (b.ev?.tick ?? 0) - (a.ev?.tick ?? 0) || b.mod.tensionDelta - a.mod.tensionDelta);
   return [
     `# galimulator-ng history report`, ``,
     `Seed: ${snapshot.seed}`, `Tick: ${snapshot.tick}`, `Systems: ${systems.length}`,
@@ -74,6 +84,12 @@ function buildReport(snapshot: Readonly<GalaxyState>): string {
     ...empires.slice(0, 12).map((e, i) => `${i + 1}. ${e.name} — ${e.ownedSystemIds.length} systems, ${MOOD_LABEL[e.mood].toLowerCase()}, ${IDEOLOGY_LABEL[e.ideology].toLowerCase()}, ruled by ${rulerDisplayName(e)} of the ${e.ruler.dynasty} dynasty, pop ${Math.round(e.population)}, tech ${e.techLevel.toFixed(2)}, cohesion ${e.cohesion.toFixed(2)}`),
     ``, `## Faiths`,
     ...religions.map(({ r, followers }) => `- ${r.name} — ${followers} worlds (holy world: ${snapshot.systems[r.holySystemId]?.name ?? "lost"})`),
+    ...(grievances.length > 0 ? [
+      ``, `## Remembered grievances`,
+      ...grievances.slice(0, 12).map(({ emp, target, mod, ev }) =>
+        `- ${emp.name} against ${target.name} — ${mod.label}${ev ? ` from [${ev.tick}] ${ev.title}` : ""}; diplomacy ${mod.opinionDelta} opinion, ${mod.tensionDelta >= 0 ? "+" : ""}${mod.tensionDelta} tension`
+      ),
+    ] : []),
     ``, `## Recent history`, ...events.map(ev => `- [${ev.tick}] ${ev.title}: ${ev.description}`), ``,
   ].join("\n");
 }
