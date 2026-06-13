@@ -1,4 +1,5 @@
-import type { GalaxyState, Id, Empire, Person, EmpireAdjustableProperty, EmpireMood, Ideology, CharacterTrait, TotemKind, ShipClass, ShipRole } from "../types/sim";
+import { useState } from "react";
+import type { ArtifactKind, GalaxyState, Id, Empire, Person, EmpireAdjustableProperty, EmpireMood, Ideology, CharacterTrait, TotemKind, ShipClass, ShipRole } from "../types/sim";
 import { SHIP_ROLES, SHIP_ROLE_SPEC } from "../sim/ShipRoles";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL, TRAIT_LABEL } from "../sim/Characters";
@@ -43,10 +44,15 @@ interface Props {
   onSetEmpireIdeology: (id: Id, ideology: Ideology) => void;
   onToggleRulerTrait: (id: Id, trait: CharacterTrait) => void;
   onSetSystemTotem: (id: Id, totem: TotemKind | null) => void;
+  onMoveSystem: (id: Id, dx: number, dy: number) => void;
+  onConnectNearest: (id: Id) => void;
+  onPruneLane: (id: Id) => void;
+  onBuildArtifact: (id: Id, kind?: ArtifactKind) => void;
   onBuildShip: (id: Id, shipClass: ShipClass, role?: ShipRole) => void;
   onForceWar: (a: Id, b: Id) => void;
   onForcePeace: (a: Id, b: Id) => void;
   onForceMerge: (dominant: Id, absorbed: Id) => void;
+  onForceAlliance: (a: Id, b: Id) => void;
   onThrowMeteor: (id: Id) => void;
   onSpawnMonster: () => void;
   onSpawnOddity: () => void;
@@ -70,6 +76,7 @@ const TOTEMS: { kind: TotemKind; label: string }[] = [
 const SHIP_CLASSES: { cls: ShipClass; label: string }[] = [
   { cls: "raider", label: "Raider" }, { cls: "strike", label: "Strike" }, { cls: "armada", label: "Armada" },
 ];
+const ARTIFACT_KINDS: ArtifactKind[] = ["research-lab", "fleet-base", "holy-monument", "financial-center", "sentinel-station", "stellar-forcefield", "mind-control-hub", "lost-archive", "strange-engine"];
 
 const EMPIRE_ADJUST_STATS: { prop: EmpireAdjustableProperty; label: string; get: (e: Empire) => number; dec: number }[] = [
   { prop: "wealth", label: "Wealth", get: e => e.wealth, dec: 0 },
@@ -154,9 +161,10 @@ function LineageSection({ snapshot, emp }: { snapshot: Readonly<GalaxyState>; em
 
 export function InspectorPanel({
   snapshot, selectedSystemId, selectedEmpireId, selectedFleetId, followEmpireId, onSelectEmpire, onSelectSystem, onSelectFleet, onClearSelection, onCancelFleet, onToggleFollow,
-  onBoostSystem, onDevastateSystem, onNeutralizeSystem, onFoundEmpire, onBoostEmpire, onStabilizeEmpire, onWeakenEmpire, onInflameEmpire, onPacifyEmpire, onAdjustEmpire, onSetEmpireMood, onSetEmpireIdeology, onToggleRulerTrait, onSetSystemTotem, onBuildShip, onForceWar, onForcePeace, onForceMerge,
+  onBoostSystem, onDevastateSystem, onNeutralizeSystem, onFoundEmpire, onBoostEmpire, onStabilizeEmpire, onWeakenEmpire, onInflameEmpire, onPacifyEmpire, onAdjustEmpire, onSetEmpireMood, onSetEmpireIdeology, onToggleRulerTrait, onSetSystemTotem, onMoveSystem, onConnectNearest, onPruneLane, onBuildArtifact, onBuildShip, onForceWar, onForcePeace, onForceMerge, onForceAlliance,
   onThrowMeteor, onSpawnMonster, onSpawnOddity, onSeedFaction,
 }: Props) {
+  const [sandboxArtifactKind, setSandboxArtifactKind] = useState<ArtifactKind>("research-lab");
   const fleet = selectedFleetId ? snapshot.fleets[selectedFleetId] : null;
   const sys = !fleet && selectedSystemId ? snapshot.systems[selectedSystemId] : null;
   const emp = selectedEmpireId ? snapshot.empires[selectedEmpireId] : null;
@@ -306,6 +314,21 @@ export function InspectorPanel({
           )}
           <h4>God Controls</h4>
           <div className="god-grid"><button onClick={() => onBoostSystem(sys.id)}>Boost world</button><button onClick={() => onDevastateSystem(sys.id)}>Devastate</button><button onClick={() => onNeutralizeSystem(sys.id)} disabled={!sys.ownerEmpireId}>Free system</button><button onClick={() => onFoundEmpire(sys.id)}>Found empire</button><button onClick={() => onThrowMeteor(sys.id)}>Throw meteor</button><button onClick={() => onSeedFaction(sys.id)} disabled={!sys.ownerEmpireId || !!sys.factionId} title={sys.factionId ? "A faction already organizes here" : undefined}>Seed faction</button></div>
+          <div className="control-row" style={{ marginTop: 4 }}>
+            <label>Artifact</label>
+            <select style={{ flex: 1 }} value={sandboxArtifactKind} onChange={e => setSandboxArtifactKind(e.target.value as ArtifactKind)}>
+              {ARTIFACT_KINDS.map(k => <option key={k} value={k}>{ARTIFACT_LABEL[k]}</option>)}
+            </select>
+            <button onClick={() => onBuildArtifact(sys.id, sandboxArtifactKind)} disabled={!!sys.artifactId} title={sys.artifactId ? "This system already has an artifact" : "Place an artifact without emperor-mode cost limits"}>Build</button>
+          </div>
+          <div className="god-grid" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            <button onClick={() => onMoveSystem(sys.id, 0, -24)} title="Move selected star north">N</button>
+            <button onClick={() => onMoveSystem(sys.id, -24, 0)} title="Move selected star west">W</button>
+            <button onClick={() => onMoveSystem(sys.id, 24, 0)} title="Move selected star east">E</button>
+            <button onClick={() => onMoveSystem(sys.id, 0, 24)} title="Move selected star south">S</button>
+            <button onClick={() => onConnectNearest(sys.id)} title="Connect this star to the nearest unconnected star">Lane +</button>
+            <button onClick={() => onPruneLane(sys.id)} disabled={sys.connectedSystemIds.length === 0} title="Remove this star's longest lane">Lane -</button>
+          </div>
           <div className="control-row" style={{ marginTop: 4 }}>
             <label>Totem</label>
             <select style={{ flex: 1 }} value={sys.totem ?? ""} onChange={e => onSetSystemTotem(sys.id, (e.target.value || null) as TotemKind | null)}>
@@ -471,11 +494,12 @@ export function InspectorPanel({
               const bond = Object.values(snapshot.subjects ?? {}).find(sr =>
                 (sr.subjectEmpireId === emp.id && sr.overlordEmpireId === other.id) ||
                 (sr.subjectEmpireId === other.id && sr.overlordEmpireId === emp.id));
+              const sharedAlliance = (emp.allianceIds ?? []).some(id => (other.allianceIds ?? []).includes(id));
               return (
                 <div key={other.id} className={atWar ? "relation-row at-war" : "relation-row"}>
                   <div className="relation-head" onClick={() => onSelectEmpire(other.id)}><span className="emp-dot" style={{ background: other.color }} /><span>{other.name}</span>{bond && <small style={{ opacity: 0.6, marginLeft: 4 }}>{bond.subjectEmpireId === other.id ? `· ${SUBJECT_STATUS_LABEL[bond.status]}` : "· Overlord"}</small>}</div>
                   <div className="relation-stats"><span>T {fmt(tension, 0)}</span><span>O {fmt(opinion, 0)}</span><span>{atWar ? "WAR" : "peace"}</span></div>
-                  <div className="relation-actions"><button onClick={() => onForceWar(emp.id, other.id)} disabled={atWar}>War</button><button onClick={() => onForcePeace(emp.id, other.id)} disabled={!atWar}>Peace</button><button onClick={() => onForceMerge(emp.id, other.id)} disabled={atWar}>Merge</button></div>
+                  <div className="relation-actions"><button onClick={() => onForceWar(emp.id, other.id)} disabled={atWar}>War</button><button onClick={() => onForcePeace(emp.id, other.id)} disabled={!atWar}>Peace</button><button onClick={() => onForceMerge(emp.id, other.id)} disabled={atWar}>Merge</button><button onClick={() => onForceAlliance(emp.id, other.id)} disabled={sharedAlliance}>Alliance</button></div>
                   {mods.length > 0 && <div style={{ fontSize: 9, color: "rgba(180,200,240,0.6)", gridColumn: "1/-1", paddingLeft: 4, paddingBottom: 2 }}>{mods.map(m => `${m.opinionDelta >= 0 ? "+" : ""}${m.opinionDelta} ${m.label}`).join(" · ")}</div>}
                 </div>
               );

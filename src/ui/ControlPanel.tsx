@@ -24,6 +24,7 @@ interface Props {
   onPresetSweep: () => void;
   onRiotGalaxy: () => void;
   onBalanceGalaxy: () => void;
+  onWebStarlanes: () => void;
   onGodEmpire: () => void;
   transcendenceEnabled: boolean;
   onSetTranscendenceEnabled: (value: boolean) => void;
@@ -56,6 +57,7 @@ export function ControlPanel({
   onPresetSweep,
   onRiotGalaxy,
   onBalanceGalaxy,
+  onWebStarlanes,
   onGodEmpire,
   transcendenceEnabled,
   onSetTranscendenceEnabled,
@@ -164,6 +166,7 @@ export function ControlPanel({
         <div className="btn-row">
           <button onClick={onRiotGalaxy} title="Throw every empire into a riot">Riot All</button>
           <button onClick={onBalanceGalaxy} title="Destroy roughly half of all stars and fleets">Balance</button>
+          <button onClick={onWebStarlanes} title="Add nearby starlanes across the whole map">Web Lanes</button>
         </div>
 
         <div className="section-title">Save / Load</div>
@@ -203,6 +206,8 @@ export function ControlPanel({
                 <option value="religion">Religions</option>
                 <option value="wealth">Wealth</option>
                 <option value="alliance">Alliances</option>
+                <option value="heat">Heat</option>
+                <option value="faction">Factions</option>
               </select>
             </div>
             <div className="toggle-grid">

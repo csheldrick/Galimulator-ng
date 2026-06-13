@@ -1,7 +1,7 @@
 import type { GalaxyState, StarSystem } from "../types/sim";
 import { parseColorToRgb } from "./colors";
 
-export type MapMode = "empire" | "religion" | "wealth" | "alliance";
+export type MapMode = "empire" | "religion" | "wealth" | "alliance" | "heat" | "faction";
 
 // Resolution of the territory bitmap in world units per cell. Lower is
 // sharper but more expensive to rebuild.
@@ -13,6 +13,17 @@ const MARGIN = MAX_R + 8;
 // Unclaimed space inside the galaxy reads as dim slate, so the galaxy disc
 // has a visible shape against the void like Galimulator's neutral zones.
 const NEUTRAL_RGB: [number, number, number] = [88, 98, 112];
+const FACTION_RGB: Record<string, [number, number, number]> = {
+  separatist: [255, 146, 68],
+  religious: [205, 145, 255],
+  court: [255, 214, 102],
+  regional: [112, 224, 178],
+};
+const CONFLICT_EVENTS = new Set([
+  "war-declared", "border-conflict", "empire-collapsed", "rebellion", "monster-attack",
+  "galactic-crisis", "coup", "faction-formed", "faction-uprising", "subject-rebelled",
+  "meteor-strike", "succession-crisis", "pretender-revolt",
+]);
 
 export interface TerritoryBitmap {
   canvas: HTMLCanvasElement;
@@ -39,6 +50,15 @@ export function ownershipKey(snap: Readonly<GalaxyState>, mode: MapMode): string
       return `${s.id}:${owner?.allianceIds?.[0] ?? owner?.id ?? ""}`;
     }).join("|")}`;
   }
+  if (mode === "heat") {
+    return `heat|${systems.map(s => `${s.id}:${Math.round(conflictHeat(snap, s) * 8)}`).join("|")}`;
+  }
+  if (mode === "faction") {
+    return `faction|${systems.map(s => {
+      const faction = s.factionId ? snap.factions?.[s.factionId] : null;
+      return `${s.id}:${faction?.id ?? ""}:${Math.round((faction?.uprisingProgress ?? 0) * 5)}`;
+    }).join("|")}`;
+  }
   return `empire|${systems.map(s => `${s.id}:${s.ownerEmpireId ?? ""}`).join("|")}`;
 }
 
@@ -50,6 +70,37 @@ function wealthHeat(sys: StarSystem): [string, [number, number, number]] {
   const g = Math.round(70 + 140 * v);
   const b = Math.round(160 - 120 * v);
   return [`w${bucket}`, [r, g, b]];
+}
+
+function conflictHeat(snap: Readonly<GalaxyState>, sys: StarSystem): number {
+  let score = 0;
+  const owner = sys.ownerEmpireId ? snap.empires[sys.ownerEmpireId] : null;
+  if (owner) score += Math.min(0.35, owner.activeWarEmpireIds.length * 0.08);
+  for (const nid of sys.connectedSystemIds) {
+    const otherOwnerId = snap.systems[nid]?.ownerEmpireId;
+    if (!owner || !otherOwnerId || otherOwnerId === owner.id) continue;
+    if (owner.activeWarEmpireIds.includes(otherOwnerId)) score += 0.38;
+    else score += 0.04;
+  }
+  for (const marker of sys.markers ?? []) {
+    if (marker.kind === "battlefield") score += 0.24;
+    else if (marker.kind === "rebel-hotbed") score += 0.22;
+    else if (marker.kind === "monster-wound" || marker.kind === "plague-world") score += 0.18;
+  }
+  for (const eventId of sys.recentEventIds) {
+    const ev = snap.events[eventId];
+    if (!ev || !CONFLICT_EVENTS.has(ev.type)) continue;
+    const age = Math.max(0, snap.tick - ev.tick);
+    if (age <= 260) score += (ev.importance / 10) * (1 - age / 300);
+  }
+  return Math.max(0, Math.min(1, score));
+}
+
+function heatRgb(v: number): [number, number, number] {
+  const r = Math.round(40 + 215 * v);
+  const g = Math.round(72 + 110 * (1 - Math.abs(v - 0.45) * 1.7));
+  const b = Math.round(170 - 145 * v);
+  return [r, Math.max(35, Math.min(190, g)), Math.max(25, b)];
 }
 
 // Region group key + color for a system under the active map mode. Cells with
@@ -72,6 +123,30 @@ function systemRegion(snap: Readonly<GalaxyState>, sys: StarSystem, mode: MapMod
     if (alliance) return { key: alliance.id, rgb: parseColorToRgb(alliance.color ?? owner.color), neutral: false };
     // unallied empires read as their own dim color
     return { key: `solo-${owner.id}`, rgb: parseColorToRgb(owner.color), neutral: true };
+  }
+  if (mode === "heat") {
+    const heat = conflictHeat(snap, sys);
+    const bucket = Math.round(heat * 8);
+    return { key: `heat-${bucket}`, rgb: heatRgb(bucket / 8), neutral: bucket === 0 };
+  }
+  if (mode === "faction") {
+    const faction = sys.factionId ? snap.factions?.[sys.factionId] : null;
+    if (faction) {
+      const base = FACTION_RGB[faction.kind] ?? [255, 170, 80];
+      const pulse = Math.max(0, Math.min(1, faction.uprisingProgress));
+      return {
+        key: `${faction.id}-${Math.round(pulse * 5)}`,
+        rgb: [
+          Math.min(255, Math.round(base[0] + (255 - base[0]) * pulse * 0.25)),
+          Math.min(255, Math.round(base[1] + (255 - base[1]) * pulse * 0.18)),
+          Math.min(255, Math.round(base[2] + (255 - base[2]) * pulse * 0.12)),
+        ],
+        neutral: false,
+      };
+    }
+    const owner = sys.ownerEmpireId ? snap.empires[sys.ownerEmpireId] : null;
+    if (!owner) return { key: "none", rgb: NEUTRAL_RGB, neutral: true };
+    return { key: `quiet-${owner.id}`, rgb: parseColorToRgb(owner.color), neutral: true };
   }
   const emp = sys.ownerEmpireId ? snap.empires[sys.ownerEmpireId] : null;
   if (!emp) return { key: "none", rgb: NEUTRAL_RGB, neutral: true };

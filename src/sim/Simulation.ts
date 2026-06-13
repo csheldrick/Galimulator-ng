@@ -1,4 +1,4 @@
-import type { ArtifactKind, GalaxyState, SimSettings, SaveFile, Id, Empire, EmpireRelationship, EmpirePriority, EmpireAdjustableProperty, EmpireMood, Ideology, CharacterTrait, TotemKind, StarSystem, SpyMission, ShipClass, ShipRole, WarFocus, OddityKind } from "../types/sim";
+import type { ArtifactKind, GalaxyState, SimSettings, SaveFile, Id, Empire, EmpireRelationship, EmpirePriority, EmpireAdjustableProperty, EmpireMood, Ideology, CharacterTrait, TotemKind, StarSystem, SpyMission, ShipClass, ShipRole, WarFocus, OddityKind, Alliance } from "../types/sim";
 import { SeededRandom } from "./Random";
 import { generateGalaxy, makeRuler, pickGovernmentType, GOVERNMENT_RULER_TITLE, worldsFromTags } from "./Galaxy";
 import { executeTick, formFaction } from "./Tick";
@@ -464,6 +464,126 @@ export class Simulation {
     const emp = this.state.empires[sys.ownerEmpireId];
     if (!emp) return false;
     formFaction(this.state, emp, sys, this.rng);
+    this._touch();
+    return true;
+  }
+
+  /** Build any artifact at a selected star, ignoring emperor-mode cost and one-per-empire limits. */
+  sandboxBuildArtifact(systemId: Id, kind?: ArtifactKind): boolean {
+    const sys = this.state.systems[systemId];
+    if (!sys || sys.artifactId) return false;
+    const artifact = createArtifact(this.state, sys, this.rng, kind ?? pickArtifactKind(this.rng), "built", sys.ownerEmpireId);
+    createEvent(this.state, this.state.tick, "artifact-discovered", `${artifact.name} manifested at ${sys.name}`,
+      `${ARTIFACT_LABEL[artifact.kind]} ${artifact.name} was placed at ${sys.name} by sandbox intervention.`,
+      4, sys.ownerEmpireId ? [sys.ownerEmpireId] : [], [sys.id]);
+    this._touch();
+    return true;
+  }
+
+  /** Force two empires into a fresh alliance, clearing any active war between them first. */
+  forceAlliance(empireAId: Id, empireBId: Id): void {
+    if (empireAId === empireBId) return;
+    const a = this.state.empires[empireAId];
+    const b = this.state.empires[empireBId];
+    if (!a || !b) return;
+    if ((a.allianceIds ?? []).some(id => (b.allianceIds ?? []).includes(id))) return;
+
+    const rel = this._relationship(a, b.id);
+    if (rel.atWar || b.activeWarEmpireIds.includes(a.id)) this._applyPeace(a, b);
+
+    const id = `alliance-forced-${this.state.tick}-${Object.keys(this.state.alliances).length}-${this.rng.nextInt(0, 9999)}`;
+    const name = `${a.name.split(" ")[0]}-${b.name.split(" ")[0]} Accord`;
+    const alliance: Alliance = {
+      id,
+      name,
+      memberEmpireIds: [a.id, b.id],
+      formedTick: this.state.tick,
+      leaderId: a.id,
+      purpose: "defensive",
+      color: a.color,
+      emblem: "◇",
+      historicalEventIds: [],
+    };
+    this.state.alliances[id] = alliance;
+    a.allianceIds = [...(a.allianceIds ?? []), id];
+    b.allianceIds = [...(b.allianceIds ?? []), id];
+    createEvent(this.state, this.state.tick, "alliance-formed", `${name} forced into being`,
+      `${a.name} and ${b.name} were bound into the ${name} by sandbox intervention.`,
+      4, [a.id, b.id], [a.capitalSystemId, b.capitalSystemId].filter(id => Boolean(this.state.systems[id])));
+    this._touch();
+  }
+
+  /** Add nearby starlanes across the whole map, matching the original sandbox web-lanes tool. */
+  sandboxWebStarlanes(): void {
+    const systems = Object.values(this.state.systems);
+    let added = 0;
+    const link = (a: StarSystem, b: StarSystem) => {
+      if (a.connectedSystemIds.includes(b.id)) return;
+      a.connectedSystemIds.push(b.id);
+      b.connectedSystemIds.push(a.id);
+      added++;
+    };
+    for (const a of systems) {
+      const nearest = systems
+        .filter(b => b.id !== a.id && !a.connectedSystemIds.includes(b.id))
+        .map(b => ({ b, d: Math.hypot(a.x - b.x, a.y - b.y) }))
+        .filter(x => x.d <= 120)
+        .sort((x, y) => x.d - y.d)
+        .slice(0, 5);
+      for (const { b } of nearest) link(a, b);
+    }
+    if (added === 0) return;
+    createEvent(this.state, this.state.tick, "golden-age", "The starlanes were webbed",
+      `Sandbox intervention opened ${added} nearby starlane links across the galaxy.`,
+      4, [], []);
+    this._touch();
+  }
+
+  /** Move a selected star by a fixed world-space offset. */
+  sandboxMoveSystem(systemId: Id, dx: number, dy: number): void {
+    const sys = this.state.systems[systemId];
+    if (!sys) return;
+    sys.x = Math.max(-200, Math.min(1400, sys.x + dx));
+    sys.y = Math.max(-200, Math.min(1100, sys.y + dy));
+    createEvent(this.state, this.state.tick, "golden-age", `${sys.name} drifted`,
+      `${sys.name} was moved by sandbox intervention.`,
+      1, sys.ownerEmpireId ? [sys.ownerEmpireId] : [], [sys.id]);
+    this._touch();
+  }
+
+  /** Connect the selected star to its nearest currently unconnected neighbor. */
+  sandboxConnectNearest(systemId: Id): boolean {
+    const sys = this.state.systems[systemId];
+    if (!sys) return false;
+    const nearest = Object.values(this.state.systems)
+      .filter(other => other.id !== sys.id && !sys.connectedSystemIds.includes(other.id))
+      .map(other => ({ other, d: Math.hypot(sys.x - other.x, sys.y - other.y) }))
+      .sort((a, b) => a.d - b.d)[0]?.other;
+    if (!nearest) return false;
+    sys.connectedSystemIds.push(nearest.id);
+    nearest.connectedSystemIds.push(sys.id);
+    createEvent(this.state, this.state.tick, "golden-age", `Lane opened from ${sys.name}`,
+      `A sandbox starlane was opened between ${sys.name} and ${nearest.name}.`,
+      2, [], [sys.id, nearest.id]);
+    this._touch();
+    return true;
+  }
+
+  /** Remove the selected star's longest starlane. */
+  sandboxPruneLongestLane(systemId: Id): boolean {
+    const sys = this.state.systems[systemId];
+    if (!sys || sys.connectedSystemIds.length === 0) return false;
+    const farthest = sys.connectedSystemIds
+      .map(id => this.state.systems[id])
+      .filter((other): other is StarSystem => Boolean(other))
+      .map(other => ({ other, d: Math.hypot(sys.x - other.x, sys.y - other.y) }))
+      .sort((a, b) => b.d - a.d)[0]?.other;
+    if (!farthest) return false;
+    sys.connectedSystemIds = sys.connectedSystemIds.filter(id => id !== farthest.id);
+    farthest.connectedSystemIds = farthest.connectedSystemIds.filter(id => id !== sys.id);
+    createEvent(this.state, this.state.tick, "golden-age", `Lane closed from ${sys.name}`,
+      `A sandbox starlane between ${sys.name} and ${farthest.name} was removed.`,
+      2, [], [sys.id, farthest.id]);
     this._touch();
     return true;
   }

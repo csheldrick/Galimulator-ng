@@ -564,6 +564,22 @@ export function GalaxyCanvas({ simulation, selectedSystemId, selectedEmpireId, s
             ctx.fillText(religion.name, sx, sy - 14 * cam.zoom);
           }
         }
+        if (viewOptions.mapMode === "faction") {
+          for (const faction of Object.values(snap.factions ?? {})) {
+            const home = snap.systems[faction.homeSystemId] ?? snap.systems[faction.systemIds[0]];
+            if (!home) continue;
+            const [sx, sy] = worldToScreen(home.x, home.y, cam, w, h);
+            if (sx < -220 || sx > w + 220 || sy < -70 || sy > h + 70) continue;
+            const fontSize = Math.max(8, 12 * cam.zoom);
+            ctx.font = `700 ${fontSize}px "Trebuchet MS", sans-serif`;
+            ctx.strokeStyle = "rgba(0,0,0,0.8)";
+            ctx.lineWidth = 3;
+            ctx.lineJoin = "round";
+            ctx.strokeText(faction.name, sx, sy - 14 * cam.zoom);
+            ctx.fillStyle = faction.status === "revolting" ? "rgba(255,220,130,0.95)" : "rgba(255,170,80,0.9)";
+            ctx.fillText(faction.name, sx, sy - 14 * cam.zoom);
+          }
+        }
         ctx.textAlign = "left";
         if (selectedEmpire) {
           ctx.font = "11px monospace";
