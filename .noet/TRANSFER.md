@@ -15,12 +15,21 @@ Fable-like project cognition.
 
 ## Target model profile
 - adapter: strong
-- known weaknesses:
-- overlay size:
-- autonomy:
+- known weaknesses: can overbuild without explicit scope
+- overlay size: full
+- autonomy: high
 
 ## Selected primitives
--
+- intent-lens
+- state-grounding
+- constraint-guard
+- artifact-gravity
+- repair-loop
+- compression-handoff
+- mode-binder
+- taste-vector
+- tension-holder
+- constructive-challenge
 
 ## Current transfer strategy
 - Apply the default primitive set, then adapt to the chosen target model.
@@ -29,7 +38,7 @@ Fable-like project cognition.
 -
 
 ## Latest transfer result
-- <set automatically by `noet eval`>
+- 2026-06-13 overlay.md: avg 3.5/4 (strong); primitives 9✓/1~/0✗
 
 ## Capsule adjustments
 -
