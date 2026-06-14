@@ -4,6 +4,7 @@ import { generateGalaxy } from "./Galaxy";
 import { executeTick } from "./Tick";
 import { ensureArtifactObjects } from "./Artifacts";
 import { lineageChain } from "./Dynasty";
+import { summarizeGrievances } from "./Relations";
 
 interface Tally {
   founded: number;
@@ -109,7 +110,9 @@ function snapshotMetrics(state: GalaxyState, originalIds: Set<Id>) {
   const shipsByRole: Record<string, number> = {};
   for (const f of Object.values(state.fleets)) if (f.role) shipsByRole[f.role] = (shipsByRole[f.role] ?? 0) + 1;
   const topDynasty = Object.values(dynasties).filter(d => d.extinctTick === undefined).sort((a, b) => b.prestige - a.prestige)[0] ?? null;
+  const grievances = summarizeGrievances(state);
   return {
+    grievances,
     shipsByRole,
     topDynasty,
     factionsActive: factionList.length,
@@ -190,6 +193,7 @@ export function runHeadlessReport(settings: SimSettings, milestones: number[] = 
         `- Alliances: ${m.alliances} blocs · Trade routes: ${m.tradeRoutes}`,
         `- Artifacts: ${m.artifacts} · Markers/scars: ${m.markers}`,
         `- Dynasties: ${m.dynasties} (${m.livingDynasties} living) · People: ${m.people} · Deepest ruler chain: ${m.deepestChain}${m.deepestName ? ` — ${m.deepestName}` : ""}`,
+        `- Grievances: ${m.grievances.active} active across ${m.grievances.pairs} feuds (${m.grievances.holders} empires) · avg +${m.grievances.avgTension} tension, peak +${m.grievances.peakTension} · ${m.grievances.shareOfHistorical}% of historical modifiers · oldest ${m.grievances.oldestAgeTicks}t`,
         `- Graph now: avg degree ${m.graph.avgDegree.toFixed(2)} · max degree ${m.graph.maxDegree} · avg lane length ${m.graph.avgPathProxy.toFixed(1)}`,
         `- Churn since last milestone: ${churn} empire births+deaths`,
         `- Cumulative: ${cumulative.founded} founded, ${cumulative.collapsed} collapsed, ${cumulative.mergers} merged, ${cumulative.rebellions} rebellions, ${cumulative.coups} coups, ${cumulative.transcended} transcended`,

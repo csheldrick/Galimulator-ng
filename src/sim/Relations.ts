@@ -27,6 +27,63 @@ export function activeModifiers(rel: EmpireRelationship | undefined, tick: numbe
   return (rel?.modifiers ?? []).filter(m => m.expiresAtTick === undefined || m.expiresAtTick > tick);
 }
 
+/** Aggregate read-out of the capital-conquest grievance mechanic at the current tick.
+ *  Pure over GalaxyState: counts only the "grievance" modifiers already present in the
+ *  relationship ledgers, never mutating or creating anything. It exists so the loop can be
+ *  *tuned* — the numbers tell whether grievances are too rare (low count/holders), too frequent
+ *  (count climbing every run), too weak (low avg/peak tension), or too dominant (high shareOfHistorical). */
+export interface GrievanceSummary {
+  /** Active grievance modifiers right now. */
+  active: number;
+  /** Empires carrying at least one grievance. */
+  holders: number;
+  /** Distinct directed empire→empire feuds. */
+  pairs: number;
+  /** Mean tension contributed by a grievance (intensity). */
+  avgTension: number;
+  /** Largest single grievance tension contribution. */
+  peakTension: number;
+  /** Mean opinion penalty (negative). */
+  avgOpinion: number;
+  /** Percent of active historical (non-structural) modifiers that are grievances — dominance. */
+  shareOfHistorical: number;
+  /** Age in ticks of the longest-standing active grievance (0 if none / unknown source). */
+  oldestAgeTicks: number;
+}
+
+export function summarizeGrievances(state: GalaxyState, tick: number = state.tick): GrievanceSummary {
+  const holders = new Set<string>();
+  const pairs = new Set<string>();
+  let active = 0, historical = 0, tensionSum = 0, peakTension = 0, opinionSum = 0, oldestAgeTicks = 0;
+  for (const emp of Object.values(state.empires)) {
+    for (const rel of Object.values(emp.relationshipByEmpireId)) {
+      for (const m of activeModifiers(rel, tick)) {
+        if (m.kind === "structural") continue;
+        historical++;
+        if (m.kind !== "grievance") continue;
+        active++;
+        holders.add(emp.id);
+        pairs.add(`${emp.id}~${rel.targetEmpireId}`);
+        tensionSum += m.tensionDelta;
+        opinionSum += m.opinionDelta;
+        if (m.tensionDelta > peakTension) peakTension = m.tensionDelta;
+        const src = m.sourceEventId ? state.events[m.sourceEventId] : undefined;
+        if (src) oldestAgeTicks = Math.max(oldestAgeTicks, tick - src.tick);
+      }
+    }
+  }
+  return {
+    active,
+    holders: holders.size,
+    pairs: pairs.size,
+    avgTension: active ? Math.round(tensionSum / active) : 0,
+    peakTension,
+    avgOpinion: active ? Math.round(opinionSum / active) : 0,
+    shareOfHistorical: historical ? Math.round((active / historical) * 100) : 0,
+    oldestAgeTicks,
+  };
+}
+
 export function effectiveOpinion(rel: EmpireRelationship | undefined, tick: number): number {
   let v = rel?.opinion ?? 50;
   for (const m of activeModifiers(rel, tick)) v += m.opinionDelta;
