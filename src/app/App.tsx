@@ -10,7 +10,7 @@ import { GalaxyPulse } from "../ui/GalaxyPulse";
 import { EventLog } from "../ui/EventLog";
 import { TopStories } from "../ui/TopStories";
 import { MOOD_LABEL, IDEOLOGY_LABEL, rulerDisplayName } from "../sim/Moods";
-import { activeModifiers } from "../sim/Relations";
+import { activeModifiers, summarizeGrievances } from "../sim/Relations";
 import { runHeadlessReport, runPresetSweep } from "../sim/Headless";
 import "./App.css";
 
@@ -70,6 +70,17 @@ function buildReport(snapshot: Readonly<GalaxyState>): string {
         .map(mod => ({ emp, target, mod, ev: mod.sourceEventId ? snapshot.events[mod.sourceEventId] : undefined }));
     })
   ).sort((a, b) => (b.ev?.tick ?? 0) - (a.ev?.tick ?? 0) || b.mod.tensionDelta - a.mod.tensionDelta);
+  // Aggregate read-out so the grievance loop can be judged too rare / frequent / weak / dominant
+  // without adding a second mechanic. Shares the pure sim-layer helper used by the headless report.
+  const gs = summarizeGrievances(snapshot);
+  const grievanceSummary = gs.active > 0
+    ? [
+        ``, `## Grievance summary`,
+        `- Active: ${gs.active} across ${gs.pairs} feuds, held by ${gs.holders}/${empires.length} empires`,
+        `- Intensity: avg +${gs.avgTension} tension (${gs.avgOpinion} opinion), peak +${gs.peakTension}`,
+        `- Dominance: ${gs.shareOfHistorical}% of active historical modifiers · oldest grievance ${gs.oldestAgeTicks} ticks old`,
+      ]
+    : [``, `## Grievance summary`, `- No active capital-conquest grievances this run (mechanic idle).`];
   return [
     `# galimulator-ng history report`, ``,
     `Seed: ${snapshot.seed}`, `Tick: ${snapshot.tick}`, `Systems: ${systems.length}`,
@@ -84,6 +95,7 @@ function buildReport(snapshot: Readonly<GalaxyState>): string {
     ...empires.slice(0, 12).map((e, i) => `${i + 1}. ${e.name} — ${e.ownedSystemIds.length} systems, ${MOOD_LABEL[e.mood].toLowerCase()}, ${IDEOLOGY_LABEL[e.ideology].toLowerCase()}, ruled by ${rulerDisplayName(e)} of the ${e.ruler.dynasty} dynasty, pop ${Math.round(e.population)}, tech ${e.techLevel.toFixed(2)}, cohesion ${e.cohesion.toFixed(2)}`),
     ``, `## Faiths`,
     ...religions.map(({ r, followers }) => `- ${r.name} — ${followers} worlds (holy world: ${snapshot.systems[r.holySystemId]?.name ?? "lost"})`),
+    ...grievanceSummary,
     ...(grievances.length > 0 ? [
       ``, `## Remembered grievances`,
       ...grievances.slice(0, 12).map(({ emp, target, mod, ev }) =>
