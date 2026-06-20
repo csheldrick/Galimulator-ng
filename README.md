@@ -17,6 +17,14 @@ Build check:
 npm run build
 ```
 
+Simulation health check (no browser required):
+
+```bash
+npm run report                              # fast run (to 3000 ticks) + replay determinism guard
+npm run report -- --milestones 1000,3000,10000   # full long-run health check
+npm run report -- --sweep                   # run every galaxy preset
+```
+
 ## Current implementation
 
 - Vite + React + TypeScript app

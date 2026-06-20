@@ -10,9 +10,22 @@ npm run dev        # start Vite dev server (http://localhost:5173)
 npm run build      # type-check with tsc then Vite production build
 npm run lint       # ESLint (TypeScript + react-hooks + react-refresh rules)
 npm run preview    # preview the production build locally
+npm run report     # run the headless simulation report from the terminal (tsx)
 ```
 
-There is no test framework. Simulation correctness is validated via `runHeadlessReport()` in `src/sim/Headless.ts`, callable from the UI's "Headless report" button.
+There is no unit-test framework. Simulation correctness is validated via
+`runHeadlessReport()` in `src/sim/Headless.ts`, which is reachable two ways:
+
+- the UI's "Headless report" button, and
+- `npm run report` — a scriptable, no-render run of the same function
+  (`scripts/headless-report.ts`). It accepts `--seed`, `--stars`, `--empires`,
+  `--milestones a,b,c`, and `--sweep`, and by default replays the run once to
+  assert the output is byte-identical (a determinism guard for the seeded-PRNG
+  invariant), exiting non-zero on divergence. Pass `--no-determinism` to skip
+  the replay. The default stops at 3000 ticks so it finishes in seconds and
+  works as a CI gate; pass `--milestones 1000,3000,10000` for the deeper run.
+  This is the closest thing to an automated correctness check, so prefer
+  running it after touching anything under `src/sim/`.
 
 ## Architecture
 
