@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "report": "tsx scripts/headless-report.ts"
+    "report": "tsx scripts/headless-report.ts",
+    "test": "tsx scripts/headless-report.ts"
   },
   "dependencies": {
     "react": "^19.2.6",
