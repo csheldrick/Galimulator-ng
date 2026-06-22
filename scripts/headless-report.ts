@@ -131,6 +131,10 @@ function main(): void {
     console.error("✓ Determinism check passed — identical replay from the same seed.");
   }
 
+  if (assertHealth && tally === null) {
+    console.error("⚠ --assert-health is ignored when --sweep is used (no per-milestone tally is produced by the sweep).");
+  }
+
   if (assertHealth && tally !== null) {
     const failures: string[] = [];
     if (tally.warsDeclared === 0) failures.push(`0 wars declared — conflict subsystem may be broken`);
