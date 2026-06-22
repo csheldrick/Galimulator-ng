@@ -88,8 +88,16 @@ function parseArgs(argv: string[]): { settings: SimSettings; milestones: number[
     }
   }
 
-  if (!Number.isFinite(settings.seed) || !Number.isFinite(settings.numStars) || !Number.isFinite(settings.numEmpires)) {
-    console.error("seed, stars, and empires must be finite numbers");
+  if (!Number.isFinite(settings.seed)) {
+    console.error(`--seed must be a finite number (got: ${settings.seed})`);
+    process.exit(2);
+  }
+  if (!Number.isInteger(settings.numStars) || settings.numStars < 1) {
+    console.error(`--stars must be a positive integer (got: ${settings.numStars})`);
+    process.exit(2);
+  }
+  if (!Number.isInteger(settings.numEmpires) || settings.numEmpires < 1) {
+    console.error(`--empires must be a positive integer (got: ${settings.numEmpires})`);
     process.exit(2);
   }
   if (milestones.length === 0) milestones = [...DEFAULT_MILESTONES];
