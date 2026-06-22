@@ -67,6 +67,7 @@ function parseArgs(argv: string[]): { settings: SimSettings; milestones: number[
   let sweep = false;
   let checkDeterminism = true;
   let assertHealth = false;
+  let milestonesProvided = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -80,7 +81,11 @@ function parseArgs(argv: string[]): { settings: SimSettings; milestones: number[
       case "--seed": settings.seed = Number(next()); break;
       case "--stars": settings.numStars = Number(next()); break;
       case "--empires": settings.numEmpires = Number(next()); break;
-      case "--milestones": milestones = next().split(",").map(s => Number(s.trim())).filter(n => Number.isFinite(n) && n > 0); break;
+      case "--milestones": {
+        milestonesProvided = true;
+        milestones = next().split(",").map(s => Number(s.trim())).filter(n => Number.isFinite(n) && n > 0);
+        break;
+      }
       case "--sweep": sweep = true; break;
       case "--no-determinism": checkDeterminism = false; break;
       case "--assert-health": assertHealth = true; break;
@@ -92,7 +97,12 @@ function parseArgs(argv: string[]): { settings: SimSettings; milestones: number[
     console.error("seed, stars, and empires must be finite numbers");
     process.exit(2);
   }
-  if (milestones.length === 0) milestones = [...DEFAULT_MILESTONES];
+  if (milestones.length === 0) {
+    if (milestonesProvided) {
+      console.error(`⚠ --milestones: all supplied values were invalid (non-positive or non-numeric); using defaults: ${DEFAULT_MILESTONES.join(",")}`);
+    }
+    milestones = [...DEFAULT_MILESTONES];
+  }
 
   return { settings, milestones, sweep, checkDeterminism, assertHealth };
 }
