@@ -83,7 +83,12 @@ function parseArgs(argv: string[]): { settings: SimSettings; milestones: number[
       case "--empires": settings.numEmpires = Number(next()); break;
       case "--milestones": {
         milestonesProvided = true;
-        milestones = next().split(",").map(s => Number(s.trim())).filter(n => Number.isFinite(n) && n > 0);
+        const rawParts = next().split(",").map(s => s.trim());
+        milestones = rawParts.map(Number).filter(n => Number.isFinite(n) && n > 0);
+        const invalidParts = rawParts.filter(s => { const n = Number(s); return !Number.isFinite(n) || n <= 0; });
+        if (invalidParts.length > 0 && milestones.length > 0) {
+          console.error(`⚠ --milestones: ${invalidParts.length} invalid value(s) skipped (non-positive or non-numeric): ${invalidParts.map(s => JSON.stringify(s)).join(", ")}`);
+        }
         break;
       }
       case "--sweep": sweep = true; break;
