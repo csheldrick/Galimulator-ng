@@ -6,7 +6,7 @@ import { ensureArtifactObjects } from "./Artifacts";
 import { lineageChain } from "./Dynasty";
 import { summarizeGrievances } from "./Relations";
 
-interface Tally {
+export interface Tally {
   founded: number;
   collapsed: number;
   transcended: number;
@@ -145,11 +145,11 @@ function snapshotMetrics(state: GalaxyState, originalIds: Set<Id>) {
 }
 
 /**
- * Runs a fresh, deterministic galaxy headlessly and reports the state of the
- * sandbox at each milestone tick — survival, churn, wars, religion spread,
- * monsters, artifacts, alliances, and shape/layout graph metrics.
+ * Runs a fresh, deterministic galaxy headlessly and returns the markdown report
+ * plus the final cumulative event tally. The tally lets callers assert minimum
+ * simulation health without parsing the report text.
  */
-export function runHeadlessReport(settings: SimSettings, milestones: number[] = [1000, 3000, 10000]): string {
+export function runHeadlessStats(settings: SimSettings, milestones: number[] = [1000, 3000, 10000]): { report: string; tally: Tally } {
   const sorted = [...milestones].sort((a, b) => a - b);
   const maxTick = sorted[sorted.length - 1];
   const rng = new SeededRandom(settings.seed);
@@ -213,7 +213,16 @@ export function runHeadlessReport(settings: SimSettings, milestones: number[] = 
     }
   }
 
-  return lines.join("\n");
+  return { report: lines.join("\n"), tally: cumulative };
+}
+
+/**
+ * Convenience wrapper for callers that only need the markdown string (e.g. the
+ * UI's "Headless report" download button). For structured access to the tally
+ * use `runHeadlessStats`.
+ */
+export function runHeadlessReport(settings: SimSettings, milestones: number[] = [1000, 3000, 10000]): string {
+  return runHeadlessStats(settings, milestones).report;
 }
 
 export function runPresetSweep(base: SimSettings): string {
