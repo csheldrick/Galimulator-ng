@@ -34,6 +34,33 @@ import { runHeadlessStats, runPresetSweep } from "../src/sim/Headless";
 const DEFAULT_SETTINGS: SimSettings = { seed: 42, numStars: 400, numEmpires: 12, ticksPerSecond: 4 };
 const DEFAULT_MILESTONES = [1000, 3000];
 
+const HELP = `\
+Usage: npm run report [-- <options>]
+
+Run a headless galaxy simulation and print a health/stats report to stdout.
+
+Options:
+  --seed <n>              PRNG seed (default: 42)
+  --stars <n>             Number of star systems (default: 400)
+  --empires <n>           Number of starting empires (default: 12)
+  --milestones <a,b,...>  Tick checkpoints to report (default: 1000,3000)
+  --sweep                 Run the preset milestone sweep instead
+  --no-determinism        Skip the replay determinism check
+  --assert-health         Exit non-zero if zero wars or zero collapses observed
+  --help, -h              Print this help and exit
+
+Examples:
+  npm run report                               # defaults: seed 42, 400 stars, checkpoints 1000 & 3000
+  npm run report -- --seed 7 --stars 600       # custom seed and galaxy size
+  npm run report -- --milestones 1000,3000,10000  # deeper run including 10k ticks
+  npm run report -- --assert-health            # CI gate: fails if simulation looks broken
+  npm run report -- --no-determinism           # skip the byte-identical replay check
+
+Exit codes:
+  0   Report printed; determinism and health checks (if requested) passed.
+  1   Determinism divergence detected, or health check failed.
+  2   Bad arguments.`;
+
 function parseArgs(argv: string[]): { settings: SimSettings; milestones: number[]; sweep: boolean; checkDeterminism: boolean; assertHealth: boolean } {
   const settings: SimSettings = { ...DEFAULT_SETTINGS };
   let milestones = [...DEFAULT_MILESTONES];
@@ -49,6 +76,7 @@ function parseArgs(argv: string[]): { settings: SimSettings; milestones: number[
       return v;
     };
     switch (arg) {
+      case "--help": case "-h": console.log(HELP); process.exit(0); break;
       case "--seed": settings.seed = Number(next()); break;
       case "--stars": settings.numStars = Number(next()); break;
       case "--empires": settings.numEmpires = Number(next()); break;
