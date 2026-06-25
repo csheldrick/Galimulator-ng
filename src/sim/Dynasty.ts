@@ -599,6 +599,29 @@ export function applyForeignClaimantDiplomacy(victim: Empire, backer: Empire, ti
   addRelationModifier(relBetween(victim, backer.id), { ...mod });
 }
 
+// ── Dynasty legitimacy ────────────────────────────────────────────────────────────
+
+const LEGITIMACY_POSITIVE: ReadonlySet<string> = new Set(["heir-born", "succession", "dynasty-restored", "dynastic-marriage"]);
+const LEGITIMACY_NEGATIVE: ReadonlySet<string> = new Set(["heir-died", "succession-crisis", "pretender-revolt", "dynasty-extinct"]);
+
+/** Derive a [-1, 1] legitimacy score from recent dynasty chronicle events.
+ *  Positive events (smooth successions, heir births, marriages) push toward +1.
+ *  Negative events (crises, revolts, heir deaths) push toward -1.
+ *  Returns 0 for dynasties with no chronicle yet. */
+export function dynastyLegitimacy(state: GalaxyState, dynastyId: Id | undefined): number {
+  if (!dynastyId || !state.dynasties || !state.events) return 0;
+  const dyn = state.dynasties[dynastyId];
+  if (!dyn || dyn.historicalEventIds.length === 0) return 0;
+  let score = 0;
+  for (const eid of dyn.historicalEventIds) {
+    const ev = state.events[eid];
+    if (!ev) continue;
+    if (LEGITIMACY_POSITIVE.has(ev.type)) score++;
+    else if (LEGITIMACY_NEGATIVE.has(ev.type)) score--;
+  }
+  return Math.max(-1, Math.min(1, score / dyn.historicalEventIds.length));
+}
+
 // ── Dynasty chronicle helpers ─────────────────────────────────────────────────────
 
 const DYNASTY_HISTORY_LIMIT = 12;
@@ -796,8 +819,12 @@ function heirDies(state: GalaxyState, emp: Empire, rng: PRNG): void {
 }
 
 function maybePretenderRevolt(state: GalaxyState, emp: Empire, rng: PRNG): void {
-  // Only shaky realms breed open revolt.
-  if (emp.cohesion > 0.55) return;
+  // Legitimacy shifts the revolt threshold: a dynasty with a strong positive chronicle
+  // requires deeper instability before a pretender dares rise (threshold falls to 0.45),
+  // while a dynasty with a troubled recent history is vulnerable even at higher cohesion (up to 0.65).
+  const legit = dynastyLegitimacy(state, emp.dynastyId);
+  const revoltThreshold = 0.55 - legit * 0.10;
+  if (emp.cohesion > revoltThreshold) return;
   const { person, reason } = findOrMakePretender(state, emp, rng);
   const cap = state.systems[emp.capitalSystemId];
   emp.cohesion = Math.max(0.1, emp.cohesion - 0.05);
