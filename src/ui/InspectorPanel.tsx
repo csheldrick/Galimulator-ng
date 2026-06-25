@@ -3,7 +3,7 @@ import type { ArtifactKind, GalaxyState, Id, Empire, Person, EmpireAdjustablePro
 import { SHIP_ROLES, SHIP_ROLE_SPEC } from "../sim/ShipRoles";
 import { MOOD_LABEL, MOOD_COLOR, IDEOLOGY_LABEL, IDEOLOGY_COLOR, rulerDisplayName } from "../sim/Moods";
 import { ROLE_LABEL, TRAIT_LABEL } from "../sim/Characters";
-import { lineageChain, livingDynastyCount, dynastyMembers, personDisplayName } from "../sim/Dynasty";
+import { lineageChain, livingDynastyCount, dynastyMembers, personDisplayName, dynastyLegitimacy } from "../sim/Dynasty";
 import { GOVERNMENT_LABEL, PLANET_TAG_LABEL } from "../sim/Galaxy";
 import { ARTIFACT_LABEL } from "../sim/Artifacts";
 import { SUBJECT_STATUS_LABEL, subjectOf, subjectsOf } from "../sim/Subjects";
@@ -155,19 +155,28 @@ function LineageSection({ snapshot, emp }: { snapshot: Readonly<GalaxyState>; em
           </span>
         </div>
       )}
-      {dynasty && dynasty.historicalEventIds.length > 0 && (
-        <>
-          <h4 style={{ marginTop: 6, marginBottom: 3, opacity: 0.85 }}>Dynasty Chronicle</h4>
-          {[...dynasty.historicalEventIds].reverse().slice(0, 5).map(eid => {
-            const ev = snapshot.events[eid];
-            return ev ? (
-              <div key={eid} className="event-mini" style={{ borderLeft: `3px solid ${dynastyEventColor(ev.type)}`, paddingLeft: 5, marginBottom: 2 }}>
-                <span style={{ opacity: 0.55, fontSize: 9 }}>t{ev.tick} </span>{ev.title}
-              </div>
-            ) : null;
-          })}
-        </>
-      )}
+      {dynasty && dynasty.historicalEventIds.length > 0 && (() => {
+        const legit = dynastyLegitimacy(snapshot, emp.dynastyId);
+        const legitLabel = legit > 0.3 ? "Stable" : legit > -0.3 ? "Contested" : "Fragile";
+        const legitColor = legit > 0.3 ? "rgba(120,220,140,0.9)" : legit > -0.3 ? "rgba(220,200,100,0.9)" : "rgba(220,80,60,0.9)";
+        return (
+          <>
+            <div className="info-row">
+              <span>Legitimacy</span>
+              <span style={{ color: legitColor, fontWeight: 600 }}>{legitLabel}</span>
+            </div>
+            <h4 style={{ marginTop: 6, marginBottom: 3, opacity: 0.85 }}>Dynasty Chronicle</h4>
+            {[...dynasty.historicalEventIds].reverse().slice(0, 5).map(eid => {
+              const ev = snapshot.events[eid];
+              return ev ? (
+                <div key={eid} className="event-mini" style={{ borderLeft: `3px solid ${dynastyEventColor(ev.type)}`, paddingLeft: 5, marginBottom: 2 }}>
+                  <span style={{ opacity: 0.55, fontSize: 9 }}>t{ev.tick} </span>{ev.title}
+                </div>
+              ) : null;
+            })}
+          </>
+        );
+      })()}
     </>
   );
 }

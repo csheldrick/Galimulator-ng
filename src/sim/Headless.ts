@@ -3,7 +3,7 @@ import { SeededRandom } from "./Random";
 import { generateGalaxy } from "./Galaxy";
 import { executeTick } from "./Tick";
 import { ensureArtifactObjects } from "./Artifacts";
-import { lineageChain } from "./Dynasty";
+import { lineageChain, dynastyLegitimacy } from "./Dynasty";
 import { summarizeGrievances } from "./Relations";
 
 export interface Tally {
@@ -110,9 +110,11 @@ function snapshotMetrics(state: GalaxyState, originalIds: Set<Id>) {
   const shipsByRole: Record<string, number> = {};
   for (const f of Object.values(state.fleets)) if (f.role) shipsByRole[f.role] = (shipsByRole[f.role] ?? 0) + 1;
   const topDynasty = Object.values(dynasties).filter(d => d.extinctTick === undefined).sort((a, b) => b.prestige - a.prestige)[0] ?? null;
+  const topDynastyLegit = topDynasty ? dynastyLegitimacy(state, topDynasty.id) : 0;
   const grievances = summarizeGrievances(state);
   return {
     grievances,
+    topDynastyLegit,
     shipsByRole,
     topDynasty,
     factionsActive: factionList.length,
@@ -204,7 +206,7 @@ export function runHeadlessStats(settings: SimSettings, milestones: number[] = [
         `- Subjects: ${m.subjects} active${m.subjects ? ` (${Object.entries(m.subjectsByStatus).map(([k, n]) => `${n} ${k}`).join(", ")})` : ""} · ${cumulative.subjectsCreated} created · ${cumulative.subjectRebellions} rebellions · ${cumulative.subjectIntegrations} integrations · ${cumulative.subjectLiberations} liberations`,
         `- Quests: ${cumulative.questsLaunched} launched · ${cumulative.questsCompleted} completed`,
         `- Specialist ships: ${Object.keys(m.shipsByRole).length ? Object.entries(m.shipsByRole).map(([r, n]) => `${n} ${r}`).join(", ") : "none"} active`,
-        `- Careers: ${cumulative.promotions} promotions · ${cumulative.falls} falls · top house: ${m.topDynasty ? `${m.topDynasty.name} (prestige ${m.topDynasty.prestige.toFixed(0)})` : "none"}`,
+        `- Careers: ${cumulative.promotions} promotions · ${cumulative.falls} falls · top house: ${m.topDynasty ? `${m.topDynasty.name} (prestige ${m.topDynasty.prestige.toFixed(0)}, legitimacy ${m.topDynastyLegit >= 0 ? "+" : ""}${m.topDynastyLegit.toFixed(2)})` : "none"}`,
         ``,
       );
       lastFounded = cumulative.founded;
