@@ -155,8 +155,36 @@ function LineageSection({ snapshot, emp }: { snapshot: Readonly<GalaxyState>; em
           </span>
         </div>
       )}
+      {dynasty && dynasty.historicalEventIds.length > 0 && (
+        <>
+          <h4 style={{ marginTop: 6, marginBottom: 3, opacity: 0.85 }}>Dynasty Chronicle</h4>
+          {[...dynasty.historicalEventIds].reverse().slice(0, 5).map(eid => {
+            const ev = snapshot.events[eid];
+            return ev ? (
+              <div key={eid} className="event-mini" style={{ borderLeft: `3px solid ${dynastyEventColor(ev.type)}`, paddingLeft: 5, marginBottom: 2 }}>
+                <span style={{ opacity: 0.55, fontSize: 9 }}>t{ev.tick} </span>{ev.title}
+              </div>
+            ) : null;
+          })}
+        </>
+      )}
     </>
   );
+}
+
+function dynastyEventColor(type: string): string {
+  switch (type) {
+    case "dynasty-founded": return "rgba(255,215,100,0.8)";
+    case "dynasty-extinct": return "rgba(180,60,60,0.8)";
+    case "dynasty-restored": return "rgba(100,200,255,0.8)";
+    case "succession": return "rgba(160,160,200,0.7)";
+    case "succession-crisis": return "rgba(240,140,30,0.8)";
+    case "heir-born": return "rgba(120,220,140,0.8)";
+    case "heir-died": return "rgba(200,100,100,0.7)";
+    case "dynastic-marriage": return "rgba(220,160,255,0.8)";
+    case "pretender-revolt": return "rgba(255,100,60,0.8)";
+    default: return "rgba(140,160,200,0.6)";
+  }
 }
 
 export function InspectorPanel({

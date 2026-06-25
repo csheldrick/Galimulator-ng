@@ -25,9 +25,12 @@ function retainTail(ids: Id[], limit: number): Id[] {
   return ids.length > limit ? ids.slice(-limit) : ids;
 }
 
-// The UI only renders the recent global log, a short per-empire history, and a
-// handful of recent system events. Keep those references tight, then drop any
-// event object no retained list still points at so snapshots stay bounded.
+const DYNASTY_HISTORY_LIMIT = 12;
+
+// The UI only renders the recent global log, a short per-empire history, a
+// handful of recent system events, and each dynasty's own chronicle. Keep
+// those references tight, then drop any event object no retained list still
+// points at so snapshots stay bounded.
 export function gcEvents(state: GalaxyState): void {
   state.eventLog = retainTail(state.eventLog, EVENT_LOG_LIMIT);
   const referenced = new Set<Id>(state.eventLog);
@@ -38,6 +41,10 @@ export function gcEvents(state: GalaxyState): void {
   for (const sys of Object.values(state.systems)) {
     sys.recentEventIds = retainTail(sys.recentEventIds, SYSTEM_RECENT_LIMIT);
     for (const eid of sys.recentEventIds) referenced.add(eid);
+  }
+  for (const dyn of Object.values(state.dynasties ?? {})) {
+    dyn.historicalEventIds = retainTail(dyn.historicalEventIds, DYNASTY_HISTORY_LIMIT);
+    for (const eid of dyn.historicalEventIds) referenced.add(eid);
   }
   for (const eid of Object.keys(state.events)) {
     if (!referenced.has(eid)) delete state.events[eid];
