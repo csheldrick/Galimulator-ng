@@ -599,6 +599,19 @@ export function applyForeignClaimantDiplomacy(victim: Empire, backer: Empire, ti
   addRelationModifier(relBetween(victim, backer.id), { ...mod });
 }
 
+// ── Dynasty chronicle helpers ─────────────────────────────────────────────────────
+
+const DYNASTY_HISTORY_LIMIT = 12;
+
+/** Push an event into a dynasty's own history ledger. */
+function recordDynastyEvent(state: GalaxyState, dynastyId: Id | undefined, eventId: Id): void {
+  if (!dynastyId || !state.dynasties) return;
+  const dyn = state.dynasties[dynastyId];
+  if (!dyn) return;
+  dyn.historicalEventIds.push(eventId);
+  if (dyn.historicalEventIds.length > DYNASTY_HISTORY_LIMIT) dyn.historicalEventIds.shift();
+}
+
 // ── Per-tick dynastic life ────────────────────────────────────────────────────────
 
 const RULER_DEATH_CAP = 0.008;
@@ -638,13 +651,17 @@ function handleSuccession(state: GalaxyState, emp: Empire, reign: number, rng: P
     const { person, dynasty } = makeUsurperDynasty(state, emp, state.tick, rng);
     enthrone(state, emp, person, dead, state.tick);
     if (extinct) {
-      createEvent(state, state.tick, "dynasty-extinct", `The House of ${oldDynastyName} dies out`,
+      const ev = createEvent(state, state.tick, "dynasty-extinct", `The House of ${oldDynastyName} dies out`,
         `With the death of ${oldDisplay}, no heir of the House of ${oldDynastyName} remained. ${personDisplayName(person)} founded the House of ${dynasty.name} over ${emp.name}.`,
         4, [emp.id], cap ? [cap.id] : []);
+      recordDynastyEvent(state, dead.dynastyId, ev.id);
+      recordDynastyEvent(state, dynasty.id, ev.id);
     } else {
-      createEvent(state, state.tick, "succession-crisis", `Succession crisis in ${emp.name}`,
+      const ev = createEvent(state, state.tick, "succession-crisis", `Succession crisis in ${emp.name}`,
         `${oldDisplay} left no clear heir. After a scramble, ${personDisplayName(person)} of the new House of ${dynasty.name} took the throne of ${emp.name}.`,
         4, [emp.id], cap ? [cap.id] : []);
+      recordDynastyEvent(state, dead.dynastyId, ev.id);
+      recordDynastyEvent(state, dynasty.id, ev.id);
     }
     emp.cohesion = Math.max(0.1, emp.cohesion - 0.12);
     emp.aggression = Math.min(1, Math.max(0.05, emp.aggression + rng.range(-0.2, 0.2)));
@@ -667,20 +684,25 @@ function handleSuccession(state: GalaxyState, emp: Empire, reign: number, rng: P
   if (pick.dynastyChange) {
     const extinct = checkExtinction(state, dead.dynastyId, state.tick);
     if (extinct) {
-      createEvent(state, state.tick, "dynasty-extinct", `The House of ${oldDynastyName} ends`,
+      const ev = createEvent(state, state.tick, "dynasty-extinct", `The House of ${oldDynastyName} ends`,
         `After a reign of ${reign} ticks, ${oldDisplay} died and the House of ${oldDynastyName} ended. ${newDisplay}, ${pick.relationClause}, raised the House of ${dyn?.name ?? "a new line"} over ${emp.name}.`,
         4, [emp.id], cap ? [cap.id] : []);
+      recordDynastyEvent(state, dead.dynastyId, ev.id);
+      if (dyn) recordDynastyEvent(state, dyn.id, ev.id);
     } else {
       const restored = dyn && dyn.extinctTick === undefined && dyn.foundedTick < dead.bornTick;
-      createEvent(state, state.tick, restored ? "dynasty-restored" : "succession", `${oldDisplay} of ${emp.name} has died`,
+      const ev = createEvent(state, state.tick, restored ? "dynasty-restored" : "succession", `${oldDisplay} of ${emp.name} has died`,
         `After a reign of ${reign} ticks, ${newDisplay}, ${pick.relationClause}, took the throne of ${emp.name}. The House of ${oldDynastyName} gave way to the House of ${dyn?.name ?? "another line"}.`,
         3, [emp.id], cap ? [cap.id] : []);
+      recordDynastyEvent(state, dead.dynastyId, ev.id);
+      if (dyn) recordDynastyEvent(state, dyn.id, ev.id);
     }
   } else {
     if (dyn) dyn.prestige = Math.min(100, dyn.prestige + Math.min(8, reign * 0.004));
-    createEvent(state, state.tick, "succession", `${oldDisplay} of ${emp.name} has died`,
+    const ev = createEvent(state, state.tick, "succession", `${oldDisplay} of ${emp.name} has died`,
       `After a reign of ${reign} ticks, ${newDisplay}, ${pick.relationClause}, inherited the throne of ${emp.name}.`,
       2, [emp.id], cap ? [cap.id] : []);
+    recordDynastyEvent(state, pick.person.dynastyId, ev.id);
   }
 }
 
@@ -709,9 +731,10 @@ function birthOfHeir(state: GalaxyState, emp: Empire, rng: PRNG): void {
   linkChild(ruler, heir);
   if (consort) linkChild(consort, heir);
   const cap = state.systems[emp.capitalSystemId];
-  createEvent(state, state.tick, "heir-born", `An heir is born to ${personDisplayName(ruler)}`,
+  const ev = createEvent(state, state.tick, "heir-born", `An heir is born to ${personDisplayName(ruler)}`,
     `${personDisplayName(heir)}, ${childWord(heir)} of ${personDisplayName(ruler)}, was born into the House of ${state.dynasties?.[emp.dynastyId]?.name ?? "?"} of ${emp.name}.`,
     2, [emp.id], cap ? [cap.id] : []);
+  recordDynastyEvent(state, emp.dynastyId, ev.id);
 }
 
 function dynasticMarriage(state: GalaxyState, emp: Empire, rng: PRNG): void {
@@ -738,6 +761,8 @@ function dynasticMarriage(state: GalaxyState, emp: Empire, rng: PRNG): void {
       applyMarriageDiplomacy(emp, partnerEmp, state.tick, ev.id);
       const dyn = state.dynasties?.[emp.dynastyId];
       if (dyn) dyn.prestige = Math.min(100, dyn.prestige + 4);
+      recordDynastyEvent(state, emp.dynastyId, ev.id);
+      if (bride.dynastyId && bride.dynastyId !== emp.dynastyId) recordDynastyEvent(state, bride.dynastyId, ev.id);
       return;
     }
   }
@@ -749,9 +774,10 @@ function dynasticMarriage(state: GalaxyState, emp: Empire, rng: PRNG): void {
   });
   linkSpouses(groom, consort);
   if (rng.next() < 0.4) {
-    createEvent(state, state.tick, "dynastic-marriage", `${personDisplayName(groom)} of ${emp.name} marries`,
+    const ev = createEvent(state, state.tick, "dynastic-marriage", `${personDisplayName(groom)} of ${emp.name} marries`,
       `${personDisplayName(groom)} of the House of ${state.dynasties?.[emp.dynastyId]?.name ?? "?"} took ${personDisplayName(consort)} as consort.`,
       1, [emp.id], cap ? [cap.id] : []);
+    recordDynastyEvent(state, emp.dynastyId, ev.id);
   }
 }
 
@@ -762,9 +788,10 @@ function heirDies(state: GalaxyState, emp: Empire, rng: PRNG): void {
   const victim = rng.pick(heirs);
   killPerson(victim, state.tick, rng.pick(["lost to illness", "killed in an accident", "slain in a duel", "lost to a wasting sickness"]));
   const cap = state.systems[emp.capitalSystemId];
-  createEvent(state, state.tick, "heir-died", `${personDisplayName(victim)} of ${emp.name} dies`,
+  const ev = createEvent(state, state.tick, "heir-died", `${personDisplayName(victim)} of ${emp.name} dies`,
     `${personDisplayName(victim)}, an heir of the House of ${state.dynasties?.[emp.dynastyId]?.name ?? "?"}, ${victim.deathReason}, dimming the line of succession in ${emp.name}.`,
     2, [emp.id], cap ? [cap.id] : []);
+  recordDynastyEvent(state, emp.dynastyId, ev.id);
   checkExtinction(state, emp.dynastyId, state.tick);
 }
 
@@ -785,12 +812,16 @@ function maybePretenderRevolt(state: GalaxyState, emp: Empire, rng: PRNG): void 
         `${personDisplayName(person)}, ${reason} sponsored by ${backer.name}, raised a banner of revolt against ${rulerDisplay(state, emp)} of ${emp.name}.`,
         3, [emp.id, backer.id], cap ? [cap.id] : []);
       applyForeignClaimantDiplomacy(emp, backer, state.tick, ev.id);
+      recordDynastyEvent(state, emp.dynastyId, ev.id);
+      recordDynastyEvent(state, person.dynastyId, ev.id);
       return;
     }
   }
-  createEvent(state, state.tick, "pretender-revolt", `${personDisplayName(person)} claims the throne of ${emp.name}`,
+  const ev = createEvent(state, state.tick, "pretender-revolt", `${personDisplayName(person)} claims the throne of ${emp.name}`,
     `${personDisplayName(person)}, ${reason}, raised a banner of revolt against ${rulerDisplay(state, emp)} of ${emp.name}.`,
     3, [emp.id], cap ? [cap.id] : []);
+  recordDynastyEvent(state, emp.dynastyId, ev.id);
+  recordDynastyEvent(state, person.dynastyId, ev.id);
 }
 
 function rulerDisplay(state: GalaxyState, emp: Empire): string {
