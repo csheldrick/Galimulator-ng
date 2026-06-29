@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "report": "tsx scripts/headless-report.ts",
-    "test": "tsx scripts/headless-report.ts"
+    "test": "tsx scripts/headless-report.ts --assert-health"
   },
   "dependencies": {
     "react": "^19.2.6",
