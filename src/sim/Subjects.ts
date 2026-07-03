@@ -40,7 +40,8 @@ export function createSubjectRelation(
   subjectEmpireId: Id,
   overlordEmpireId: Id,
   status: SubjectStatus,
-  tick: number
+  tick: number,
+  startLoyalty?: number
 ): SubjectRelation | null {
   state.subjects ??= {};
   if (subjectEmpireId === overlordEmpireId) return null;
@@ -55,7 +56,7 @@ export function createSubjectRelation(
   const id = `subject-${tick}-${subjectEmpireId}`;
   const rel: SubjectRelation = {
     id, subjectEmpireId, overlordEmpireId, status, createdTick: tick,
-    autonomy: profile.autonomy, loyalty: 0.55, tributeRate: profile.tribute,
+    autonomy: profile.autonomy, loyalty: startLoyalty ?? 0.55, tributeRate: profile.tribute,
     protection: profile.protection, canDeclareWars: profile.wars, canJoinAlliances: profile.alliances,
     historicalEventIds: [],
   };
@@ -132,7 +133,12 @@ export function stepSubjects(state: GalaxyState, rng: PRNG): void {
     // loyalty drift
     const subjRel = subject.relationshipByEmpireId[overlord.id];
     let drift = 0;
-    if (power(overlord) > power(subject) * 1.5) drift += 0.0006;
+    // Resentment: a freshly-defeated subject (low starting loyalty) nurses a grudge.
+    // While loyalty is below 0.45 the power advantage feels oppressive rather than reassuring,
+    // and the subject looks for a chance to break free.
+    const resentful = rel.loyalty < 0.45;
+    if (!resentful && power(overlord) > power(subject) * 1.5) drift += 0.0006;
+    if (resentful) drift -= 0.0005;
     if (overlord.stateReligionId && overlord.stateReligionId === subject.stateReligionId) drift += 0.0004;
     drift += (effectiveOpinion(subjRel, state.tick) - 50) * 0.00002;
     drift -= rel.tributeRate * 0.004;
