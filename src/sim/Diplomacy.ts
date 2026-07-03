@@ -165,5 +165,6 @@ function maybeSubjugateLoser(state: GalaxyState, a: Empire, b: Empire, rng: { ne
   if (subjectOf(state, loser.id) || subjectOf(state, winner.id) || subjectsOf(state, loser.id).length > 0) return;
   if (rng.next() > 0.35) return;
   const status = loser.ownedSystemIds.length <= 2 ? "vassal" : "tributary";
-  createSubjectRelation(state, loser.id, winner.id, status, state.tick);
+  // War losers start with low loyalty — they were forced into submission, not willing.
+  createSubjectRelation(state, loser.id, winner.id, status, state.tick, 0.30);
 }
