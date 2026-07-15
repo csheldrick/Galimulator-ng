@@ -14,6 +14,7 @@ dist-ssr
 
 # Noet ephemeral session state (local only — not project artifacts)
 .noet/session/
+.noet/verification/
 
 # Editor directories and files
 .vscode/*
