@@ -1,0 +1,15 @@
+{
+  "id": "VER-8",
+  "command": "npm run build",
+  "exitCode": 0,
+  "source": "recorded",
+  "startedAt": "2026-07-15T14:59:06.043Z",
+  "finishedAt": "2026-07-15T14:59:11.887Z",
+  "durationMs": 5844,
+  "summary": "exit 0",
+  "stdoutTail": "\n> galimulator-ng@0.0.0 build\n> tsc -b && vite build\n\nvite v8.0.16 building client environment for production...\n\u001b[2K\rtransforming...✓ 48 modules transformed.\nrendering chunks...\ncomputing gzip size...\ndist/index.html                   0.46 kB │ gzip:   0.29 kB\ndist/assets/index-Hx8UZdve.css   15.95 kB │ gzip:   3.40 kB\ndist/assets/index-CeK-oW-A.js   471.27 kB │ gzip: 138.65 kB\n\n✓ built in 284ms\n",
+  "codeState": {
+    "head": "f498391857766766a1ab9f4fb4bfdf9f5c7f6b0a",
+    "diffHash": "8adb2e39dd2f0354a3134159aa17a4298b84a8afe695bab4929c0f8738984ef9"
+  }
+}

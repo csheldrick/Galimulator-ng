@@ -27,16 +27,26 @@ function retainTail(ids: Id[], limit: number): Id[] {
 
 const DYNASTY_HISTORY_LIMIT = 12;
 
-// The UI only renders the recent global log, a short per-empire history, a
-// handful of recent system events, and each dynasty's own chronicle. Keep
-// those references tight, then drop any event object no retained list still
-// points at so snapshots stay bounded.
+// Keep every list that still points at an event tight, then drop any event
+// object no retained list or live pointer points at so snapshots stay bounded.
+// Beyond the UI-rendered lists (global log, per-empire history, recent system
+// events, dynasty chronicle), relation modifiers, factions, and subject
+// relations all keep their own `sourceEventId`/`historicalEventIds` pointers
+// into state.events for as long as they stay active — those must count as
+// referenced too, or the sweep deletes events they still need (e.g. a
+// grievance modifier that outlives the GC interval loses its source event,
+// silently corrupting age/history read-outs).
 export function gcEvents(state: GalaxyState): void {
   state.eventLog = retainTail(state.eventLog, EVENT_LOG_LIMIT);
   const referenced = new Set<Id>(state.eventLog);
   for (const emp of Object.values(state.empires)) {
     emp.historicalEventIds = retainTail(emp.historicalEventIds, EMPIRE_HISTORY_LIMIT);
     for (const eid of emp.historicalEventIds) referenced.add(eid);
+    for (const rel of Object.values(emp.relationshipByEmpireId)) {
+      for (const m of rel.modifiers ?? []) {
+        if (m.sourceEventId) referenced.add(m.sourceEventId);
+      }
+    }
   }
   for (const sys of Object.values(state.systems)) {
     sys.recentEventIds = retainTail(sys.recentEventIds, SYSTEM_RECENT_LIMIT);
@@ -45,6 +55,12 @@ export function gcEvents(state: GalaxyState): void {
   for (const dyn of Object.values(state.dynasties ?? {})) {
     dyn.historicalEventIds = retainTail(dyn.historicalEventIds, DYNASTY_HISTORY_LIMIT);
     for (const eid of dyn.historicalEventIds) referenced.add(eid);
+  }
+  for (const faction of Object.values(state.factions ?? {})) {
+    for (const eid of faction.historicalEventIds ?? []) referenced.add(eid);
+  }
+  for (const rel of Object.values(state.subjects ?? {})) {
+    for (const eid of rel.historicalEventIds ?? []) referenced.add(eid);
   }
   for (const eid of Object.keys(state.events)) {
     if (!referenced.has(eid)) delete state.events[eid];

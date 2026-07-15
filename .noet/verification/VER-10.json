@@ -1,0 +1,15 @@
+{
+  "id": "VER-10",
+  "command": "npm run test:unit",
+  "exitCode": 0,
+  "source": "recorded",
+  "startedAt": "2026-07-15T14:59:24.410Z",
+  "finishedAt": "2026-07-15T14:59:25.139Z",
+  "durationMs": 729,
+  "summary": "exit 0",
+  "stdoutTail": "\n> galimulator-ng@0.0.0 test:unit\n> node --import tsx --test src/sim/*.test.ts\n\nTAP version 13\n# Subtest: gcEvents keeps an event still pointed at by a relationship modifier's sourceEventId\nok 1 - gcEvents keeps an event still pointed at by a relationship modifier's sourceEventId\n  ---\n  duration_ms: 9.907447\n  type: 'test'\n  ...\n# Subtest: gcEvents keeps an event still pointed at by a faction's historicalEventIds\nok 2 - gcEvents keeps an event still pointed at by a faction's historicalEventIds\n  ---\n  duration_ms: 15.200138\n  type: 'test'\n  ...\n# Subtest: gcEvents keeps an event still pointed at by a subject relation's historicalEventIds\nok 3 - gcEvents keeps an event still pointed at by a subject relation's historicalEventIds\n  ---\n  duration_ms: 3.427037\n  type: 'test'\n  ...\n# Subtest: gcEvents still drops events with no surviving reference at all\nok 4 - gcEvents still drops events with no surviving reference at all\n  ---\n  duration_ms: 3.126353\n  type: 'test'\n  ...\n# Subtest: absorbed empire's subject status transfers to the dominant empire\nok 5 - absorbed empire's subject status transfers to the dominant empire\n  ---\n  duration_ms: 12.717783\n  type: 'test'\n  ...\n# Subtest: absorbed empire's own subjects transfer to the dominant empire as their new overlord\nok 6 - absorbed empire's own subjects transfer to the dominant empire as their new overlord\n  ---\n  duration_ms: 5.005493\n  type: 'test'\n  ...\n# Subtest: a direct subject tie between the dominant and absorbed empire collapses\nok 7 - a direct subject tie between the dominant and absorbed empire collapses\n  ---\n  duration_ms: 5.138644\n  type: 'test'\n  ...\n# Subtest: a conflicting subject transfer is liberated instead of creating a second overlord\nok 8 - a conflicting subject transfer is liberated instead of creating a second overlord\n  ---\n  duration_ms: 4.709811\n  type: 'test'\n  ...\n# Subtest: a conflicting overlord transfer is liberated instead of creating a subject chain\nok 9 - a conflicting overlord transfer is liberated instead of creating a subject chain\n  ---\n  duration_ms: 2.806086\n  type: 'test'\n  ...\n1..9\n# tests 9\n# suites 0\n# pass 9\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 438.890456\n",
+  "codeState": {
+    "head": "f498391857766766a1ab9f4fb4bfdf9f5c7f6b0a",
+    "diffHash": "8adb2e39dd2f0354a3134159aa17a4298b84a8afe695bab4929c0f8738984ef9"
+  }
+}
