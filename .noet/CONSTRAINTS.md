@@ -10,6 +10,7 @@
 - Build must pass with `npm run build`.
 - New per-empire relational state (subjects, alliances, factions) needs transfer logic in both mergeEmpires and removeEmpireFromGalaxy. — mergeEmpires silently dropped subject/vassal bonds on merge; only removeEmpireFromGalaxy handled subject cleanup, so merges left stale/dangling ids.
 - Any new Id reference into state.events (modifiers, factions, subjects) must be added to gcEvents()'s referenced set in Events.ts. — gcEvents missed sourceEventId/historicalEventIds on modifiers, factions, subjects, silently corrupting grievance-age and legitimacy read-outs.
+- Sandbox empire IDs must be checked against state.empires before insertion. — Same-tick merges reduce map cardinality, so count-derived IDs can overwrite a live empire and corrupt ownership links.
 
 ## Must-nots
 - Do not add a backend.
