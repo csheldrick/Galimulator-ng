@@ -8,6 +8,7 @@
 - Prefer one coherent mechanic over a pile of unrelated features.
 - New mechanics must create observable history, not just extra stats.
 - Build must pass with `npm run build`.
+- New per-empire relational state (subjects, alliances, factions) needs transfer logic in both mergeEmpires and removeEmpireFromGalaxy. — mergeEmpires silently dropped subject/vassal bonds on merge; only removeEmpireFromGalaxy handled subject cleanup, so merges left stale/dangling ids.
 
 ## Must-nots
 - Do not add a backend.
