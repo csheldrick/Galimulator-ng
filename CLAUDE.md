@@ -13,8 +13,15 @@ npm run preview    # preview the production build locally
 npm run report     # run the headless simulation report from the terminal (tsx)
 ```
 
-There is no unit-test framework. Simulation correctness is validated via
-`runHeadlessReport()` in `src/sim/Headless.ts`, which is reachable two ways:
+There is no third-party test framework, but `npm run test:unit` runs focused
+correctness tests via Node's built-in test runner (`node --import tsx --test
+src/sim/*.test.ts`) — currently covering the empire-merge subject/vassal
+transfer branches in `src/sim/Merge.test.ts`. Prefer this for logic with
+distinct branches that are cheap to hit directly (an invariant, an edge case)
+rather than reachable only by chance in a long run.
+
+Broader simulation correctness is validated via `runHeadlessReport()` in
+`src/sim/Headless.ts`, which is reachable two ways:
 
 - the UI's "Headless report" button, and
 - `npm run report` — a scriptable, no-render run of the same function

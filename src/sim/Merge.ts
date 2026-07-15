@@ -1,5 +1,6 @@
 import type { EmpireRelationship, GalaxyState, Id, RelationModifier } from "../types/sim";
 import { createEvent } from "./Events";
+import { breakSubjectRelation, subjectOf, subjectsOf } from "./SubjectRelations";
 
 function mergeModifiers(a: RelationModifier[] = [], b: RelationModifier[] = []): RelationModifier[] {
   const byLabel = new Map<string, RelationModifier>();
@@ -89,6 +90,32 @@ export function mergeEmpires(state: GalaxyState, dominantId: Id, absorbedId: Id,
 
   dominant.allianceIds = unique((dominant.allianceIds ?? []).filter(id => state.alliances[id]));
   delete dominant.relationshipByEmpireId[absorbed.id];
+
+  // Subject bonds: the absorbed empire keeps existing, just under a new ruler, so its
+  // subject/overlord ties transfer to the dominant empire rather than dangling or
+  // silently dissolving. A tie to the dominant itself collapses (both sides are now one
+  // empire); a transfer that would break the one-overlord/no-cycle invariant is liberated
+  // instead, same as a dying overlord freeing its subjects in removeEmpireFromGalaxy.
+  for (const sr of Object.values(state.subjects ?? {})) {
+    if (sr.subjectEmpireId === absorbed.id && sr.overlordEmpireId === dominant.id) {
+      delete state.subjects![sr.id];
+    } else if (sr.overlordEmpireId === absorbed.id && sr.subjectEmpireId === dominant.id) {
+      delete state.subjects![sr.id];
+    } else if (sr.subjectEmpireId === absorbed.id) {
+      if (subjectOf(state, dominant.id) || subjectsOf(state, dominant.id).length > 0) {
+        breakSubjectRelation(state, sr.id, "liberation");
+      } else {
+        sr.subjectEmpireId = dominant.id;
+      }
+    } else if (sr.overlordEmpireId === absorbed.id) {
+      if (subjectOf(state, dominant.id)) {
+        breakSubjectRelation(state, sr.id, "liberation");
+      } else {
+        sr.overlordEmpireId = dominant.id;
+      }
+    }
+  }
+
   delete state.empires[absorbed.id];
 
   if (state.playerControl.controlledEmpireId === absorbed.id) state.playerControl.controlledEmpireId = dominant.id;
