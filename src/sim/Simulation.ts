@@ -305,7 +305,10 @@ export class Simulation {
       const old = this.state.empires[oldOwnerId];
       if (old) old.ownedSystemIds = old.ownedSystemIds.filter(id => id !== systemId);
     }
-    const id = `god-emp-${this.state.tick}-${Object.keys(this.state.empires).length}`;
+    const idPrefix = `god-emp-${this.state.tick}`;
+    let idSequence = Object.keys(this.state.empires).length;
+    let id = `${idPrefix}-${idSequence}`;
+    while (this.state.empires[id]) id = `${idPrefix}-${++idSequence}`;
     const cultureId = `culture-${id}`;
     const ideology = this.rng.pick(IDEOLOGIES);
     const govType = pickGovernmentType(this.rng, ideology);

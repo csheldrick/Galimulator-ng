@@ -1,0 +1,15 @@
+{
+  "id": "VER-14",
+  "command": "npm run test:unit",
+  "exitCode": 0,
+  "source": "recorded",
+  "startedAt": "2026-07-15T18:37:00.776Z",
+  "finishedAt": "2026-07-15T18:37:02.234Z",
+  "durationMs": 1458,
+  "summary": "exit 0",
+  "stdoutTail": "\n> galimulator-ng@0.0.0 test:unit\n> node --import tsx --test src/sim/*.test.ts\n\n✔ gcEvents keeps an event still pointed at by a relationship modifier's sourceEventId (15.3925ms)\n✔ gcEvents keeps an event still pointed at by a faction's historicalEventIds (8.3924ms)\n✔ gcEvents keeps an event still pointed at by a subject relation's historicalEventIds (4.5457ms)\n✔ gcEvents still drops events with no surviving reference at all (3.0577ms)\n✔ absorbed empire's subject status transfers to the dominant empire (12.3859ms)\n✔ absorbed empire's own subjects transfer to the dominant empire as their new overlord (3.8125ms)\n✔ a direct subject tie between the dominant and absorbed empire collapses (3.4433ms)\n✔ a conflicting subject transfer is liberated instead of creating a second overlord (2.8264ms)\n✔ a conflicting overlord transfer is liberated instead of creating a subject chain (1.9716ms)\n✔ sandbox empire creation keeps IDs unique after a same-tick merge (21.5425ms)\nℹ tests 10\nℹ suites 0\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 551.6987\n",
+  "codeState": {
+    "head": "0f261096cc597cf1847cb4b4550a8192b47516be",
+    "diffHash": "88ee1f25723278604d39b60ddc94bb16c66c0c303723954ca377f47eb977708b"
+  }
+}
