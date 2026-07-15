@@ -1,6 +1,6 @@
 import type { EmpireRelationship, GalaxyState, Id, RelationModifier } from "../types/sim";
 import { createEvent } from "./Events";
-import { breakSubjectRelation, subjectOf, subjectsOf } from "./Subjects";
+import { breakSubjectRelation, subjectOf, subjectsOf } from "./SubjectRelations";
 
 function mergeModifiers(a: RelationModifier[] = [], b: RelationModifier[] = []): RelationModifier[] {
   const byLabel = new Map<string, RelationModifier>();

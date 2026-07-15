@@ -1,0 +1,15 @@
+{
+  "id": "VER-5",
+  "command": "npm run lint",
+  "exitCode": 0,
+  "source": "recorded",
+  "startedAt": "2026-07-15T01:01:35.104Z",
+  "finishedAt": "2026-07-15T01:01:46.594Z",
+  "durationMs": 11490,
+  "summary": "exit 0",
+  "stdoutTail": "\n> galimulator-ng@0.0.0 lint\n> eslint .\n\n",
+  "codeState": {
+    "head": "0bd9af70d680be2e2c893b23f401c87584fe9e9b",
+    "diffHash": "b885d7b8fcba382df51077505b210f40d3e6d694973d8723ac2dbb067700b8e8"
+  }
+}

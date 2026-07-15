@@ -1,0 +1,15 @@
+{
+  "id": "VER-6",
+  "command": "npm run test:unit",
+  "exitCode": 0,
+  "source": "recorded",
+  "startedAt": "2026-07-15T01:01:46.618Z",
+  "finishedAt": "2026-07-15T01:01:47.222Z",
+  "durationMs": 604,
+  "summary": "exit 0",
+  "stdoutTail": "\n> galimulator-ng@0.0.0 test:unit\n> node --import tsx --test src/sim/*.test.ts\n\nTAP version 13\n# Subtest: absorbed empire's subject status transfers to the dominant empire\nok 1 - absorbed empire's subject status transfers to the dominant empire\n  ---\n  duration_ms: 10.796552\n  type: 'test'\n  ...\n# Subtest: absorbed empire's own subjects transfer to the dominant empire as their new overlord\nok 2 - absorbed empire's own subjects transfer to the dominant empire as their new overlord\n  ---\n  duration_ms: 3.407577\n  type: 'test'\n  ...\n# Subtest: a direct subject tie between the dominant and absorbed empire collapses\nok 3 - a direct subject tie between the dominant and absorbed empire collapses\n  ---\n  duration_ms: 2.027519\n  type: 'test'\n  ...\n# Subtest: a conflicting subject transfer is liberated instead of creating a second overlord\nok 4 - a conflicting subject transfer is liberated instead of creating a second overlord\n  ---\n  duration_ms: 2.768959\n  type: 'test'\n  ...\n# Subtest: a conflicting overlord transfer is liberated instead of creating a subject chain\nok 5 - a conflicting overlord transfer is liberated instead of creating a subject chain\n  ---\n  duration_ms: 1.938849\n  type: 'test'\n  ...\n1..5\n# tests 5\n# suites 0\n# pass 5\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 371.44327\n",
+  "codeState": {
+    "head": "0bd9af70d680be2e2c893b23f401c87584fe9e9b",
+    "diffHash": "b885d7b8fcba382df51077505b210f40d3e6d694973d8723ac2dbb067700b8e8"
+  }
+}
